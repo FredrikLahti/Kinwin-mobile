@@ -11,6 +11,7 @@ export default function OnboardingLayout() {
         <Stack.Screen name="definition" />
         <Stack.Screen name="rhythm" />
         <Stack.Screen name="timeframe" />
+        <Stack.Screen name="success" />
       </Stack>
     </OnboardingProvider>
   );

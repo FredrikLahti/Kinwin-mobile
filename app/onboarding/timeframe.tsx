@@ -250,7 +250,8 @@ export default function TimeframeScreen() {
     if (!durationWeeks || timeframeCaptured) return;
     Keyboard.dismiss();
     void playImportantHaptic();
-    setTimeframeCaptured(true);
+    setTimeframeCaptured(false);
+    router.push('/onboarding/success');
   };
 
   const promiseSummary = formatPromiseSummary(
@@ -455,7 +456,7 @@ export default function TimeframeScreen() {
               <AnimatedPrimaryButton
                 accessibilityHint={
                   durationWeeks
-                    ? 'Captures this timeframe on the current development screen'
+                    ? 'Continues to review the calculated success rule'
                     : 'Choose a challenge duration before continuing'
                 }
                 disabled={!durationWeeks || timeframeCaptured}
