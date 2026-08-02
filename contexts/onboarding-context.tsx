@@ -40,12 +40,14 @@ type OnboardingContextValue = {
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
   definitionText: string;
+  durationWeeks: number | null;
   goal: string;
   measurementMode: MeasurementMode | null;
   rhythm: RhythmState;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setDefinitionText: (text: string) => void;
+  setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setGoal: (goal: string) => void;
   setMeasurementMode: (mode: MeasurementMode | null) => void;
   setRhythm: Dispatch<SetStateAction<RhythmState>>;
@@ -60,6 +62,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [behaviorText, setBehaviorText] = useState('');
   const [measurementMode, setMeasurementMode] = useState<MeasurementMode | null>(null);
   const [definitionText, setDefinitionText] = useState('');
+  const [durationWeeks, setDurationWeeks] = useState<number | null>(null);
   const [rhythm, setRhythm] = useState<RhythmState>({
     amountUnit: '',
     period: null,
@@ -74,17 +77,27 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       behaviorDirection,
       behaviorText,
       definitionText,
+      durationWeeks,
       goal,
       measurementMode,
       rhythm,
       setBehaviorDirection,
       setBehaviorText,
       setDefinitionText,
+      setDurationWeeks,
       setGoal,
       setMeasurementMode,
       setRhythm,
     }),
-    [behaviorDirection, behaviorText, definitionText, goal, measurementMode, rhythm],
+    [
+      behaviorDirection,
+      behaviorText,
+      definitionText,
+      durationWeeks,
+      goal,
+      measurementMode,
+      rhythm,
+    ],
   );
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;

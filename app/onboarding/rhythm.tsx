@@ -263,7 +263,8 @@ export default function RhythmScreen() {
     Keyboard.dismiss();
     limitInputRef.current?.blur();
     void playImportantHaptic();
-    setRhythmCaptured(true);
+    setRhythmCaptured(false);
+    router.push('/onboarding/timeframe');
   };
 
   const behavior = behaviorText || 'Your behavior';
@@ -591,7 +592,7 @@ export default function RhythmScreen() {
               <AnimatedPrimaryButton
                 accessibilityHint={
                   canContinue
-                    ? 'Captures this rhythm on the current development screen'
+                    ? 'Continues to choose the challenge timeframe'
                     : 'Complete the rhythm or boundary before continuing'
                 }
                 disabled={!canContinue || rhythmCaptured}
