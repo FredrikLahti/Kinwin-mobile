@@ -247,7 +247,8 @@ export default function RecipientsScreen() {
     if (!canContinue || recipientsCaptured) return;
     Keyboard.dismiss();
     void playImportantHaptic();
-    setRecipientsCaptured(true);
+    setRecipientsCaptured(false);
+    router.push('/consequence/organizer');
   };
 
   return (
@@ -413,7 +414,7 @@ export default function RecipientsScreen() {
               <AnimatedPrimaryButton
                 accessibilityHint={
                   canContinue
-                    ? 'Captures these recipients on the current development screen'
+                    ? 'Continues to choose the adult reward organizer'
                     : 'Enter a name for every visible recipient before continuing'
                 }
                 disabled={!canContinue || recipientsCaptured}
