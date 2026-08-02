@@ -30,6 +30,13 @@ export default function RootLayout() {
             gestureEnabled: true,
           }}
         />
+        <Stack.Screen
+          name="challenge"
+          options={{
+            animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom',
+            gestureEnabled: true,
+          }}
+        />
       </Stack>
       <StatusBar style="auto" />
     </OnboardingProvider>
