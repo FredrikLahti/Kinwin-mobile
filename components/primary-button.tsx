@@ -1,14 +1,16 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 type PrimaryButtonProps = {
+  accessibilityHint?: string;
   label: string;
   onPress: () => void;
 };
 
-export function PrimaryButton({ label, onPress }: PrimaryButtonProps) {
+export function PrimaryButton({ accessibilityHint, label, onPress }: PrimaryButtonProps) {
   return (
     <Pressable
-      accessibilityHint="Shows a temporary local confirmation"
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={label}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}

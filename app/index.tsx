@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { Href, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
 
 export default function HomeScreen() {
-  const [hasPressedStart, setHasPressedStart] = useState(false);
+  const router = useRouter();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -23,10 +23,12 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.action}>
-            <PrimaryButton label="Start" onPress={() => setHasPressedStart(true)} />
-            <Text accessibilityLiveRegion="polite" style={styles.feedback}>
-              {hasPressedStart ? 'Onboarding will be added in a later step.' : ' '}
-            </Text>
+            <PrimaryButton
+              accessibilityHint="Opens the first Kinwin onboarding step"
+              label="Start"
+              onPress={() => router.push('/onboarding/goal' as Href)}
+            />
+            <Text style={styles.feedback}> </Text>
           </View>
         </View>
       </ScrollView>

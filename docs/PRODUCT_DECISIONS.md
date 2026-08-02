@@ -19,10 +19,27 @@
 * Recipient confirmation does not block a challenge from starting.
 * Personal learnings should eventually be stored in “What works for me.”
 
+## Brand and interaction
+
+* Visual theme: “Two Futures.”
+* Recurring visual motif: “The Kinwin Thread.”
+* Brand line: “Every promise creates two futures.”
+* Design principle: “Distinctive in use, discreet at a glance.”
+* Kinwin uses semantic motion and haptics based on the meaning of an interaction.
+* Motion should feel alive, purposeful, premium, and restrained.
+* The app must respect reduced-motion accessibility settings.
+* A cartoon mascot is not part of the current visual direction.
+* Clarity comes before symbolism.
+* The Kinwin Thread should usually be a subtle progress or connection motif rather than a dominant abstract diagram.
+* The first onboarding step asks for the user’s larger desired outcome.
+* The goal supplies meaning; the controllable behavior is defined in the following step.
+* The brand concept experiment validated semantic haptics and restrained motion, but its UI layout was not approved as production design.
+
 ## Current scope
 
 * Create the clean mobile foundation.
-* Do not implement onboarding logic yet.
+* Build and test only the first onboarding goal step.
+* Do not implement later onboarding steps yet.
 * Do not implement Supabase, Stripe, or Tremendous yet.
 * Do not define the final visual identity yet.
 
