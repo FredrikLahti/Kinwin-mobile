@@ -21,66 +21,124 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
 import { BehaviorDirectionChoice } from '@/components/onboarding/behavior-direction-choice';
+import { DefinitionExampleChoice } from '@/components/onboarding/definition-example-choice';
 import { OnboardingProgress } from '@/components/onboarding/onboarding-progress';
 import { kinwinTheme as theme } from '@/constants/theme';
 import {
-  BehaviorDirection,
+  MeasurementMode,
   useOnboarding,
 } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
-const BEHAVIOR_MAX_LENGTH = 100;
-const COUNTER_THRESHOLD = 82;
+const DEFINITION_MAX_LENGTH = 140;
+const COUNTER_THRESHOLD = 120;
 
-const DIRECTIONS: {
+const MEASUREMENT_CHOICES: {
   description: string;
   label: string;
-  value: BehaviorDirection;
+  value: MeasurementMode;
 }[] = [
   {
-    description: 'Do more of a behavior that helps you.',
-    label: 'Build something good',
-    value: 'build',
+    description: 'Count each time it happens.',
+    label: 'Occurrences',
+    value: 'count',
   },
   {
-    description: 'Keep a behavior within a clear boundary.',
-    label: 'Cut something back',
-    value: 'cut',
+    description: 'Track minutes or hours.',
+    label: 'Time',
+    value: 'time',
   },
   {
-    description: 'Remove a behavior entirely.',
-    label: 'Stop something completely',
-    value: 'stop',
+    description: 'Track a quantity, spend, or serving.',
+    label: 'Amount',
+    value: 'amount',
   },
 ];
 
-const INPUT_CONTENT: Record<BehaviorDirection, { label: string; placeholder: string }> = {
-  build: { label: 'I will…', placeholder: 'Strength train' },
-  cut: { label: 'I will limit…', placeholder: 'Social media' },
-  stop: { label: 'I will stop…', placeholder: 'Vaping' },
+const BUILD_EXAMPLES = [
+  'Complete the planned session',
+  'Spend at least 30 minutes',
+  'Finish the full routine',
+] as const;
+
+const STOP_EXAMPLES = [
+  'Any use at all',
+  'Even one occurrence',
+  'Using or buying it',
+] as const;
+
+const DEFINITION_CONTENT: Record<
+  MeasurementMode,
+  { helper: string; label: string; placeholder: string }
+> = {
+  completion: {
+    helper: 'Describe the minimum that makes one session count.',
+    label: 'One completion means…',
+    placeholder: 'At least 30 minutes of strength training',
+  },
+  count: {
+    helper: 'The exact limit and time period come next.',
+    label: 'One occurrence means…',
+    placeholder: 'Opening social media after 10 PM',
+  },
+  time: {
+    helper: 'The exact limit and time period come next.',
+    label: 'The tracked activity is…',
+    placeholder: 'Time spent on social media',
+  },
+  amount: {
+    helper:
+      'This could be items, servings, spending, or another measurable amount. The exact limit and time period come next.',
+    label: 'The amount I’ll track is…',
+    placeholder: 'Describe the quantity you want to measure',
+  },
+  abstinence: {
+    helper: 'Be specific about what would count as breaking the promise.',
+    label: 'A lapse means…',
+    placeholder: 'Any use of a nicotine vape',
+  },
 };
 
-export default function BehaviorScreen() {
+const CUT_MODES: MeasurementMode[] = ['count', 'time', 'amount'];
+
+export default function DefinitionScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
   const reducedMotion = useReducedMotion();
   const {
     behaviorDirection,
     behaviorText,
-    setBehaviorDirection,
-    setBehaviorText,
+    definitionText,
+    measurementMode,
+    setDefinitionText,
+    setMeasurementMode,
   } = useOnboarding();
-  const [behaviorCaptured, setBehaviorCaptured] = useState(false);
+  const [definitionCaptured, setDefinitionCaptured] = useState(false);
   const entranceProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
-  const surfaceProgress = useSharedValue(behaviorDirection ? 1 : 0);
+  const surfaceProgress = useSharedValue(measurementMode ? 1 : 0);
   const confirmationProgress = useSharedValue(0);
 
-  const canContinue = Boolean(
-    behaviorDirection && behaviorText.trim().length >= 3,
-  );
-  const showCounter = behaviorText.length >= COUNTER_THRESHOLD;
-  const inputContent = behaviorDirection ? INPUT_CONTENT[behaviorDirection] : null;
+  useEffect(() => {
+    let nextMode: MeasurementMode | null = null;
+
+    if (behaviorDirection === 'build') {
+      nextMode = 'completion';
+    } else if (behaviorDirection === 'stop') {
+      nextMode = 'abstinence';
+    } else if (
+      behaviorDirection === 'cut' &&
+      measurementMode &&
+      CUT_MODES.includes(measurementMode)
+    ) {
+      nextMode = measurementMode;
+    }
+
+    if (measurementMode !== nextMode) {
+      setMeasurementMode(nextMode);
+      setDefinitionCaptured(false);
+    }
+  }, [behaviorDirection, measurementMode, setMeasurementMode]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -95,25 +153,25 @@ export default function BehaviorScreen() {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      surfaceProgress.value = behaviorDirection ? 1 : 0;
+      surfaceProgress.value = measurementMode ? 1 : 0;
       return;
     }
 
-    surfaceProgress.value = withTiming(behaviorDirection ? 1 : 0, {
+    surfaceProgress.value = withTiming(measurementMode ? 1 : 0, {
       duration: reducedMotion ? 0 : theme.motion.standard,
     });
-  }, [behaviorDirection, reducedMotion, surfaceProgress]);
+  }, [measurementMode, reducedMotion, surfaceProgress]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      confirmationProgress.value = behaviorCaptured ? 1 : 0;
+      confirmationProgress.value = definitionCaptured ? 1 : 0;
       return;
     }
 
-    confirmationProgress.value = withTiming(behaviorCaptured ? 1 : 0, {
+    confirmationProgress.value = withTiming(definitionCaptured ? 1 : 0, {
       duration: reducedMotion ? 120 : 220,
     });
-  }, [behaviorCaptured, confirmationProgress, reducedMotion]);
+  }, [confirmationProgress, definitionCaptured, reducedMotion]);
 
   const entranceStyle = useAnimatedStyle(() => ({
     opacity: entranceProgress.value,
@@ -136,26 +194,51 @@ export default function BehaviorScreen() {
     ],
   }));
 
-  const selectDirection = (direction: BehaviorDirection) => {
+  const hasValidMode = Boolean(
+    (behaviorDirection === 'build' && measurementMode === 'completion') ||
+      (behaviorDirection === 'stop' && measurementMode === 'abstinence') ||
+      (behaviorDirection === 'cut' &&
+        measurementMode &&
+        CUT_MODES.includes(measurementMode)),
+  );
+  const canContinue = hasValidMode && definitionText.trim().length >= 3;
+  const showCounter = definitionText.length >= COUNTER_THRESHOLD;
+  const definitionContent = measurementMode
+    ? DEFINITION_CONTENT[measurementMode]
+    : null;
+  const examples =
+    behaviorDirection === 'build'
+      ? BUILD_EXAMPLES
+      : behaviorDirection === 'stop'
+        ? STOP_EXAMPLES
+        : null;
+
+  const selectMeasurement = (mode: MeasurementMode) => {
     void playSelectionHaptic();
-    setBehaviorDirection(direction);
-    setBehaviorCaptured(false);
+    setMeasurementMode(mode);
+    setDefinitionCaptured(false);
   };
 
-  const updateBehavior = (value: string) => {
-    setBehaviorText(value);
-    if (behaviorCaptured) {
-      setBehaviorCaptured(false);
+  const selectExample = (example: string) => {
+    void playSelectionHaptic();
+    setDefinitionText(example);
+    setDefinitionCaptured(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const updateDefinition = (value: string) => {
+    setDefinitionText(value);
+    if (definitionCaptured) {
+      setDefinitionCaptured(false);
     }
   };
 
-  const continueWithBehavior = () => {
-    if (!canContinue || behaviorCaptured) return;
+  const continueWithDefinition = () => {
+    if (!canContinue || definitionCaptured) return;
     Keyboard.dismiss();
     inputRef.current?.blur();
     void playImportantHaptic();
-    setBehaviorCaptured(false);
-    router.push('/onboarding/definition');
+    setDefinitionCaptured(true);
   };
 
   return (
@@ -180,7 +263,7 @@ export default function BehaviorScreen() {
             <View style={styles.header}>
               <View style={styles.brandGroup}>
                 <Pressable
-                  accessibilityHint="Returns to the goal step"
+                  accessibilityHint="Returns to the behavior step"
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
                   hitSlop={8}
@@ -199,50 +282,63 @@ export default function BehaviorScreen() {
                 importantForAccessibility="no-hide-descendants"
                 style={styles.stepLabel}
               >
-                2 of 6
+                3 of 6
               </Text>
             </View>
 
             <OnboardingProgress
-              currentStep={2}
+              currentStep={3}
               reducedMotion={reducedMotion}
-              settled={behaviorCaptured}
+              settled={definitionCaptured}
               totalSteps={6}
             />
 
             <View style={styles.main}>
               <View style={styles.intro}>
-                <Text style={styles.headline}>What will you promise?</Text>
+                <Text style={styles.headline}>What counts?</Text>
                 <Text style={styles.supportingCopy}>
-                  Your goal is the reason. Now choose a behavior you can control.
+                  Define the promise clearly now, so it stays fair later.
                 </Text>
-                <Text style={styles.secondaryCopy}>We’ll decide when it counts next.</Text>
+                <Text style={styles.secondaryCopy}>We’ll set the rhythm next.</Text>
               </View>
 
-              <View style={styles.directionSection}>
-                <View aria-hidden style={styles.directionThread} />
-                <View style={styles.directions}>
-                  {DIRECTIONS.map((direction) => (
-                    <BehaviorDirectionChoice
-                      key={direction.value}
-                      description={direction.description}
-                      label={direction.label}
-                      onPress={() => selectDirection(direction.value)}
-                      reducedMotion={reducedMotion}
-                      selected={behaviorDirection === direction.value}
-                    />
-                  ))}
+              <View style={styles.promiseAnchor}>
+                <View aria-hidden style={styles.promiseNode} />
+                <View>
+                  <Text style={styles.promiseLabel}>PROMISE IN PROGRESS</Text>
+                  <Text numberOfLines={2} style={styles.promiseText}>
+                    {behaviorText || 'Return to step 2 to define your behavior'}
+                  </Text>
                 </View>
               </View>
 
-              {behaviorDirection && inputContent && (
-                <Animated.View style={[styles.behaviorStage, surfaceStyle]}>
-                  <View aria-hidden style={styles.behaviorThread} />
-                  <View aria-hidden style={styles.behaviorAnchor} />
-                  <View aria-hidden style={styles.behaviorUnderlay} />
-                  <View style={styles.behaviorSurface}>
-                    <View style={styles.behaviorHeader}>
-                      <Text style={styles.inputLabel}>{inputContent.label}</Text>
+              {behaviorDirection === 'cut' && (
+                <View style={styles.measurementSection}>
+                  <Text style={styles.measurementLabel}>How should this be measured?</Text>
+                  <View style={styles.measurementThread} />
+                  <View style={styles.measurements}>
+                    {MEASUREMENT_CHOICES.map((choice) => (
+                      <BehaviorDirectionChoice
+                        key={choice.value}
+                        description={choice.description}
+                        label={choice.label}
+                        onPress={() => selectMeasurement(choice.value)}
+                        reducedMotion={reducedMotion}
+                        selected={measurementMode === choice.value}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {definitionContent && hasValidMode && (
+                <Animated.View style={[styles.definitionStage, surfaceStyle]}>
+                  <View aria-hidden style={styles.definitionThread} />
+                  <View aria-hidden style={styles.definitionAnchor} />
+                  <View aria-hidden style={styles.definitionUnderlay} />
+                  <View style={styles.definitionSurface}>
+                    <View style={styles.definitionHeader}>
+                      <Text style={styles.inputLabel}>{definitionContent.label}</Text>
                       <View aria-hidden style={styles.surfaceMark}>
                         <View style={styles.surfaceMarkLine} />
                         <View style={styles.surfaceMarkNode} />
@@ -250,45 +346,68 @@ export default function BehaviorScreen() {
                     </View>
                     <TextInput
                       ref={inputRef}
-                      accessibilityLabel={inputContent.label}
+                      accessibilityLabel={definitionContent.label}
                       autoCapitalize="sentences"
                       autoCorrect
-                      maxLength={BEHAVIOR_MAX_LENGTH}
-                      onChangeText={updateBehavior}
-                      placeholder={inputContent.placeholder}
+                      maxLength={DEFINITION_MAX_LENGTH}
+                      multiline
+                      onChangeText={updateDefinition}
+                      placeholder={definitionContent.placeholder}
                       placeholderTextColor={theme.colors.warmGrey}
                       selectionColor={theme.colors.copperBright}
                       style={styles.input}
-                      value={behaviorText}
+                      textAlignVertical="top"
+                      value={definitionText}
                     />
-                    <View style={styles.behaviorFooter}>
-                      <View aria-hidden style={styles.behaviorStitch} />
+                    <View style={styles.definitionFooter}>
+                      <Text style={styles.helperText}>{definitionContent.helper}</Text>
                       {showCounter && (
                         <Text accessibilityLiveRegion="polite" style={styles.counter}>
-                          {behaviorText.length}/{BEHAVIOR_MAX_LENGTH}
+                          {definitionText.length}/{DEFINITION_MAX_LENGTH}
                         </Text>
                       )}
                     </View>
                   </View>
                 </Animated.View>
               )}
+
+              {examples && (
+                <View style={styles.examplesSection}>
+                  <View style={styles.examplesHeader}>
+                    <Text style={styles.examplesLabel}>Try an example</Text>
+                    <View aria-hidden style={styles.examplesRule} />
+                  </View>
+                  <View style={styles.examples}>
+                    {examples.map((example, index) => (
+                      <DefinitionExampleChoice
+                        key={example}
+                        isLast={index === examples.length - 1}
+                        label={example}
+                        onPress={() => selectExample(example)}
+                        reducedMotion={reducedMotion}
+                        selected={definitionText === example}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
 
             <View style={styles.footer}>
               <View style={styles.confirmationSlot}>
                 <Animated.View
-                  accessibilityElementsHidden={!behaviorCaptured}
+                  accessibilityElementsHidden={!definitionCaptured}
                   accessibilityLiveRegion="polite"
                   importantForAccessibility={
-                    behaviorCaptured ? 'yes' : 'no-hide-descendants'
+                    definitionCaptured ? 'yes' : 'no-hide-descendants'
                   }
                   style={[styles.confirmationPanel, confirmationStyle]}
                 >
-                  {behaviorCaptured && (
+                  {definitionCaptured && (
                     <>
                       <View aria-hidden style={styles.confirmationNode} />
                       <Text style={styles.confirmation}>
-                        Behavior captured. Next, we’ll set the rhythm.
+                        Definition captured. Next, we’ll set the rhythm.
                       </Text>
                     </>
                   )}
@@ -297,12 +416,12 @@ export default function BehaviorScreen() {
               <AnimatedPrimaryButton
                 accessibilityHint={
                   canContinue
-                    ? 'Captures this behavior on the current development screen'
-                    : 'Choose a direction and enter a behavior before continuing'
+                    ? 'Captures this definition on the current development screen'
+                    : 'Choose a measurement and define what counts before continuing'
                 }
-                disabled={!canContinue || behaviorCaptured}
+                disabled={!canContinue || definitionCaptured}
                 label="Continue"
-                onPress={continueWithBehavior}
+                onPress={continueWithDefinition}
                 reducedMotion={reducedMotion}
               />
             </View>
@@ -398,11 +517,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   main: {
-    gap: 24,
-    paddingTop: 18,
+    gap: 18,
+    paddingTop: 16,
   },
   intro: {
-    gap: 10,
+    gap: 8,
   },
   headline: {
     color: theme.colors.bone,
@@ -418,7 +537,6 @@ const styles = StyleSheet.create({
     lineHeight: 45,
   },
   supportingCopy: {
-    maxWidth: 500,
     color: theme.colors.boneMuted,
     fontSize: 15,
     lineHeight: 22,
@@ -428,38 +546,72 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  directionSection: {
+  promiseAnchor: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: theme.colors.copper,
+    paddingLeft: 14,
+  },
+  promiseNode: {
+    width: 7,
+    height: 7,
+    marginRight: 12,
+    borderRadius: 4,
+    backgroundColor: theme.colors.copperBright,
+  },
+  promiseLabel: {
+    color: theme.colors.copper,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  promiseText: {
+    marginTop: 5,
+    color: theme.colors.bone,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 21,
+  },
+  measurementSection: {
     position: 'relative',
   },
-  directionThread: {
+  measurementLabel: {
+    marginBottom: 8,
+    color: theme.colors.boneMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  measurementThread: {
     position: 'absolute',
-    top: 16.5,
+    top: 42.5,
     right: 0,
     left: 0,
     height: 1,
     backgroundColor: theme.colors.copper,
     opacity: 0.66,
   },
-  directions: {
+  measurements: {
     flexDirection: 'row',
   },
-  behaviorStage: {
+  definitionStage: {
     position: 'relative',
     paddingHorizontal: 8,
   },
-  behaviorThread: {
+  definitionThread: {
     position: 'absolute',
-    top: '56%',
+    top: '55%',
     right: -26,
     left: -26,
     height: 1,
     backgroundColor: theme.colors.copper,
     opacity: 0.62,
   },
-  behaviorAnchor: {
+  definitionAnchor: {
     position: 'absolute',
     left: -28,
-    top: '52.5%',
+    top: '52%',
     zIndex: 3,
     width: 9,
     height: 9,
@@ -468,7 +620,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: theme.colors.deepInk,
   },
-  behaviorUnderlay: {
+  definitionUnderlay: {
     position: 'absolute',
     top: 7,
     right: 2,
@@ -477,23 +629,23 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.controlled,
     backgroundColor: theme.colors.deepInk,
   },
-  behaviorSurface: {
+  definitionSurface: {
     zIndex: 2,
-    minHeight: 146,
+    minHeight: 172,
     borderWidth: 1,
     borderColor: theme.colors.structureLine,
     borderRadius: theme.radius.controlled,
     backgroundColor: theme.colors.surfaceRaised,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 22,
+    paddingTop: 19,
+    paddingBottom: 15,
     shadowColor: theme.colors.deepInk,
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.84,
     shadowRadius: 10,
     elevation: 8,
   },
-  behaviorHeader: {
+  definitionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -523,34 +675,62 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.copperBright,
   },
   input: {
-    minHeight: 62,
+    maxHeight: 90,
+    minHeight: 70,
     color: theme.colors.bone,
-    fontSize: 25,
+    fontSize: 21,
     fontWeight: '400',
-    lineHeight: 32,
+    lineHeight: 28,
     paddingHorizontal: 0,
-    paddingTop: 14,
+    paddingTop: 13,
     paddingBottom: 8,
   },
-  behaviorFooter: {
-    minHeight: 12,
+  definitionFooter: {
+    minHeight: 31,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.structureLine,
+    paddingTop: 9,
   },
-  behaviorStitch: {
-    width: 58,
-    height: 1,
-    backgroundColor: theme.colors.copper,
-    opacity: 0.62,
+  helperText: {
+    flex: 1,
+    color: theme.colors.warmGrey,
+    fontSize: 11,
+    lineHeight: 16,
   },
   counter: {
     color: theme.colors.warmGrey,
-    fontSize: 12,
+    fontSize: 11,
+  },
+  examplesSection: {
+    gap: 8,
+  },
+  examplesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  examplesLabel: {
+    color: theme.colors.copper,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  examplesRule: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.structureLine,
+  },
+  examples: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.structureLine,
   },
   footer: {
     marginTop: 'auto',
-    paddingTop: 26,
+    paddingTop: 24,
   },
   confirmationSlot: {
     minHeight: 46,

@@ -8,6 +8,7 @@ export default function OnboardingLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="goal" />
         <Stack.Screen name="behavior" />
+        <Stack.Screen name="definition" />
       </Stack>
     </OnboardingProvider>
   );
