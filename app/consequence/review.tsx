@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import {
@@ -143,7 +143,8 @@ export default function ReviewScreen() {
   const continueFromReview = () => {
     if (!canContinue || reviewCaptured) return;
     void playImportantHaptic();
-    setReviewCaptured(true);
+    setReviewCaptured(false);
+    router.push('/share/message' as Href);
   };
 
   return (
@@ -331,7 +332,7 @@ export default function ReviewScreen() {
             <AnimatedPrimaryButton
               accessibilityHint={
                 canContinue
-                  ? 'Confirms this local consequence review without activating the challenge'
+                  ? 'Continues to prepare the invitation message'
                   : consequenceIsComplete
                     ? 'Acknowledge the sit-out promise before continuing'
                     : 'Complete the earlier consequence steps before continuing'

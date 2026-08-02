@@ -232,14 +232,16 @@ export default function TimeframeScreen() {
 
     setCustomOpen(true);
     setDurationWeeks((current) =>
-      current && !PRIMARY_DURATIONS.includes(current as never) ? current : 5,
+      current && !PRIMARY_DURATIONS.includes(current as never)
+        ? Math.max(2, Math.min(12, current))
+        : 5,
     );
     setTimeframeCaptured(false);
   };
 
   const adjustCustomDuration = (change: number) => {
     if (!durationWeeks) return;
-    const nextDuration = Math.max(1, Math.min(12, durationWeeks + change));
+    const nextDuration = Math.max(2, Math.min(12, durationWeeks + change));
     if (nextDuration === durationWeeks) return;
     void playSelectionHaptic();
     setDurationWeeks(nextDuration);
@@ -247,7 +249,13 @@ export default function TimeframeScreen() {
   };
 
   const continueWithTimeframe = () => {
-    if (!durationWeeks || timeframeCaptured) return;
+    if (
+      !durationWeeks ||
+      !Number.isInteger(durationWeeks) ||
+      durationWeeks < 2 ||
+      durationWeeks > 12 ||
+      timeframeCaptured
+    ) return;
     Keyboard.dismiss();
     void playImportantHaptic();
     setTimeframeCaptured(false);
@@ -263,6 +271,12 @@ export default function TimeframeScreen() {
   const timeframePreview = durationWeeks
     ? formatTimeframePreview(durationWeeks, behaviorDirection, rhythm)
     : '';
+  const durationIsValid = Boolean(
+    durationWeeks &&
+      Number.isInteger(durationWeeks) &&
+      durationWeeks >= 2 &&
+      durationWeeks <= 12,
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -356,7 +370,7 @@ export default function TimeframeScreen() {
               </View>
 
               <Pressable
-                accessibilityHint="Reveals a duration control from 1 to 12 weeks"
+                accessibilityHint="Reveals a duration control from 2 to 12 weeks"
                 accessibilityLabel={
                   customOpen && durationWeeks
                     ? `Custom duration, ${durationWeeks} weeks`
@@ -378,18 +392,18 @@ export default function TimeframeScreen() {
 
               {customOpen && durationWeeks && (
                 <View
-                  accessibilityLabel={`Custom duration, ${durationWeeks} ${durationWeeks === 1 ? 'week' : 'weeks'}`}
+                  accessibilityLabel={`Custom duration, ${durationWeeks} weeks`}
                   style={styles.customControl}
                 >
                   <Pressable
                     accessibilityLabel="Decrease custom duration"
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: durationWeeks <= 1 }}
-                    disabled={durationWeeks <= 1}
+                    accessibilityState={{ disabled: durationWeeks <= 2 }}
+                    disabled={durationWeeks <= 2}
                     onPress={() => adjustCustomDuration(-1)}
                     style={({ pressed }) => [
                       styles.customControlAction,
-                      durationWeeks <= 1 && styles.disabledControl,
+                      durationWeeks <= 2 && styles.disabledControl,
                       pressed && styles.controlPressed,
                     ]}
                   >
@@ -400,7 +414,7 @@ export default function TimeframeScreen() {
                       {durationWeeks}
                     </Text>
                     <Text style={styles.customUnit}>
-                      {durationWeeks === 1 ? 'week' : 'weeks'}
+                      weeks
                     </Text>
                   </View>
                   <Pressable
@@ -455,11 +469,11 @@ export default function TimeframeScreen() {
               </View>
               <AnimatedPrimaryButton
                 accessibilityHint={
-                  durationWeeks
+                  durationIsValid
                     ? 'Continues to review the calculated success rule'
-                    : 'Choose a challenge duration before continuing'
+                    : 'Choose a challenge duration from 2 to 12 weeks before continuing'
                 }
-                disabled={!durationWeeks || timeframeCaptured}
+                disabled={!durationIsValid || timeframeCaptured}
                 label="Continue"
                 onPress={continueWithTimeframe}
                 reducedMotion={reducedMotion}

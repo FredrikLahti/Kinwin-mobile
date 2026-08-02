@@ -77,6 +77,9 @@ type OnboardingContextValue = {
   durationWeeks: number | null;
   experienceCategory: ExperienceCategory | null;
   goal: string;
+  invitationMessage: string;
+  invitationMessageCustomized: boolean;
+  membershipChoice: 'monthly_trial' | null;
   measurementMode: MeasurementMode | null;
   recipients: RecipientDraft[];
   rewardOrganizer: RewardOrganizer;
@@ -87,6 +90,9 @@ type OnboardingContextValue = {
   setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setExperienceCategory: Dispatch<SetStateAction<ExperienceCategory | null>>;
   setGoal: (goal: string) => void;
+  setInvitationMessage: Dispatch<SetStateAction<string>>;
+  setInvitationMessageCustomized: Dispatch<SetStateAction<boolean>>;
+  setMembershipChoice: Dispatch<SetStateAction<'monthly_trial' | null>>;
   setMeasurementMode: (mode: MeasurementMode | null) => void;
   setRecipients: Dispatch<SetStateAction<RecipientDraft[]>>;
   setRewardOrganizer: Dispatch<SetStateAction<RewardOrganizer>>;
@@ -111,6 +117,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [durationWeeks, setDurationWeeks] = useState<number | null>(null);
   const [experienceCategory, setExperienceCategory] =
     useState<ExperienceCategory | null>(null);
+  const [invitationMessage, setInvitationMessage] = useState('');
+  const [invitationMessageCustomized, setInvitationMessageCustomized] = useState(false);
+  const [membershipChoice, setMembershipChoice] = useState<'monthly_trial' | null>(null);
   const [recipients, setRecipients] = useState<RecipientDraft[]>(() => [
     createRecipientDraft(),
   ]);
@@ -136,6 +145,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       durationWeeks,
       experienceCategory,
       goal,
+      invitationMessage,
+      invitationMessageCustomized,
+      membershipChoice,
       measurementMode,
       recipients,
       rewardOrganizer,
@@ -146,6 +158,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setDurationWeeks,
       setExperienceCategory,
       setGoal,
+      setInvitationMessage,
+      setInvitationMessageCustomized,
+      setMembershipChoice,
       setMeasurementMode,
       setRecipients,
       setRewardOrganizer,
@@ -164,6 +179,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       durationWeeks,
       experienceCategory,
       goal,
+      invitationMessage,
+      invitationMessageCustomized,
+      membershipChoice,
       measurementMode,
       recipients,
       rewardOrganizer,

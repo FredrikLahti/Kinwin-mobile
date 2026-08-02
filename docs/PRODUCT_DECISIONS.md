@@ -17,6 +17,7 @@
 * The user promises not to participate in the resulting experience.
 * Kinwin encourages honesty but does not pretend it can police real-world behavior.
 * Recipient confirmation does not block a challenge from starting.
+* If membership access expires during an active challenge, the challenge enters restricted Completion Mode. Essential check-ins, challenge status, final result, and consequence completion remain available, but new challenges and full member features require active membership.
 * Personal learnings should eventually be stored in “What works for me.”
 
 ## Brand and interaction

@@ -57,7 +57,7 @@ export function calculateSuccessRule({
   const priorTextIsValid =
     goal.trim().length >= 3 && behavior.length >= 3 && definitionText.trim().length >= 3;
   const durationIsValid = Boolean(
-    durationWeeks && Number.isInteger(durationWeeks) && durationWeeks >= 1 && durationWeeks <= 12,
+    durationWeeks && Number.isInteger(durationWeeks) && durationWeeks >= 2 && durationWeeks <= 12,
   );
 
   if (!priorTextIsValid || !durationIsValid || !durationWeeks) return null;
