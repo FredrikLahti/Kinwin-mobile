@@ -40,17 +40,17 @@ const MEASUREMENT_CHOICES: {
   value: MeasurementMode;
 }[] = [
   {
-    description: 'Count each time it happens.',
-    label: 'Occurrences',
+    description: 'Each separate time it happens.',
+    label: 'Times',
     value: 'count',
   },
   {
-    description: 'Track minutes or hours.',
-    label: 'Time',
+    description: 'The total minutes or hours.',
+    label: 'Time spent',
     value: 'time',
   },
   {
-    description: 'Track a quantity, spend, or serving.',
+    description: 'A quantity such as puffs, pods, servings, items, or money.',
     label: 'Amount',
     value: 'amount',
   },
@@ -78,20 +78,20 @@ const DEFINITION_CONTENT: Record<
     placeholder: 'At least 30 minutes of strength training',
   },
   count: {
-    helper: 'The exact limit and time period come next.',
-    label: 'One occurrence means…',
-    placeholder: 'Opening social media after 10 PM',
+    helper: 'Define where one occurrence ends and another begins.',
+    label: 'One time means…',
+    placeholder: 'Describe one separate time it happens',
   },
   time: {
-    helper: 'The exact limit and time period come next.',
-    label: 'The tracked activity is…',
-    placeholder: 'Time spent on social media',
+    helper: 'The exact time limit and period come next.',
+    label: 'The time I’ll track is…',
+    placeholder: 'Describe what activity should be timed',
   },
   amount: {
     helper:
-      'This could be items, servings, spending, or another measurable amount. The exact limit and time period come next.',
+      'Choose the quantity that makes sense for your behavior. The exact limit and period come next.',
     label: 'The amount I’ll track is…',
-    placeholder: 'Describe the quantity you want to measure',
+    placeholder: 'Puffs, pods, items, SEK…',
   },
   abstinence: {
     helper: 'Be specific about what would count as breaking the promise.',
@@ -212,6 +212,23 @@ export default function DefinitionScreen() {
       : behaviorDirection === 'stop'
         ? STOP_EXAMPLES
         : null;
+  const behaviorForCopy = behaviorText.trim() || 'this behavior';
+  const headline =
+    behaviorDirection === 'build'
+      ? 'What counts as done?'
+      : behaviorDirection === 'cut'
+        ? 'How should Kinwin measure it?'
+        : behaviorDirection === 'stop'
+          ? 'What counts as a lapse?'
+          : 'What counts?';
+  const supportingCopy =
+    behaviorDirection === 'build'
+      ? 'Define the minimum that makes one completion count.'
+      : behaviorDirection === 'cut'
+        ? `You chose to cut back “${behaviorForCopy}”. Choose what Kinwin should track.`
+        : behaviorDirection === 'stop'
+          ? 'Define clearly what would break this promise.'
+          : 'Define the promise clearly now, so it stays fair later.';
 
   const selectMeasurement = (mode: MeasurementMode) => {
     void playSelectionHaptic();
@@ -238,7 +255,8 @@ export default function DefinitionScreen() {
     Keyboard.dismiss();
     inputRef.current?.blur();
     void playImportantHaptic();
-    setDefinitionCaptured(true);
+    setDefinitionCaptured(false);
+    router.push('/onboarding/rhythm');
   };
 
   return (
@@ -295,10 +313,8 @@ export default function DefinitionScreen() {
 
             <View style={styles.main}>
               <View style={styles.intro}>
-                <Text style={styles.headline}>What counts?</Text>
-                <Text style={styles.supportingCopy}>
-                  Define the promise clearly now, so it stays fair later.
-                </Text>
+                <Text style={styles.headline}>{headline}</Text>
+                <Text style={styles.supportingCopy}>{supportingCopy}</Text>
                 <Text style={styles.secondaryCopy}>We’ll set the rhythm next.</Text>
               </View>
 

@@ -1,7 +1,40 @@
-import { createContext, ReactNode, useContext, useMemo, useState } from 'react';
+import {
+  createContext,
+  Dispatch,
+  ReactNode,
+  SetStateAction,
+  useContext,
+  useMemo,
+  useState,
+} from 'react';
 
 export type BehaviorDirection = 'build' | 'cut' | 'stop';
 export type MeasurementMode = 'completion' | 'count' | 'time' | 'amount' | 'abstinence';
+export type RhythmType =
+  | 'daily'
+  | 'weekly_count'
+  | 'specific_days'
+  | 'maximum_per_period'
+  | 'continuous';
+export type RhythmPeriod = 'day' | 'week';
+export type RhythmTimeUnit = 'minutes' | 'hours';
+export type Weekday =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
+export type RhythmState = {
+  amountUnit: string;
+  period: RhythmPeriod | null;
+  selectedWeekdays: Weekday[];
+  targetValue: string;
+  timeUnit: RhythmTimeUnit | null;
+  type: RhythmType | null;
+};
 
 type OnboardingContextValue = {
   behaviorDirection: BehaviorDirection | null;
@@ -9,11 +42,13 @@ type OnboardingContextValue = {
   definitionText: string;
   goal: string;
   measurementMode: MeasurementMode | null;
+  rhythm: RhythmState;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setDefinitionText: (text: string) => void;
   setGoal: (goal: string) => void;
   setMeasurementMode: (mode: MeasurementMode | null) => void;
+  setRhythm: Dispatch<SetStateAction<RhythmState>>;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -25,6 +60,14 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [behaviorText, setBehaviorText] = useState('');
   const [measurementMode, setMeasurementMode] = useState<MeasurementMode | null>(null);
   const [definitionText, setDefinitionText] = useState('');
+  const [rhythm, setRhythm] = useState<RhythmState>({
+    amountUnit: '',
+    period: null,
+    selectedWeekdays: [],
+    targetValue: '',
+    timeUnit: null,
+    type: null,
+  });
 
   const value = useMemo(
     () => ({
@@ -33,13 +76,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       definitionText,
       goal,
       measurementMode,
+      rhythm,
       setBehaviorDirection,
       setBehaviorText,
       setDefinitionText,
       setGoal,
       setMeasurementMode,
+      setRhythm,
     }),
-    [behaviorDirection, behaviorText, definitionText, goal, measurementMode],
+    [behaviorDirection, behaviorText, definitionText, goal, measurementMode, rhythm],
   );
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;
