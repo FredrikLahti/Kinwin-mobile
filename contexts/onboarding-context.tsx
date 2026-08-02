@@ -36,6 +36,21 @@ export type RhythmState = {
   type: RhythmType | null;
 };
 
+export type RecipientDraft = {
+  id: string;
+  name: string;
+};
+
+let recipientIdSequence = 0;
+
+export function createRecipientDraft(name = ''): RecipientDraft {
+  recipientIdSequence += 1;
+  return {
+    id: `recipient-${Date.now().toString(36)}-${recipientIdSequence.toString(36)}`,
+    name,
+  };
+}
+
 type OnboardingContextValue = {
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
@@ -43,6 +58,7 @@ type OnboardingContextValue = {
   durationWeeks: number | null;
   goal: string;
   measurementMode: MeasurementMode | null;
+  recipients: RecipientDraft[];
   rhythm: RhythmState;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
@@ -50,6 +66,7 @@ type OnboardingContextValue = {
   setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setGoal: (goal: string) => void;
   setMeasurementMode: (mode: MeasurementMode | null) => void;
+  setRecipients: Dispatch<SetStateAction<RecipientDraft[]>>;
   setRhythm: Dispatch<SetStateAction<RhythmState>>;
 };
 
@@ -63,6 +80,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [measurementMode, setMeasurementMode] = useState<MeasurementMode | null>(null);
   const [definitionText, setDefinitionText] = useState('');
   const [durationWeeks, setDurationWeeks] = useState<number | null>(null);
+  const [recipients, setRecipients] = useState<RecipientDraft[]>(() => [
+    createRecipientDraft(),
+  ]);
   const [rhythm, setRhythm] = useState<RhythmState>({
     amountUnit: '',
     period: null,
@@ -80,6 +100,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       durationWeeks,
       goal,
       measurementMode,
+      recipients,
       rhythm,
       setBehaviorDirection,
       setBehaviorText,
@@ -87,6 +108,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setDurationWeeks,
       setGoal,
       setMeasurementMode,
+      setRecipients,
       setRhythm,
     }),
     [
@@ -96,6 +118,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       durationWeeks,
       goal,
       measurementMode,
+      recipients,
       rhythm,
     ],
   );

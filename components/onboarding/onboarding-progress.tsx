@@ -10,6 +10,7 @@ import Animated, {
 import { kinwinTheme as theme } from '@/constants/theme';
 
 type OnboardingProgressProps = {
+  accessibilityLabel?: string;
   currentStep: number;
   reducedMotion: boolean;
   settled: boolean;
@@ -17,11 +18,13 @@ type OnboardingProgressProps = {
 };
 
 export function OnboardingProgress({
+  accessibilityLabel,
   currentStep,
   reducedMotion,
   settled,
   totalSteps,
 }: OnboardingProgressProps) {
+  const progressLabel = accessibilityLabel ?? `Step ${currentStep} of ${totalSteps}`;
   const settledProgress = useSharedValue(settled ? 1 : 0.985);
 
   useEffect(() => {
@@ -42,13 +45,13 @@ export function OnboardingProgress({
 
   return (
     <View
-      accessibilityLabel={`Step ${currentStep} of ${totalSteps}`}
+      accessibilityLabel={progressLabel}
       accessibilityRole="progressbar"
       accessibilityValue={{
         min: 1,
         max: totalSteps,
         now: currentStep,
-        text: `Step ${currentStep} of ${totalSteps}`,
+        text: progressLabel,
       }}
       style={styles.container}
     >

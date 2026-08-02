@@ -101,7 +101,8 @@ export default function SuccessScreen() {
     if (!rule || successCaptured) return;
     Keyboard.dismiss();
     void playImportantHaptic();
-    setSuccessCaptured(true);
+    setSuccessCaptured(false);
+    router.push('/consequence/recipients' as never);
   };
 
   const isStop = rule?.isStopRule ?? onboarding.behaviorDirection === 'stop';
@@ -253,7 +254,7 @@ export default function SuccessScreen() {
             <AnimatedPrimaryButton
               accessibilityHint={
                 rule
-                  ? 'Sets this success rule on the current development screen'
+                  ? 'Continues to choose who receives the other future'
                   : 'Complete the earlier onboarding steps before continuing'
               }
               disabled={!rule || successCaptured}
