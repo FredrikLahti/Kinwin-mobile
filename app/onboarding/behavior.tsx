@@ -13,7 +13,6 @@ import {
   View,
 } from 'react-native';
 import Animated, {
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -21,49 +20,74 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
-import { ExampleChoice } from '@/components/onboarding/example-choice';
+import { BehaviorDirectionChoice } from '@/components/onboarding/behavior-direction-choice';
 import { OnboardingProgress } from '@/components/onboarding/onboarding-progress';
 import { kinwinTheme as theme } from '@/constants/theme';
-import { useOnboarding } from '@/contexts/onboarding-context';
+import {
+  BehaviorDirection,
+  useOnboarding,
+} from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
-const GOAL_MAX_LENGTH = 120;
-const COUNTER_THRESHOLD = 100;
-const EXAMPLES = ['Feel stronger', 'Sleep better', 'Use my time better'] as const;
+const BEHAVIOR_MAX_LENGTH = 100;
+const COUNTER_THRESHOLD = 82;
 
-export default function GoalScreen() {
+const DIRECTIONS: {
+  description: string;
+  label: string;
+  value: BehaviorDirection;
+}[] = [
+  {
+    description: 'Do more of a behavior that helps you.',
+    label: 'Build something good',
+    value: 'build',
+  },
+  {
+    description: 'Keep a behavior within a clear boundary.',
+    label: 'Cut something back',
+    value: 'cut',
+  },
+  {
+    description: 'Remove a behavior entirely.',
+    label: 'Stop something completely',
+    value: 'stop',
+  },
+];
+
+const INPUT_CONTENT: Record<BehaviorDirection, { label: string; placeholder: string }> = {
+  build: { label: 'I will…', placeholder: 'Strength train' },
+  cut: { label: 'I will limit…', placeholder: 'Social media' },
+  stop: { label: 'I will stop…', placeholder: 'Vaping' },
+};
+
+export default function BehaviorScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
-  const { goal, setGoal } = useOnboarding();
   const reducedMotion = useReducedMotion();
-  const focusProgress = useSharedValue(0);
+  const {
+    behaviorDirection,
+    behaviorText,
+    setBehaviorDirection,
+    setBehaviorText,
+  } = useOnboarding();
+  const [behaviorCaptured, setBehaviorCaptured] = useState(false);
   const entranceProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
+  const surfaceProgress = useSharedValue(behaviorDirection ? 1 : 0);
   const confirmationProgress = useSharedValue(0);
-  const [goalCaptured, setGoalCaptured] = useState(false);
 
-  const trimmedGoal = goal.trim();
-  const canContinue = trimmedGoal.length >= 3;
-  const showCounter = goal.length >= COUNTER_THRESHOLD;
-
-  const reasonSurfaceStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(
-      focusProgress.value,
-      [0, 1],
-      [theme.colors.structureLine, theme.colors.copper],
-    ),
-    backgroundColor: interpolateColor(
-      focusProgress.value,
-      [0, 1],
-      [theme.colors.surfaceRaised, theme.colors.surfaceFocused],
-    ),
-  }));
+  const canContinue = Boolean(
+    behaviorDirection && behaviorText.trim().length >= 3,
+  );
+  const showCounter = behaviorText.length >= COUNTER_THRESHOLD;
+  const inputContent = behaviorDirection ? INPUT_CONTENT[behaviorDirection] : null;
 
   useEffect(() => {
     if (Platform.OS === 'web') {
       entranceProgress.value = 1;
       return;
     }
+
     entranceProgress.value = withTiming(1, {
       duration: reducedMotion ? 120 : theme.motion.standard,
     });
@@ -71,18 +95,37 @@ export default function GoalScreen() {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      confirmationProgress.value = goalCaptured ? 1 : 0;
+      surfaceProgress.value = behaviorDirection ? 1 : 0;
       return;
     }
-    confirmationProgress.value = withTiming(goalCaptured ? 1 : 0, {
+
+    surfaceProgress.value = withTiming(behaviorDirection ? 1 : 0, {
+      duration: reducedMotion ? 0 : theme.motion.standard,
+    });
+  }, [behaviorDirection, reducedMotion, surfaceProgress]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      confirmationProgress.value = behaviorCaptured ? 1 : 0;
+      return;
+    }
+
+    confirmationProgress.value = withTiming(behaviorCaptured ? 1 : 0, {
       duration: reducedMotion ? 120 : 220,
     });
-  }, [confirmationProgress, goalCaptured, reducedMotion]);
+  }, [behaviorCaptured, confirmationProgress, reducedMotion]);
 
-  const contentEntranceStyle = useAnimatedStyle(() => ({
+  const entranceStyle = useAnimatedStyle(() => ({
     opacity: entranceProgress.value,
     transform: [
       { translateY: reducedMotion ? 0 : (1 - entranceProgress.value) * 10 },
+    ],
+  }));
+
+  const surfaceStyle = useAnimatedStyle(() => ({
+    opacity: surfaceProgress.value,
+    transform: [
+      { translateY: reducedMotion ? 0 : (1 - surfaceProgress.value) * 8 },
     ],
   }));
 
@@ -93,36 +136,31 @@ export default function GoalScreen() {
     ],
   }));
 
-  const updateGoal = (value: string) => {
-    setGoal(value);
-    if (goalCaptured) {
-      setGoalCaptured(false);
+  const selectDirection = (direction: BehaviorDirection) => {
+    void playSelectionHaptic();
+    setBehaviorDirection(direction);
+    setBehaviorCaptured(false);
+  };
+
+  const updateBehavior = (value: string) => {
+    setBehaviorText(value);
+    if (behaviorCaptured) {
+      setBehaviorCaptured(false);
     }
   };
 
-  const selectExample = (example: (typeof EXAMPLES)[number]) => {
-    void playSelectionHaptic();
-    updateGoal(example);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const continueWithGoal = () => {
-    if (!canContinue || goalCaptured) return;
+  const continueWithBehavior = () => {
+    if (!canContinue || behaviorCaptured) return;
     Keyboard.dismiss();
     inputRef.current?.blur();
     void playImportantHaptic();
-    setGoalCaptured(false);
-    router.push('/onboarding/behavior');
+    setBehaviorCaptured(true);
   };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <StatusBar style="light" />
-      <View
-        aria-hidden
-        pointerEvents="none"
-        style={styles.backgroundGeometry}
-      >
+      <View aria-hidden pointerEvents="none" style={styles.backgroundGeometry}>
         <View style={styles.deepPlane} />
         <View style={styles.frameLine} />
       </View>
@@ -137,11 +175,11 @@ export default function GoalScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Animated.View style={[styles.content, contentEntranceStyle]}>
+          <Animated.View style={[styles.content, entranceStyle]}>
             <View style={styles.header}>
               <View style={styles.brandGroup}>
                 <Pressable
-                  accessibilityHint="Returns to the temporary Kinwin home screen"
+                  accessibilityHint="Returns to the goal step"
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
                   hitSlop={8}
@@ -160,115 +198,97 @@ export default function GoalScreen() {
                 importantForAccessibility="no-hide-descendants"
                 style={styles.stepLabel}
               >
-                1 of 6
+                2 of 6
               </Text>
             </View>
 
             <OnboardingProgress
-              currentStep={1}
+              currentStep={2}
               reducedMotion={reducedMotion}
-              settled={goalCaptured}
+              settled={behaviorCaptured}
               totalSteps={6}
             />
 
             <View style={styles.main}>
-              <View style={styles.storyBlock}>
-                <View style={styles.intro}>
-                  <Text style={styles.headline}>What do you want to change?</Text>
-                  <Text style={styles.supportingCopy}>
-                    Start with the outcome that matters to you. Next, we’ll turn it into a
-                    promise you can control.
-                  </Text>
-                </View>
-
-                <View style={styles.reasonStage}>
-                  <View aria-hidden style={styles.reasonThread} />
-                  <View aria-hidden style={styles.reasonAnchor} />
-                  <View aria-hidden style={styles.reasonUnderlay} />
-                  <Animated.View style={[styles.reasonSurface, reasonSurfaceStyle]}>
-                    <View style={styles.reasonHeader}>
-                      <Text style={styles.inputLabel}>I want to…</Text>
-                      <View
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                        style={styles.anchorMark}
-                      >
-                        <View style={styles.anchorMarkLine} />
-                        <View style={styles.anchorMarkNode} />
-                      </View>
-                    </View>
-                    <TextInput
-                      ref={inputRef}
-                      accessibilityLabel="I want to"
-                      autoCapitalize="sentences"
-                      autoCorrect
-                      maxLength={GOAL_MAX_LENGTH}
-                      multiline
-                      onBlur={() => {
-                        focusProgress.value = withTiming(0, {
-                          duration: reducedMotion ? 0 : theme.motion.quick,
-                        });
-                      }}
-                      onChangeText={updateGoal}
-                      onFocus={() => {
-                        focusProgress.value = withTiming(1, {
-                          duration: reducedMotion ? 0 : theme.motion.quick,
-                        });
-                      }}
-                      placeholder="Feel stronger and more confident"
-                      placeholderTextColor={theme.colors.warmGrey}
-                      selectionColor={theme.colors.copperBright}
-                      style={styles.input}
-                      textAlignVertical="top"
-                      value={goal}
-                    />
-                    <View style={styles.reasonFooter}>
-                      <View aria-hidden style={styles.reasonStitch} />
-                      {showCounter && (
-                        <Text accessibilityLiveRegion="polite" style={styles.counter}>
-                          {goal.length}/{GOAL_MAX_LENGTH}
-                        </Text>
-                      )}
-                    </View>
-                  </Animated.View>
-                </View>
+              <View style={styles.intro}>
+                <Text style={styles.headline}>What will you promise?</Text>
+                <Text style={styles.supportingCopy}>
+                  Your goal is the reason. Now choose a behavior you can control.
+                </Text>
+                <Text style={styles.secondaryCopy}>We’ll decide when it counts next.</Text>
               </View>
 
-              <View style={styles.examplesSection}>
-                <View style={styles.examplesHeader}>
-                  <Text style={styles.examplesLabel}>Try an example</Text>
-                  <View aria-hidden style={styles.examplesRule} />
-                </View>
-                <View style={styles.examples}>
-                  {EXAMPLES.map((example, index) => (
-                    <ExampleChoice
-                      key={example}
-                      index={index}
-                      isLast={index === EXAMPLES.length - 1}
-                      label={example}
-                      onPress={() => selectExample(example)}
+              <View style={styles.directionSection}>
+                <View aria-hidden style={styles.directionThread} />
+                <View style={styles.directions}>
+                  {DIRECTIONS.map((direction) => (
+                    <BehaviorDirectionChoice
+                      key={direction.value}
+                      description={direction.description}
+                      label={direction.label}
+                      onPress={() => selectDirection(direction.value)}
                       reducedMotion={reducedMotion}
-                      selected={goal === example}
+                      selected={behaviorDirection === direction.value}
                     />
                   ))}
                 </View>
               </View>
+
+              {behaviorDirection && inputContent && (
+                <Animated.View style={[styles.behaviorStage, surfaceStyle]}>
+                  <View aria-hidden style={styles.behaviorThread} />
+                  <View aria-hidden style={styles.behaviorAnchor} />
+                  <View aria-hidden style={styles.behaviorUnderlay} />
+                  <View style={styles.behaviorSurface}>
+                    <View style={styles.behaviorHeader}>
+                      <Text style={styles.inputLabel}>{inputContent.label}</Text>
+                      <View aria-hidden style={styles.surfaceMark}>
+                        <View style={styles.surfaceMarkLine} />
+                        <View style={styles.surfaceMarkNode} />
+                      </View>
+                    </View>
+                    <TextInput
+                      ref={inputRef}
+                      accessibilityLabel={inputContent.label}
+                      autoCapitalize="sentences"
+                      autoCorrect
+                      maxLength={BEHAVIOR_MAX_LENGTH}
+                      onChangeText={updateBehavior}
+                      placeholder={inputContent.placeholder}
+                      placeholderTextColor={theme.colors.warmGrey}
+                      selectionColor={theme.colors.copperBright}
+                      style={styles.input}
+                      value={behaviorText}
+                    />
+                    <View style={styles.behaviorFooter}>
+                      <View aria-hidden style={styles.behaviorStitch} />
+                      {showCounter && (
+                        <Text accessibilityLiveRegion="polite" style={styles.counter}>
+                          {behaviorText.length}/{BEHAVIOR_MAX_LENGTH}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </Animated.View>
+              )}
             </View>
 
             <View style={styles.footer}>
               <View style={styles.confirmationSlot}>
                 <Animated.View
-                  accessibilityElementsHidden={!goalCaptured}
+                  accessibilityElementsHidden={!behaviorCaptured}
                   accessibilityLiveRegion="polite"
-                  importantForAccessibility={goalCaptured ? 'yes' : 'no-hide-descendants'}
+                  importantForAccessibility={
+                    behaviorCaptured ? 'yes' : 'no-hide-descendants'
+                  }
                   style={[styles.confirmationPanel, confirmationStyle]}
                 >
-                  {goalCaptured && (
+                  {behaviorCaptured && (
                     <>
-                    <View aria-hidden style={styles.confirmationNode} />
-                    <Text style={styles.confirmation}>
-                      Goal captured. Next, we’ll define your promise.
-                    </Text>
+                      <View aria-hidden style={styles.confirmationNode} />
+                      <Text style={styles.confirmation}>
+                        Behavior captured. Next, we’ll set the rhythm.
+                      </Text>
                     </>
                   )}
                 </Animated.View>
@@ -276,12 +296,12 @@ export default function GoalScreen() {
               <AnimatedPrimaryButton
                 accessibilityHint={
                   canContinue
-                    ? 'Captures this goal on the current development screen'
-                    : 'Enter a meaningful goal before continuing'
+                    ? 'Captures this behavior on the current development screen'
+                    : 'Choose a direction and enter a behavior before continuing'
                 }
-                disabled={!canContinue || goalCaptured}
+                disabled={!canContinue || behaviorCaptured}
                 label="Continue"
-                onPress={continueWithGoal}
+                onPress={continueWithBehavior}
                 reducedMotion={reducedMotion}
               />
             </View>
@@ -338,7 +358,6 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   header: {
-    width: '100%',
     minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
@@ -378,17 +397,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   main: {
-    gap: 46,
-    paddingTop: 22,
-  },
-  storyBlock: {
-    position: 'relative',
+    gap: 24,
+    paddingTop: 18,
   },
   intro: {
-    gap: 14,
+    gap: 10,
   },
   headline: {
-    maxWidth: 480,
     color: theme.colors.bone,
     fontFamily: Platform.select({
       android: 'serif',
@@ -396,36 +411,54 @@ const styles = StyleSheet.create({
       ios: 'Georgia',
       web: 'Georgia',
     }),
-    fontSize: 42,
+    fontSize: 39,
     fontWeight: '400',
-    letterSpacing: -0.7,
-    lineHeight: 48,
+    letterSpacing: -0.6,
+    lineHeight: 45,
   },
   supportingCopy: {
-    maxWidth: 490,
+    maxWidth: 500,
     color: theme.colors.boneMuted,
-    opacity: 0.9,
-    fontSize: 16,
-    lineHeight: 25,
+    fontSize: 15,
+    lineHeight: 22,
   },
-  reasonStage: {
+  secondaryCopy: {
+    color: theme.colors.warmGrey,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  directionSection: {
     position: 'relative',
-    marginTop: 34,
+  },
+  directionThread: {
+    position: 'absolute',
+    top: 16.5,
+    right: 0,
+    left: 0,
+    height: 1,
+    backgroundColor: theme.colors.copper,
+    opacity: 0.66,
+  },
+  directions: {
+    flexDirection: 'row',
+  },
+  behaviorStage: {
+    position: 'relative',
     paddingHorizontal: 8,
   },
-  reasonThread: {
+  behaviorThread: {
     position: 'absolute',
-    left: -26,
+    top: '56%',
     right: -26,
-    top: '57%',
+    left: -26,
     height: 1,
     backgroundColor: theme.colors.copper,
     opacity: 0.62,
   },
-  reasonAnchor: {
+  behaviorAnchor: {
     position: 'absolute',
     left: -28,
-    top: '54.5%',
+    top: '52.5%',
     zIndex: 3,
     width: 9,
     height: 9,
@@ -434,7 +467,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: theme.colors.deepInk,
   },
-  reasonUnderlay: {
+  behaviorUnderlay: {
     position: 'absolute',
     top: 7,
     right: 2,
@@ -443,22 +476,23 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.controlled,
     backgroundColor: theme.colors.deepInk,
   },
-  reasonSurface: {
+  behaviorSurface: {
     zIndex: 2,
-    minHeight: 190,
+    minHeight: 146,
     borderWidth: 1,
-    borderLeftWidth: 1.5,
+    borderColor: theme.colors.structureLine,
     borderRadius: theme.radius.controlled,
+    backgroundColor: theme.colors.surfaceRaised,
     paddingHorizontal: 24,
-    paddingTop: 23,
-    paddingBottom: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
     shadowColor: theme.colors.deepInk,
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.84,
     shadowRadius: 10,
     elevation: 8,
   },
-  reasonHeader: {
+  behaviorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -467,20 +501,19 @@ const styles = StyleSheet.create({
     color: theme.colors.copperBright,
     fontSize: 13,
     fontWeight: '500',
-    letterSpacing: 0.2,
   },
-  anchorMark: {
+  surfaceMark: {
     width: 34,
     height: 12,
     justifyContent: 'center',
   },
-  anchorMarkLine: {
+  surfaceMarkLine: {
     width: '100%',
     height: 1,
     backgroundColor: theme.colors.copper,
     opacity: 0.65,
   },
-  anchorMarkNode: {
+  surfaceMarkNode: {
     position: 'absolute',
     right: 0,
     width: 6,
@@ -489,23 +522,22 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.copperBright,
   },
   input: {
-    maxHeight: 112,
-    minHeight: 98,
+    minHeight: 62,
     color: theme.colors.bone,
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: '400',
-    lineHeight: 34,
+    lineHeight: 32,
     paddingHorizontal: 0,
-    paddingTop: 18,
-    paddingBottom: 11,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
-  reasonFooter: {
-    minHeight: 14,
+  behaviorFooter: {
+    minHeight: 12,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
   },
-  reasonStitch: {
+  behaviorStitch: {
     width: 58,
     height: 1,
     backgroundColor: theme.colors.copper,
@@ -515,50 +547,24 @@ const styles = StyleSheet.create({
     color: theme.colors.warmGrey,
     fontSize: 12,
   },
-  examplesSection: {
-    gap: 12,
-  },
-  examplesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  examplesLabel: {
-    color: theme.colors.copper,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  examplesRule: {
-    flex: 1,
-    height: 1,
-    backgroundColor: theme.colors.structureLine,
-    opacity: 0.7,
-  },
-  examples: {
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.structureLine,
-    flexDirection: 'row',
-  },
   footer: {
     marginTop: 'auto',
-    paddingTop: 36,
+    paddingTop: 26,
   },
   confirmationSlot: {
-    minHeight: 48,
+    minHeight: 46,
     justifyContent: 'center',
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   confirmationPanel: {
-    minHeight: 38,
+    minHeight: 36,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     borderTopWidth: 1,
     borderTopColor: theme.colors.copper,
-    backgroundColor: 'transparent',
     paddingHorizontal: 4,
-    paddingVertical: 9,
+    paddingVertical: 8,
   },
   confirmationNode: {
     width: 5,

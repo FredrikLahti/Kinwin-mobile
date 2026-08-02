@@ -8,7 +8,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen
-          name="onboarding/goal"
+          name="onboarding"
           options={{
             animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom',
             gestureEnabled: true,
