@@ -51,7 +51,7 @@ export default function CheckInScreen() {
     reveal.value = withTiming(1, { duration: reducedMotion ? 0 : theme.motion.standard });
   }, [reducedMotion, reveal]);
   const revealStyle = useAnimatedStyle(() => ({ opacity: reveal.value, transform: [{ translateY: reducedMotion ? 0 : (1 - reveal.value) * 8 }] }));
-  const backToChallenge = () => router.replace('/challenge/active' as Href);
+  const backToChallenge = () => router.replace('/challenge' as Href);
 
   const countBuild = () => {
     if (preview.buildCompletions >= target) return;
@@ -114,7 +114,7 @@ export default function CheckInScreen() {
                   result === 'cut' ? (parsedInput <= maximum ? `${formatValue(parsedInput, measurementMode, unit)} of ${formatValue(maximum, measurementMode, unit)} this ${period}.` : `You recorded ${formatValue(parsedInput, measurementMode, unit)} against a limit of ${formatValue(maximum, measurementMode, unit)}.`) :
                   result === 'stop-intact' ? 'Keep going. The next choice still matters.' : 'The final consequence is not processed in this prototype.'
                 }</Text>
-                <AnimatedPrimaryButton accessibilityHint="Returns to the active challenge preview" label="Back to challenge" onPress={backToChallenge} reducedMotion={reducedMotion} />
+                <AnimatedPrimaryButton accessibilityHint={result === 'stop-lapse' || (result === 'cut' && parsedInput > maximum) ? 'Opens a recovery plan without erasing this event' : 'Returns to the active challenge preview'} label={result === 'stop-lapse' || (result === 'cut' && parsedInput > maximum) ? 'Plan recovery' : 'Back to challenge'} onPress={result === 'stop-lapse' || (result === 'cut' && parsedInput > maximum) ? () => router.replace('/challenge/recovery' as Href) : backToChallenge} reducedMotion={reducedMotion} />
               </View>
             ) : (
               <View style={styles.main}>
@@ -135,7 +135,7 @@ export default function CheckInScreen() {
                   <Text style={styles.supporting}>Enter your current total for this period.</Text>
                   <View style={styles.inputRow}>
                     {measurementMode === 'amount' && <Text style={styles.inputUnit}>{unit}</Text>}
-                    <TextInput accessibilityLabel={`Current total in ${unit}`} inputMode="decimal" keyboardType="decimal-pad" onChangeText={(value) => setCutInput(value.replace(/[^0-9.,]/g, ''))} placeholder="0" placeholderTextColor={theme.colors.warmGrey} style={styles.input} value={cutInput} />
+                    <TextInput accessibilityLabel={`Current total in ${unit}`} inputMode="decimal" keyboardType="decimal-pad" onChangeText={setCutInput} placeholder="0" placeholderTextColor={theme.colors.warmGrey} style={styles.input} value={cutInput} />
                     {measurementMode !== 'amount' && <Text style={styles.inputUnit}>{unit}</Text>}
                   </View>
                   <AnimatedPrimaryButton accessibilityHint="Records this current total in the preview" disabled={!validCutInput} label="Record total" onPress={recordCut} reducedMotion={reducedMotion} />

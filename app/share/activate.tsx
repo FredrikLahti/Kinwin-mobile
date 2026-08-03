@@ -148,7 +148,7 @@ export default function ShareActivateScreen() {
   const previewActiveChallenge = () => {
     if (!draftIsValid || !trialSelected) return;
     void playImportantHaptic();
-    router.push('/challenge/active' as Href);
+    router.push('/challenge' as Href);
   };
 
   return (
