@@ -1,18 +1,21 @@
 -- Anonymous users must not be able to read or write any protected row.
--- Every SELECT below is expected to return 0 rows (RLS silently filters);
--- every write is expected to fail with a permission error.
+-- Every statement is machine-asserted: a SELECT that unexpectedly succeeds,
+-- or fails with the wrong SQLSTATE, fails this file (and the whole suite).
 set role anon;
 select set_config('request.jwt.claim.sub', '', false);
 
-select 'anon_select_profiles' as test, count(*) as rows_seen from public.profiles;
-select 'anon_select_challenge_drafts' as test, count(*) as rows_seen from public.challenge_drafts;
-select 'anon_select_challenges' as test, count(*) as rows_seen from public.challenges;
-select 'anon_select_challenge_recipients' as test, count(*) as rows_seen from public.challenge_recipients;
-select 'anon_select_challenge_periods' as test, count(*) as rows_seen from public.challenge_periods;
-select 'anon_select_check_in_events' as test, count(*) as rows_seen from public.check_in_events;
-select 'anon_select_consequences' as test, count(*) as rows_seen from public.consequences;
-select 'anon_select_invitations' as test, count(*) as rows_seen from public.invitations;
-select 'anon_select_memberships' as test, count(*) as rows_seen from public.memberships;
+select test.assert_fails('anon_select_profiles_denied', 'select count(*) from public.profiles', '42501');
+select test.assert_fails('anon_select_challenge_drafts_denied', 'select count(*) from public.challenge_drafts', '42501');
+select test.assert_fails('anon_select_challenges_denied', 'select count(*) from public.challenges', '42501');
+select test.assert_fails('anon_select_challenge_recipients_denied', 'select count(*) from public.challenge_recipients', '42501');
+select test.assert_fails('anon_select_challenge_periods_denied', 'select count(*) from public.challenge_periods', '42501');
+select test.assert_fails('anon_select_check_in_events_denied', 'select count(*) from public.check_in_events', '42501');
+select test.assert_fails('anon_select_consequences_denied', 'select count(*) from public.consequences', '42501');
+select test.assert_fails('anon_select_invitations_denied', 'select count(*) from public.invitations', '42501');
+select test.assert_fails('anon_select_memberships_denied', 'select count(*) from public.memberships', '42501');
 
--- Expected: ERROR permission denied for schema/table (no grant at all to anon).
-insert into public.profiles (id, display_name) values ('11111111-1111-1111-1111-111111111111', 'x');
+select test.assert_fails(
+  'anon_insert_profile_denied',
+  $stmt$insert into public.profiles (id, display_name) values ('11111111-1111-1111-1111-111111111111', 'x')$stmt$,
+  '42501'
+);
