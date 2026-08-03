@@ -42,7 +42,7 @@ export function ChallengePreviewProvider({ children }: { children: ReactNode }) 
     recordBuildCompletion: (target) => { if (buildCompletions < target) append({ type: 'build_completion' }); },
     recordCutTotal: (value) => append({ type: 'cut_total', value }),
     recordStopStatus: (status) => append({ type: 'stop_status', status }),
-    createPlaybookEntry: ({ obstacle, strategy, action, note, source }) => { const order = nextOrder.current++; const last = events[events.length - 1]; setPlaybookEntries((current) => [...current, { id: `playbook-${order}`, order, source, sourceEventType: last?.type ?? null, direction: behaviorDirection ?? 'build', obstacle, strategy, recoveryAction: action.trim(), note: note.trim() || null, recoveryStatus: source === 'recovery' ? 'active' : 'completed', behavior: behaviorText.trim() }]); },
+    createPlaybookEntry: ({ obstacle, strategy, action, note, source }) => { const order = nextOrder.current++; const last = events[events.length - 1]; setPlaybookEntries((current) => [...current, { id: `playbook-${order}`, order, source, sourceEventType: last?.type ?? null, sourceEventId: last?.id ?? null, direction: behaviorDirection ?? 'build', obstacle, strategy, recoveryAction: action.trim(), note: note.trim() || null, recoveryStatus: source === 'recovery' ? 'active' : 'completed', behavior: behaviorText.trim() }]); },
     completeRecovery: (id) => setPlaybookEntries((current) => current.map((entry) => entry.id === id ? { ...entry, recoveryStatus: 'completed' } : entry)), resetPreviewCheckIns,
   }), [behaviorDirection, behaviorText, buildCompletions, cutTotal, events, playbookEntries, stopStatus]);
   return <ChallengePreviewContext.Provider value={value}>{children}</ChallengePreviewContext.Provider>;
