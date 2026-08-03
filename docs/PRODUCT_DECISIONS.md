@@ -38,15 +38,36 @@
 
 ## Current scope
 
-* Create the clean mobile foundation.
-* Build and test only the first onboarding goal step.
-* Do not implement later onboarding steps yet.
-* Do not implement Supabase, Stripe, or Tremendous yet.
-* Do not define the final visual identity yet.
+* The clean mobile foundation exists, and the full prototype onboarding flow (goal, behavior
+  direction, definition, rhythm, timeframe, success rule) is implemented end to end.
+* Consequence setup (recipients, organizer, experience, stake, review) and the share/activation
+  flow (message, recipient preview, membership gate, prototype activation shortcut) are
+  implemented.
+* The active-challenge preview flows are implemented: Home, Progress, Check-in, Recovery, and
+  Personal Playbook.
+* All of the above remain local, session-only preview behavior. Nothing is persisted outside the
+  running app session, and reloading the app clears preview activity by design.
+* No real authentication, persistence, Stripe charging, Tremendous fulfillment, analytics, or push
+  notifications are connected. All financial and authoritative challenge evaluation remains
+  server-trusted and unimplemented in the client.
+* A production-oriented domain model (`domain/`) and an initial Supabase migration
+  (`supabase/migrations/`, documented in `docs/SUPABASE_SCHEMA.md` and
+  `docs/PRODUCTION_DATA_MODEL.md`) exist as version-controlled groundwork. The migration has not
+  been deployed to any environment and still requires exercising constraints, triggers, RLS, and
+  grants in a disposable development Supabase project before any production use.
+* The approved visual and interaction design direction (dark-first, warm near-black, warm
+  off-white, restrained copper/amber, serif headings, "Two Futures"/"Kinwin Thread" motif) is
+  established and applied throughout the current screens. Further product-quality refinement of
+  individual screens remains possible and does not require redefining the direction itself.
+* Future work should be grouped into coherent, explicitly scoped packages (e.g. one flow or one
+  defect at a time) rather than reverting to the obsolete "only the first onboarding step" scope
+  described in earlier revisions of this document.
 
 ## Working method
 
 * The founder discusses product decisions with ChatGPT.
-* ChatGPT produces implementation prompts for Codex.
-* Codex implements one approved step at a time.
-* Codex explains results and required founder actions in simple Swedish.
+* ChatGPT produces implementation prompts for the coding agent for a given package of work.
+* Claude Code, or another approved coding agent, implements one approved package at a time and
+  preserves working code created by other agents.
+* The coding agent explains results and any required founder actions in clear, beginner-friendly
+  Swedish.
