@@ -1,6 +1,6 @@
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -51,11 +51,9 @@ export default function ShareActivateScreen() {
     sitOutAcknowledged,
     stakeAmount,
   } = onboarding;
-  const [paymentSetupCaptured, setPaymentSetupCaptured] = useState(false);
   const revealProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
   const gateProgress = useSharedValue(membershipChoice ? 1 : 0);
   const nextActionProgress = useSharedValue(membershipChoice ? 1 : 0);
-  const confirmationProgress = useSharedValue(0);
   const successRule = calculateSuccessRule(onboarding);
 
   const validRecipients = recipients.filter((recipient) => recipient.name.trim().length > 0);
@@ -117,17 +115,6 @@ export default function ShareActivateScreen() {
     });
   }, [gateProgress, nextActionProgress, reducedMotion, trialSelected]);
 
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      confirmationProgress.value = paymentSetupCaptured ? 1 : 0;
-      return;
-    }
-
-    confirmationProgress.value = withTiming(paymentSetupCaptured ? 1 : 0, {
-      duration: reducedMotion ? 120 : 220,
-    });
-  }, [confirmationProgress, paymentSetupCaptured, reducedMotion]);
-
   const revealStyle = useAnimatedStyle(() => ({
     opacity: revealProgress.value,
     transform: [
@@ -147,30 +134,21 @@ export default function ShareActivateScreen() {
     ],
   }));
 
-  const confirmationStyle = useAnimatedStyle(() => ({
-    opacity: confirmationProgress.value,
-    transform: [
-      { translateY: reducedMotion ? 0 : (1 - confirmationProgress.value) * 6 },
-    ],
-  }));
-
   const selectTrial = () => {
     if (!draftIsValid || trialSelected) return;
     void playImportantHaptic();
     setMembershipChoice('monthly_trial');
-    setPaymentSetupCaptured(false);
   };
 
   const reviewMembershipAgain = () => {
     void playSelectionHaptic();
     setMembershipChoice(null);
-    setPaymentSetupCaptured(false);
   };
 
-  const continueToPaymentSetup = () => {
-    if (!draftIsValid || !trialSelected || paymentSetupCaptured) return;
+  const previewActiveChallenge = () => {
+    if (!draftIsValid || !trialSelected) return;
     void playImportantHaptic();
-    setPaymentSetupCaptured(true);
+    router.push('/challenge/active' as Href);
   };
 
   return (
@@ -413,34 +391,22 @@ export default function ShareActivateScreen() {
                 >
                   <Text style={styles.reviewActionText}>Review membership again</Text>
                 </Pressable>
-                <View style={styles.confirmationSlot}>
-                  <Animated.View
-                    accessibilityElementsHidden={!paymentSetupCaptured}
-                    accessibilityLiveRegion="polite"
-                    importantForAccessibility={
-                      paymentSetupCaptured ? 'yes' : 'no-hide-descendants'
-                    }
-                    style={[styles.confirmationPanel, confirmationStyle]}
-                  >
-                    {paymentSetupCaptured && (
-                      <>
-                        <View aria-hidden style={styles.confirmationNode} />
-                        <Text style={styles.confirmationText}>
-                          Membership choice captured. Payment setup comes next.
-                        </Text>
-                      </>
-                    )}
-                  </Animated.View>
+                <View style={styles.prototypeShortcutCopy}>
+                  <Text style={styles.prototypeShortcutLabel}>PROTOTYPE ONLY</Text>
+                  <Text style={styles.prototypeShortcutText}>
+                    Prototype shortcut—skips payment setup, recipient-link creation, sharing, and
+                    real activation.
+                  </Text>
                 </View>
                 <AnimatedPrimaryButton
                   accessibilityHint={
                     draftIsValid
-                      ? 'Captures the local membership choice without opening payment setup'
-                      : 'Repair the upstream draft before continuing'
+                      ? 'Opens the active challenge preview without purchasing, sharing, or activating anything'
+                      : 'Repair the upstream draft before opening the preview'
                   }
-                  disabled={!draftIsValid || paymentSetupCaptured}
-                  label="Continue to payment setup"
-                  onPress={continueToPaymentSetup}
+                  disabled={!draftIsValid}
+                  label="Preview active challenge"
+                  onPress={previewActiveChallenge}
                   reducedMotion={reducedMotion}
                 />
               </Animated.View>
@@ -606,12 +572,14 @@ const styles = StyleSheet.create({
   reviewAction: { minHeight: 46, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   reviewActionPressed: { backgroundColor: theme.colors.surface },
   reviewActionText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },
-  confirmationSlot: { minHeight: 50, justifyContent: 'center', paddingBottom: 8 },
-  confirmationPanel: {
-    minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderTopWidth: 1, borderTopColor: theme.colors.copper,
-    paddingHorizontal: 4, paddingVertical: 8,
+  prototypeShortcutCopy: {
+    marginBottom: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine,
+    paddingHorizontal: 4, paddingTop: 12,
   },
-  confirmationNode: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.copperBright },
-  confirmationText: { flex: 1, color: theme.colors.boneMuted, fontSize: 12, lineHeight: 18 },
+  prototypeShortcutLabel: {
+    color: theme.colors.copper, fontSize: 8, fontWeight: '800', letterSpacing: 1.2,
+  },
+  prototypeShortcutText: {
+    marginTop: 5, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17,
+  },
 });
