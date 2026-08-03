@@ -1,6 +1,6 @@
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,13 +8,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
 import { formatRecipientNames } from '@/components/share/recipient-promise-page';
 import { kinwinTheme as theme } from '@/constants/theme';
+import { useChallengePreview } from '@/contexts/challenge-preview-context';
 import {
   ExperienceCategory,
   RhythmState,
   useOnboarding,
 } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { playImportantHaptic } from '@/lib/haptics';
+import { playSelectionHaptic } from '@/lib/haptics';
 import { calculateSuccessRule } from '@/lib/success-rule';
 
 const COOL_NEUTRAL = '#7D8589';
@@ -45,24 +46,30 @@ function buildCommitment(behavior: string, rhythm: RhythmState) {
   return `${behavior} · Continuous`;
 }
 
-function buildCurrentRequirement(direction: ReturnType<typeof useOnboarding>['behaviorDirection'], rhythm: RhythmState) {
+function buildTarget(rhythm: RhythmState) {
+  if (rhythm.type === 'weekly_count') return Number(rhythm.targetValue);
+  if (rhythm.type === 'specific_days') return rhythm.selectedWeekdays.length;
+  return 1;
+}
+
+function formatPeriodValue(value: number, mode: ReturnType<typeof useOnboarding>['measurementMode'], rhythm: RhythmState) {
+  if (mode === 'amount') return `${rhythm.amountUnit.trim()}${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (mode === 'time') return `${value.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${rhythm.timeUnit}`;
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function buildRuntimeStatus(direction: ReturnType<typeof useOnboarding>['behaviorDirection'], rhythm: RhythmState, measurementMode: ReturnType<typeof useOnboarding>['measurementMode'], buildCompletions: number, cutTotal: number | null, stopStatus: 'intact' | 'lapse' | null) {
   if (direction === 'build') {
-    if (rhythm.type === 'weekly_count') {
-      return `This week · 0 of ${rhythm.targetValue} complete`;
-    }
-    if (rhythm.type === 'specific_days') {
-      return `This week · 0 of ${rhythm.selectedWeekdays.length} complete`;
-    }
-    return 'Today · No check-in yet';
+    const period = rhythm.type === 'daily' ? 'Today' : 'This week';
+    return `${period} · ${Math.min(buildCompletions, buildTarget(rhythm))} of ${buildTarget(rhythm)} complete`;
   }
-
   if (direction === 'cut') {
-    return rhythm.period === 'week'
-      ? 'This week · No check-in yet'
-      : 'Today · No check-in yet';
+    if (cutTotal === null) return 'No total recorded for this period';
+    return `${formatPeriodValue(cutTotal, measurementMode, rhythm)} of ${formatPeriodValue(Number(rhythm.targetValue), measurementMode, rhythm)} this ${rhythm.period}`;
   }
-
-  return 'Today · No check-in yet';
+  if (stopStatus === 'intact') return 'Promise intact';
+  if (stopStatus === 'lapse') return 'Lapse recorded';
+  return 'No check-in recorded yet';
 }
 
 function buildCheckInCopy(direction: ReturnType<typeof useOnboarding>['behaviorDirection']) {
@@ -77,6 +84,7 @@ export default function ActiveChallengeScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
+  const preview = useChallengePreview();
   const {
     behaviorDirection,
     behaviorText,
@@ -86,12 +94,11 @@ export default function ActiveChallengeScreen() {
     recipients,
     rewardOrganizer,
     rhythm,
+    measurementMode,
     sitOutAcknowledged,
     stakeAmount,
   } = onboarding;
-  const [checkInPreviewed, setCheckInPreviewed] = useState(false);
   const revealProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
-  const feedbackProgress = useSharedValue(0);
   const successRule = calculateSuccessRule(onboarding);
 
   const validRecipients = recipients.filter((recipient) => recipient.name.trim().length > 0);
@@ -124,7 +131,17 @@ export default function ActiveChallengeScreen() {
 
   const totalDays = (durationWeeks ?? 0) * 7;
   const commitment = buildCommitment(behaviorText.trim(), rhythm);
-  const currentRequirement = buildCurrentRequirement(behaviorDirection, rhythm);
+  const currentRequirement = buildRuntimeStatus(behaviorDirection, rhythm, measurementMode, preview.buildCompletions, preview.cutTotal, preview.stopStatus);
+  const buildComplete = behaviorDirection === 'build' && preview.buildCompletions >= buildTarget(rhythm);
+  const cutLimitCrossed = behaviorDirection === 'cut' && preview.cutTotal !== null && preview.cutTotal > Number(rhythm.targetValue);
+  const trackTitle = behaviorDirection === 'build' && buildComplete
+    ? `${rhythm.type === 'daily' ? 'Today' : 'This week'}’s promise is complete`
+    : behaviorDirection === 'cut' && preview.cutTotal !== null
+      ? cutLimitCrossed ? 'Current limit crossed' : 'Within the current limit'
+      : behaviorDirection === 'stop' && preview.stopStatus
+        ? preview.stopStatus === 'intact' ? 'Promise intact' : 'Lapse recorded'
+        : 'On track';
+  const trackCopy = preview.hasPreviewState ? 'Preview check-in state only. No final outcome is calculated.' : 'The challenge has just begun.';
   const checkInCopy = buildCheckInCopy(behaviorDirection);
   const categoryLabel = experienceCategory ? CATEGORY_LABELS[experienceCategory] : '';
   const stakeLabel = stakeAmount ? `$${stakeAmount.toLocaleString('en-US')}` : '';
@@ -139,26 +156,15 @@ export default function ActiveChallengeScreen() {
     });
   }, [reducedMotion, revealProgress]);
 
-  useEffect(() => {
-    feedbackProgress.value = withTiming(checkInPreviewed ? 1 : 0, {
-      duration: reducedMotion ? 0 : theme.motion.quick,
-    });
-  }, [checkInPreviewed, feedbackProgress, reducedMotion]);
-
   const revealStyle = useAnimatedStyle(() => ({
     opacity: revealProgress.value,
     transform: [{ translateY: reducedMotion ? 0 : (1 - revealProgress.value) * 10 }],
   }));
 
-  const feedbackStyle = useAnimatedStyle(() => ({
-    opacity: feedbackProgress.value,
-    transform: [{ translateY: reducedMotion ? 0 : (1 - feedbackProgress.value) * 5 }],
-  }));
-
-  const previewCheckIn = () => {
-    if (checkInPreviewed) return;
-    void playImportantHaptic();
-    setCheckInPreviewed(true);
+  const openCheckIn = () => router.push('/challenge/check-in' as Href);
+  const resetCheckIns = () => {
+    void playSelectionHaptic();
+    preview.resetPreviewCheckIns();
   };
 
   const recoveryRoute = successRule ? '/consequence/review' : '/onboarding/goal';
@@ -241,7 +247,7 @@ export default function ActiveChallengeScreen() {
               </View>
 
               <View
-                accessibilityLabel={`Day 1 of ${totalDays}. ${currentRequirement}. On track. The challenge has just begun.`}
+                accessibilityLabel={`Day 1 of ${totalDays}. ${currentRequirement}. ${trackTitle}. ${trackCopy}`}
                 style={styles.statusSection}
               >
                 <View aria-hidden style={styles.timeline}>
@@ -254,39 +260,28 @@ export default function ActiveChallengeScreen() {
                   <Text style={styles.dayLabel}>DAY 1 OF {totalDays}</Text>
                   <Text style={styles.requirementText}>{currentRequirement}</Text>
                   <View style={styles.trackState}>
-                    <Text style={styles.trackTitle}>On track</Text>
-                    <Text style={styles.trackCopy}>The challenge has just begun.</Text>
+                    <Text style={styles.trackTitle}>{trackTitle}</Text>
+                    <Text style={styles.trackCopy}>{trackCopy}</Text>
                   </View>
                 </View>
               </View>
 
               <View style={styles.todaySection}>
                 <Text style={styles.sectionLabel}>TODAY</Text>
-                <Text accessibilityRole="header" style={styles.todayHeadline}>Your next check-in</Text>
+                <Text accessibilityRole="header" style={styles.todayHeadline}>{behaviorDirection === 'cut' ? 'Your current total' : 'Your next check-in'}</Text>
                 <Text style={styles.todayCopy}>{checkInCopy}</Text>
                 <AnimatedPrimaryButton
-                  accessibilityHint="Previews the future check-in flow without recording activity"
-                  disabled={checkInPreviewed}
-                  label="Check in"
-                  onPress={previewCheckIn}
+                  accessibilityHint="Opens the preview check-in flow"
+                  label={behaviorDirection === 'cut' ? 'Update current total' : buildComplete ? 'Period complete' : 'Check in'}
+                  onPress={openCheckIn}
                   reducedMotion={reducedMotion}
                 />
-                <View style={styles.feedbackSlot}>
-                  <Animated.View
-                    accessibilityElementsHidden={!checkInPreviewed}
-                    accessibilityLiveRegion="polite"
-                    importantForAccessibility={checkInPreviewed ? 'yes' : 'no-hide-descendants'}
-                    style={[styles.feedback, feedbackStyle]}
-                  >
-                    {checkInPreviewed && (
-                      <>
-                        <View aria-hidden style={styles.feedbackNode} />
-                        <Text style={styles.feedbackText}>The check-in flow comes next.</Text>
-                      </>
-                    )}
-                  </Animated.View>
-                </View>
-                <Text style={styles.prototypeLine}>Nothing is recorded in this prototype.</Text>
+                <Text style={styles.prototypeLine}>Check-ins remain only in this preview session.</Text>
+                {preview.hasPreviewState && (
+                  <Pressable accessibilityHint="Clears only preview runtime check-ins" accessibilityLabel="Reset preview check-ins" accessibilityRole="button" onPress={resetCheckIns} style={({ pressed }) => [styles.resetButton, pressed && styles.backButtonPressed]}>
+                    <Text style={styles.resetText}>Reset preview check-ins</Text>
+                  </Pressable>
+                )}
               </View>
 
               <View style={styles.ruleSection}>
@@ -415,14 +410,9 @@ const styles = StyleSheet.create({
     fontSize: 27, lineHeight: 33,
   },
   todayCopy: { marginTop: 8, marginBottom: 18, color: theme.colors.boneMuted, fontSize: 13, lineHeight: 20 },
-  feedbackSlot: { minHeight: 42, justifyContent: 'center' },
-  feedback: {
-    minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderTopWidth: 1, borderTopColor: theme.colors.copper, paddingTop: 9,
-  },
-  feedbackNode: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.copperBright },
-  feedbackText: { color: theme.colors.boneMuted, fontSize: 12, lineHeight: 18 },
   prototypeLine: { color: theme.colors.warmGrey, fontSize: 10, lineHeight: 15 },
+  resetButton: { minHeight: 44, alignItems: 'flex-start', justifyContent: 'center', marginTop: 8 },
+  resetText: { color: theme.colors.warmGrey, fontSize: 11, textDecorationLine: 'underline' },
   ruleSection: {
     marginTop: 24, borderLeftWidth: 2, borderLeftColor: theme.colors.copper,
     paddingLeft: 16, paddingVertical: 4,
