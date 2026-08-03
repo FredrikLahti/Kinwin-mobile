@@ -127,8 +127,11 @@ function deriveCurrentPeriod(configuration: PreviewConfiguration, events: readon
     return { status: difference === 0 ? 'at_limit' : 'within_limit', recorded: { kind: 'known', value }, remaining: { kind: 'known', value: difference }, headline: `${formatted} of ${limit} used`, detail: difference === 0 ? 'The current limit has been reached.' : `${formatValue(difference, configuration.unit)} remain this period.`, relevantEventId: latestTotal.id };
   }
   const statuses = events.filter((event): event is Extract<PreviewEvent, { type: 'stop_status' }> => event.type === 'stop_status');
-  const lapseEvent = statuses.find((event) => event.status === 'lapse');
-  if (lapseEvent) return { status: 'lapse', recorded: { kind: 'known', value: 'lapse' }, remaining: { kind: 'not_applicable' }, headline: 'A lapse has been recorded', detail: 'Stop V1 remains a zero-lapse rule. Recovery does not erase this event.', relevantEventId: lapseEvent.id };
+  const lapseEvents = statuses.filter((event) => event.status === 'lapse');
+  if (lapseEvents.length) {
+    const latestLapse = lapseEvents.reduce((latest, event) => event.order > latest.order ? event : latest);
+    return { status: 'lapse', recorded: { kind: 'known', value: 'lapse' }, remaining: { kind: 'not_applicable' }, headline: 'A lapse has been recorded', detail: 'Stop V1 remains a zero-lapse rule. Recovery does not erase this event.', relevantEventId: latestLapse.id };
+  }
   if (statuses.some((event) => event.status === 'intact')) return { status: 'intact', recorded: { kind: 'known', value: 'intact' }, remaining: { kind: 'not_applicable' }, headline: 'Promise intact in this preview', detail: 'No lapse has been recorded in this preview session.', relevantEventId: null };
   return { status: 'not_recorded', recorded: { kind: 'not_recorded' }, remaining: { kind: 'not_applicable' }, headline: 'No status recorded yet', detail: 'Report whether the promise is still intact.', relevantEventId: null };
 }

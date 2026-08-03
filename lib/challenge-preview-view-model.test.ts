@@ -55,6 +55,31 @@ test('Stop recovery lifecycle is tied to the specific lapse event', () => {
   assert.match(withCompletedRecovery.currentPeriod.detail, /zero-lapse/);
 });
 
+test('Stop recovery tracks the latest lapse when two lapse events exist (e.g. a rapid double submission)', () => {
+  const stop = base({ direction: 'stop', measurement: 'abstinence', target: 0, periodUnit: 'challenge', unit: 'lapses', wholeRequirement: 'No lapses.' });
+  const firstLapse: PreviewEvent = { id: 'e1', order: 1, type: 'stop_status', status: 'lapse' };
+  const secondLapse: PreviewEvent = { id: 'e2', order: 2, type: 'stop_status', status: 'lapse' };
+  const events = [firstLapse, secondLapse];
+
+  // The current period must key off the latest lapse by order, not the first one recorded.
+  const unrecovered = view(stop, events);
+  assert.equal(unrecovered.currentPeriod.status, 'lapse');
+  assert.equal(unrecovered.currentPeriod.relevantEventId, 'e2');
+  assert.equal(unrecovered.nextAction.label, 'Plan recovery');
+
+  // A recovery created against the latest lapse (as recovery creation always does) is recognized as active.
+  const withActiveRecovery = view(stop, events, [recoveryEntry({ sourceEventType: 'stop_status', sourceEventId: 'e2', direction: 'stop', recoveryStatus: 'active' })]);
+  assert.equal(withActiveRecovery.nextAction.label, 'Continue recovery');
+
+  // Once completed, the same latest lapse must not re-offer Plan recovery.
+  const withCompletedRecovery = view(stop, events, [recoveryEntry({ sourceEventType: 'stop_status', sourceEventId: 'e2', direction: 'stop', recoveryStatus: 'completed' })]);
+  assert.notEqual(withCompletedRecovery.nextAction.label, 'Plan recovery');
+  assert.equal(withCompletedRecovery.nextAction.type, 'recovery_completed');
+  // Neither lapse is erased or repaired: the period stays lapsed and zero-lapse remains explicit.
+  assert.equal(withCompletedRecovery.currentPeriod.status, 'lapse');
+  assert.match(withCompletedRecovery.currentPeriod.detail, /zero-lapse/);
+});
+
 test('A manual Playbook entry never masks an unaddressed failure event', () => {
   const cut = base({ direction: 'cut', measurement: 'count', target: 3, unit: 'times', wholeRequirement: 'Stay within the limit.' });
   const overLimitEvent: PreviewEvent = { id: 'e1', order: 1, type: 'cut_total', value: 5 };
