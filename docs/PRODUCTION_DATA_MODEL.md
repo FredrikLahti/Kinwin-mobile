@@ -68,5 +68,8 @@ No table definition, row-level security policy, provider integration, or migrati
 - Exact App Store and Google Play entitlement integration.
 - Durable identity and contact requirements for an external reward organizer.
 
-See also `docs/SUPABASE_SCHEMA.md` for the initial relational schema, RLS, grants, and trusted-write boundary.
-The migration must be executed and security-tested in a disposable local or development Supabase environment before production use.
+See also `docs/SUPABASE_SCHEMA.md` for the initial relational schema, RLS, grants, and trusted-write boundary,
+and `supabase/tests/` for the executable validation of that schema against a disposable local database.
+The migration must additionally be exercised against a disposable hosted or full local Supabase project
+(covering GoTrue/PostgREST) before production use. See `docs/BACKEND_IMPLEMENTATION_PLAN.md` for the
+recommended phase-by-phase sequence for building the trusted backend on top of this foundation.

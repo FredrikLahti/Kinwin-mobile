@@ -191,6 +191,30 @@ create unique index check_in_events_challenge_idempotency_uidx
   on public.check_in_events (challenge_id, idempotency_key)
   where idempotency_key is not null;
 
+-- Append-only for every role, including service_role: grants alone only stop
+-- untrusted clients, not a bug in trusted server code. Corrections are new
+-- rows referencing correction_of_event_id; a recorded event is never edited
+-- or removed.
+create function public.reject_check_in_event_mutation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'check_in_events is append-only: rows cannot be updated or deleted'
+    using errcode = '23000';
+end;
+$$;
+
+revoke execute on function public.reject_check_in_event_mutation() from public, anon, authenticated;
+
+create trigger check_in_events_reject_update
+  before update on public.check_in_events
+  for each row execute function public.reject_check_in_event_mutation();
+create trigger check_in_events_reject_delete
+  before delete on public.check_in_events
+  for each row execute function public.reject_check_in_event_mutation();
+
 create table public.consequences (
   id uuid primary key default gen_random_uuid(),
   challenge_id uuid not null unique,

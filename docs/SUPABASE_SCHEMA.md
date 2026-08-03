@@ -3,9 +3,16 @@
 The initial migration is `supabase/migrations/20260803000000_initial_kinwin_schema.sql`.
 It is version-controlled only; it does not configure or connect the mobile app to Supabase.
 
-> **Pre-deployment requirement:** this migration has only received static review. Apply it first to
-> a disposable local or development Supabase environment and exercise constraints, triggers, RLS,
-> and grants with representative roles before any production deployment.
+> **Validation status:** this migration has been applied, reset, and reapplied against a disposable
+> local Postgres 16 database (not a hosted or full local Supabase stack) with a minimal stand-in for
+> the platform-managed `auth.users`/`auth.uid()` surface. `supabase/tests/` exercises schema
+> creation, RLS as anonymous/owner/non-owner/service_role, the activation-snapshot immutability
+> trigger, append-only enforcement on `check_in_events`, and representative valid/invalid records
+> for every table's constraints — see `supabase/tests/README.md` for exact results and the
+> stub's precise scope. It has **not** been exercised against Supabase's own GoTrue/PostgREST
+> layer (JWT issuance and parsing, PostgREST's own grant/column enforcement, Storage/Realtime
+> interaction). Apply it to a disposable hosted or full local Supabase project and re-run
+> equivalent checks there before any production deployment.
 
 ## Boundary and ownership
 
@@ -70,10 +77,14 @@ to the snapshot, owner, activation/start/end timestamps, timezone, and schema/en
 does not block trusted updates to lifecycle status, `completed_at`, or other mutable operational
 columns.
 
-Clients receive no insert/update/delete grant or policy for `check_in_events`. A future trusted append
-endpoint must validate event shape, ownership, challenge state, period membership, and idempotency.
-Corrections reference an earlier event in the same challenge through a composite foreign key; old
-events and Cut back totals are never overwritten as the source of truth.
+Clients receive no insert/update/delete grant or policy for `check_in_events`. Beyond that client
+boundary, `check_in_events` is also append-only for every role including the trusted `service_role`:
+a trigger unconditionally rejects `UPDATE` and `DELETE`, so a bug in future trusted server code
+cannot silently edit or remove recorded history the way it still could for a table protected only by
+grants. A future trusted append endpoint must validate event shape, ownership, challenge state,
+period membership, and idempotency before inserting. Corrections reference an earlier event in the
+same challenge through a composite foreign key that rejects cross-challenge references; old events
+and Cut back totals are never overwritten as the source of truth.
 The SQL event names `stop_intact` and `stop_lapse` are the relational forms of the TypeScript
 `stop_status` discriminant, whose payload carries the corresponding status.
 
