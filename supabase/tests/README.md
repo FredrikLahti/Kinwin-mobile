@@ -1,0 +1,131 @@
+# Executable migration tests
+
+These SQL files exercise `supabase/migrations/20260803000000_initial_kinwin_schema.sql`
+against a real, disposable local PostgreSQL 16 database. Every expectation in every file
+is a machine assertion (`001_test_helpers.sql`) — **success is defined by the process
+exit code of `supabase/tests/run.sh`, not by reading the console transcript.** Exit code
+`0` means every assertion in every file passed; any nonzero exit means at least one did
+not, and the transcript shows exactly which one and why.
+
+## How the assertions work
+
+`001_test_helpers.sql` defines three helpers, installed only in the disposable test
+database:
+
+- `test.assert_true(name, condition, detail)` — fails unless `condition` is true.
+- `test.assert_equals(name, actual, expected)` — fails unless `actual` equals `expected`
+  (a row count, a persisted column value, a boolean, …).
+- `test.assert_fails(name, sql_text, expected_sqlstate)` — runs `sql_text` as dynamic SQL
+  and fails unless it raises an error; if `expected_sqlstate` is given, also fails if the
+  statement failed with a *different* SQLSTATE, so an unrelated error can never
+  masquerade as the expected denial (e.g. `42501` insufficient_privilege for a grant
+  denial, `23514` check_violation, `23505` unique_violation, `23503`
+  foreign_key_violation, or `23000` for the two custom immutability/append-only triggers,
+  which both raise that exact code).
+
+Every helper `RAISE EXCEPTION`s on failure. Every test file is run with
+`psql -v ON_ERROR_STOP=1`, so a single failed assertion aborts that file immediately;
+`run.sh` runs the files in sequence and aborts on the first failure (fail-fast), which
+`bash -e` then turns into a nonzero exit for the whole script. There is no step where a
+person has to interpret NOTICE/ERROR lines to know whether the suite passed — the exit
+code already tells you, and the harness itself has been proven to enforce that (see
+"Harness self-test" below).
+
+## Disposable database safety
+
+`run.sh` only ever operates on a name matching `^kinwin_test_[a-zA-Z0-9_]+$`:
+
+- The default is `kinwin_test_$$` (`$$` = the run's own process ID), generated fresh
+  every invocation.
+- `KINWIN_TEST_DB` may override the name, but only within that same prefix — an unset
+  variable uses the safe default, and any set value (including an empty string, or a
+  name like `postgres`, `template0`, `template1`, or anything containing characters
+  outside `[a-zA-Z0-9_]`) that doesn't match the pattern is **rejected before any
+  destructive command runs**.
+- `CREATE`/`DROP DATABASE` are issued via `createdb`/`dropdb`, which take the name as a
+  plain process argument — never string-interpolated into SQL — so even a name that
+  somehow passed the regex could not inject SQL through this path.
+- An `EXIT` trap always runs `dropdb --if-exists` on the way out, whether the run
+  succeeded or failed, and re-exits with the *original* failing code afterward — cleanup
+  never turns a failed run into an apparently successful one, and a cleanup hiccup never
+  masks the real failure either.
+
+## What this does and does not prove
+
+**Does prove**, because it runs the real migration SQL against a real PostgreSQL server:
+schema/index/trigger creation, `CHECK` constraints, foreign keys, Row Level Security
+policies, and table/column grants all behave exactly as written — these are native
+PostgreSQL features and behave identically whether the server is self-hosted or run by
+Supabase.
+
+**Does not prove**: anything specific to Supabase's own platform layer — GoTrue issuing
+and verifying JWTs, PostgREST's request handling and its own interpretation of grants,
+Storage/Realtime, or the `supabase` CLI's local Docker-based stack. This is PostgreSQL-level
+validation, not full Supabase-platform validation. This environment had a working Docker
+daemon but the full Supabase local stack was not exercised; a natively installed
+PostgreSQL 16 server was used instead, which is sufficient to validate everything the
+migration itself defines.
+
+`000_auth_stub.sql` creates a minimal, clearly-labeled stand-in for the two things the
+migration assumes Supabase already provides: an `auth.users` table (referenced by
+foreign keys) and an `auth.uid()` function. The stub's `auth.uid()` is not a
+simplification — it is the same implementation Supabase itself uses: read the
+`request.jwt.claim.sub` session setting (which PostgREST populates from the caller's
+verified JWT on every request). Tests simulate a caller by running
+`select set_config('request.jwt.claim.sub', '<uuid>', false);` before their queries,
+exactly as a real authenticated request would arrive with that setting already populated.
+
+Before any production deployment, re-run equivalent checks against a disposable hosted
+Supabase project or the full local Supabase stack (`supabase start`, which needs a
+reachable Docker daemon) to additionally cover the GoTrue/PostgREST layer itself — that
+remains a real, unclosed gap this suite does not and cannot claim to cover.
+
+## Running
+
+```bash
+supabase/tests/run.sh
+```
+
+Requires a local PostgreSQL server reachable as the `postgres` role (this repository's
+dev container has one pre-installed; start it with `pg_ctlcluster 16 main start` if it
+isn't already running). The script creates a fresh `kinwin_test_*` database, applies the
+stub, the assertion helpers, and the real migration, seeds fixture data, runs every test
+file, and drops the database again — always, via the exit trap above. It never touches a
+hosted or production Supabase project.
+
+## Files, in run order
+
+| File | Exercises |
+| --- | --- |
+| `000_auth_stub.sql` | Local-only stand-in for `auth.users` / `auth.uid()`. Not part of the migration. |
+| `001_test_helpers.sql` | The `test.assert_*` helpers described above. Not part of the migration. |
+| `010_seed.sql` | Two owners, one fully activated challenge, and one row in every table, inserted as a trusted party. |
+| `020_rls_anon.sql` | Anonymous access to every public table and one write attempt — every case asserted to fail with `42501`. |
+| `030_rls_authenticated_owner.sql` | Owner reads/writes their own profile and draft (row count + persisted value asserted); every write to activated/runtime tables asserted to fail with `42501`. |
+| `040_rls_authenticated_non_owner.sql` | A second authenticated user: row counts asserted zero on another owner's data; an update against another owner's draft asserted to affect zero rows and leave the value unchanged; manages their own profile normally. |
+| `050_private_schema_isolation.sql` | `private` schema asserted unreachable (`42501`) to both `authenticated` and `anon`. |
+| `060_immutability_and_append_only.sql` | The activation-snapshot trigger (asserted `23000`), cross-challenge correction rejection (asserted `23503`), preserved Cut back history (row counts + values asserted), and append-only `check_in_events` (asserted `23000`, including for `service_role`) — all as the trusted role. |
+| `070_constraints.sql` | Representative valid (row count asserted) and invalid (`23514`/`23505` asserted) rows for status/enum, recipient, period, check-in, stake/currency, charge-attempt, and fulfillment constraints. |
+
+## Harness self-test
+
+Before relying on this suite, the harness itself was proven trustworthy — not just the
+migration — by deliberately breaking things and confirming the runner notices:
+
+1. **Normal run**: `supabase/tests/run.sh` — exit `0`, all 83 assertions pass.
+2. **Deliberately broken control**: the `check_in_events` append-only triggers were
+   commented out in a local, uncommitted copy of the migration. Re-running the suite
+   exited `3`, and the transcript pinpointed exactly which assertion caught it
+   (`checkin_update_denied_even_for_service_role` — "statement unexpectedly succeeded").
+   The real migration was restored via `git checkout` immediately afterward; nothing
+   broken was ever committed.
+3. **Restore and rerun**: with the real migration back, the suite exited `0` again.
+4. **Unsafe name rejection**: `KINWIN_TEST_DB=postgres`, `template0`, `template1`,
+   `kinwin_test` (missing the required trailing separator), an empty string, and a string
+   containing a `; DROP DATABASE …` payload were all rejected with a clear error and
+   exit `1` — before any `createdb`/`dropdb` call.
+5. **Intentional assertion failure**: a temporary, never-committed test file asserting
+   `1 = 2` was added, exercised (exit `3`, the exact deliberate failure reported), and
+   removed. The `dropdb` cleanup line still ran, and no test database was left behind.
+6. **Repeatability**: two further clean runs from scratch both exited `0` with all 83
+   assertions passing.
