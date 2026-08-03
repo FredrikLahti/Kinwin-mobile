@@ -1,8 +1,9 @@
-import {
+import type {
   BehaviorDirection,
   MeasurementMode,
   RhythmState,
 } from '@/contexts/onboarding-context';
+import { deriveStructuredSuccessRule } from '@/domain/challenge/success-rule';
 
 type SuccessRuleInput = {
   behaviorDirection: BehaviorDirection | null;
@@ -23,11 +24,6 @@ export type SuccessRule = {
   overall: string;
 };
 
-function parsePositiveValue(rawValue: string) {
-  const parsed = Number(rawValue.replace(',', '.'));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 function formatDuration(durationWeeks: number) {
   return `${durationWeeks} ${durationWeeks === 1 ? 'week' : 'weeks'}`;
 }
@@ -40,7 +36,7 @@ function formatCutBoundary(measurementMode: MeasurementMode, rhythm: RhythmState
         ? rhythm.timeUnit
         : rhythm.amountUnit.trim();
 
-  if (!unit || !rhythm.period || !parsePositiveValue(rhythm.targetValue)) return null;
+  if (!unit || !rhythm.period) return null;
   return `Maximum ${rhythm.targetValue} ${unit} per ${rhythm.period}`;
 }
 
@@ -63,12 +59,17 @@ export function calculateSuccessRule({
   if (!priorTextIsValid || !durationIsValid || !durationWeeks) return null;
 
   const duration = formatDuration(durationWeeks);
+  const structured = deriveStructuredSuccessRule({
+    direction: behaviorDirection,
+    measurement: measurementMode,
+    durationWeeks,
+    rhythm,
+  });
+  if (!structured) return null;
 
-  if (behaviorDirection === 'build' && measurementMode === 'completion') {
-    if (rhythm.type === 'daily') {
-      const totalActiveDays = durationWeeks * 7;
-      const allowedMisses = Math.max(1, Math.round(totalActiveDays * 0.1));
-      const requiredDays = totalActiveDays - allowedMisses;
+  if (structured.successRule.direction === 'build') {
+    const success = structured.successRule;
+    if (structured.challengeRule.direction === 'build' && structured.challengeRule.rhythm.type === 'daily') {
 
       return {
         challengeSummary: `${behavior} · Every day · ${duration}`,
@@ -76,29 +77,14 @@ export function calculateSuccessRule({
         explanation: 'Built for consistency, not perfection.',
         explanationDetail: 'A few difficult periods are allowed, but long gaps are not.',
         isStopRule: false,
-        overall: `Keep your promise on at least ${requiredDays} of ${totalActiveDays} days.`,
+        overall: `Keep your promise on at least ${success.minimumRequiredCompletions} of ${success.totalPlannedCompletions} days.`,
       };
     }
 
-    const weeklyTarget =
-      rhythm.type === 'weekly_count'
-        ? parsePositiveValue(rhythm.targetValue)
-        : rhythm.type === 'specific_days'
-          ? rhythm.selectedWeekdays.length
-          : null;
-
-    if (!weeklyTarget || !Number.isInteger(weeklyTarget)) return null;
-
-    const plannedCompletions = weeklyTarget * durationWeeks;
-    const allowedMisses =
-      plannedCompletions < 4
-        ? 0
-        : Math.max(1, Math.floor(plannedCompletions * 0.15));
-    const requiredCompletions = plannedCompletions - allowedMisses;
-    const rhythmSummary =
-      rhythm.type === 'specific_days'
-        ? `${weeklyTarget} specific ${weeklyTarget === 1 ? 'day' : 'days'} per week`
-        : `${weeklyTarget} ${weeklyTarget === 1 ? 'time' : 'times'} per week`;
+    const weeklyTarget = success.periodTarget;
+    const rhythmSummary = structured.challengeRule.direction === 'build' && structured.challengeRule.rhythm.type === 'specific_days'
+      ? `${weeklyTarget} specific ${weeklyTarget === 1 ? 'day' : 'days'} per week`
+      : `${weeklyTarget} ${weeklyTarget === 1 ? 'time' : 'times'} per week`;
 
     return {
       challengeSummary: `${behavior} · ${rhythmSummary} · ${duration}`,
@@ -109,38 +95,24 @@ export function calculateSuccessRule({
       explanation: 'Built for consistency, not perfection.',
       explanationDetail: 'A few difficult periods are allowed, but long gaps are not.',
       isStopRule: false,
-      overall: `Complete at least ${requiredCompletions} of ${plannedCompletions} planned sessions.`,
+      overall: `Complete at least ${success.minimumRequiredCompletions} of ${success.totalPlannedCompletions} planned sessions.`,
     };
   }
 
-  if (
-    behaviorDirection === 'cut' &&
-    rhythm.type === 'maximum_per_period' &&
-    measurementMode &&
-    ['count', 'time', 'amount'].includes(measurementMode)
-  ) {
-    const boundary = formatCutBoundary(measurementMode, rhythm);
+  if (structured.successRule.direction === 'cut_back') {
+    const boundary = formatCutBoundary(structured.successRule.measurementType, rhythm);
     if (!boundary || !rhythm.period) return null;
 
     if (rhythm.period === 'day') {
-      const totalBoundaries = durationWeeks * 7;
-      const allowedOverLimitDays = Math.max(1, Math.round(totalBoundaries * 0.1));
-      const requiredWithinLimitDays = totalBoundaries - allowedOverLimitDays;
-
       return {
         challengeSummary: `${behavior} · ${boundary} · ${duration}`,
         continuity: 'Never go over the limit more than 2 days in a row.',
         explanation: 'Built for consistency, not perfection.',
         explanationDetail: 'A few difficult periods are allowed, but long gaps are not.',
         isStopRule: false,
-        overall: `Stay within your limit on at least ${requiredWithinLimitDays} of ${totalBoundaries} days.`,
+        overall: `Stay within your limit on at least ${structured.successRule.minimumPeriodsWithinLimit} of ${structured.successRule.totalPeriods} days.`,
       };
     }
-
-    const totalBoundaries = durationWeeks;
-    const allowedOverLimitWeeks =
-      totalBoundaries < 4 ? 0 : Math.max(1, Math.floor(totalBoundaries * 0.15));
-    const requiredWithinLimitWeeks = totalBoundaries - allowedOverLimitWeeks;
 
     return {
       challengeSummary: `${behavior} · ${boundary} · ${duration}`,
@@ -148,15 +120,11 @@ export function calculateSuccessRule({
       explanation: 'Built for consistency, not perfection.',
       explanationDetail: 'A few difficult periods are allowed, but long gaps are not.',
       isStopRule: false,
-      overall: `Stay within your limit for at least ${requiredWithinLimitWeeks} of ${totalBoundaries} weeks.`,
+      overall: `Stay within your limit for at least ${structured.successRule.minimumPeriodsWithinLimit} of ${structured.successRule.totalPeriods} weeks.`,
     };
   }
 
-  if (
-    behaviorDirection === 'stop' &&
-    measurementMode === 'abstinence' &&
-    rhythm.type === 'continuous'
-  ) {
+  if (structured.successRule.direction === 'stop') {
     return {
       challengeSummary: `${behavior} · Continuous · ${duration}`,
       continuity: null,
