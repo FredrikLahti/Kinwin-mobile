@@ -4,6 +4,7 @@ export default function ChallengeLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="active" />
+      <Stack.Screen name="check-in" />
     </Stack>
   );
 }
