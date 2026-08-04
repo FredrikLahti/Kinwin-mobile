@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MIGRATION="$SCRIPT_DIR/../migrations/20260803000000_initial_kinwin_schema.sql"
+MIGRATIONS_DIR="$SCRIPT_DIR/../migrations"
 RUN_AS_POSTGRES=(sudo -u postgres)
 
 # Only a name beginning with `kinwin_test_` and containing nothing but
@@ -64,14 +64,17 @@ echo "==> Applying local auth stub (not part of the production migration)"
 echo "==> Installing test-only assertion helpers (not part of the production migration)"
 "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$SCRIPT_DIR/001_test_helpers.sql"
 
-echo "==> Applying the real migration unmodified"
-"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$MIGRATION"
+echo "==> Applying every real migration unmodified, in filename order"
+for migration in "$MIGRATIONS_DIR"/*.sql; do
+  echo "---- $(basename "$migration") ----"
+  "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$migration"
+done
 
 echo "==> Seeding fixture data"
 "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$SCRIPT_DIR/010_seed.sql"
 
 echo "==> Running RLS, immutability, and constraint assertions (fail-fast)"
-for f in "$SCRIPT_DIR"/0[2-7]*.sql; do
+for f in "$SCRIPT_DIR"/0[2-9][0-9]_*.sql; do
   echo "---- $(basename "$f") ----"
   "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$f"
 done
