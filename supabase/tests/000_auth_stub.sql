@@ -41,3 +41,12 @@ $$;
 
 grant usage on schema public to anon, authenticated, service_role;
 grant anon, authenticated, service_role to current_user;
+
+-- Real Supabase projects run signup through GoTrue (as the platform-internal
+-- supabase_auth_admin role), which this harness has no way to run. Tests
+-- simulate "a signup happened" by inserting into auth.users as service_role
+-- instead — the only stand-in role this stub has that is meant to represent
+-- trusted, non-client-reachable operations. Client roles (anon/authenticated)
+-- deliberately get no grant on the auth schema at all, matching production.
+grant usage on schema auth to service_role;
+grant select, insert, update, delete on table auth.users to service_role;

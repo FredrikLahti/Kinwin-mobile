@@ -1,7 +1,9 @@
 # Executable migration tests
 
-These SQL files exercise `supabase/migrations/20260803000000_initial_kinwin_schema.sql`
-against a real, disposable local PostgreSQL 16 database. Every expectation in every file
+These SQL files exercise every migration under `supabase/migrations/` — the initial
+schema plus `20260804000000_profile_on_signup.sql` — against a real, disposable local
+PostgreSQL 16 database. `run.sh` applies them in filename order, the same order Supabase
+itself applies migrations in. Every expectation in every file
 is a machine assertion (`001_test_helpers.sql`) — **success is defined by the process
 exit code of `supabase/tests/run.sh`, not by reading the console transcript.** Exit code
 `0` means every assertion in every file passed; any nonzero exit means at least one did
@@ -66,19 +68,32 @@ daemon but the full Supabase local stack was not exercised; a natively installed
 PostgreSQL 16 server was used instead, which is sufficient to validate everything the
 migration itself defines.
 
-`000_auth_stub.sql` creates a minimal, clearly-labeled stand-in for the two things the
-migration assumes Supabase already provides: an `auth.users` table (referenced by
-foreign keys) and an `auth.uid()` function. The stub's `auth.uid()` is not a
-simplification — it is the same implementation Supabase itself uses: read the
-`request.jwt.claim.sub` session setting (which PostgREST populates from the caller's
-verified JWT on every request). Tests simulate a caller by running
+`000_auth_stub.sql` creates a minimal, clearly-labeled stand-in for the parts of the
+`auth` schema Supabase already provides: an `auth.users` table (referenced by foreign
+keys and by the new `on_auth_user_created` trigger) and an `auth.uid()` function. The
+stub's `auth.uid()` is not a simplification — it is the same implementation Supabase
+itself uses: read the `request.jwt.claim.sub` session setting (which PostgREST populates
+from the caller's verified JWT on every request). Tests simulate a caller by running
 `select set_config('request.jwt.claim.sub', '<uuid>', false);` before their queries,
 exactly as a real authenticated request would arrive with that setting already populated.
+Real signup goes through GoTrue (running as the platform-internal `supabase_auth_admin`
+role), which this harness cannot run; tests simulate "a signup happened" by inserting
+into `auth.users` as `service_role` instead — the stub grants that role (and only that
+role) access to the `auth` schema for this purpose, since it is the harness's existing
+stand-in for trusted, non-client-reachable operations.
 
-Before any production deployment, re-run equivalent checks against a disposable hosted
-Supabase project or the full local Supabase stack (`supabase start`, which needs a
-reachable Docker daemon) to additionally cover the GoTrue/PostgREST layer itself — that
-remains a real, unclosed gap this suite does not and cannot claim to cover.
+The GoTrue/PostgREST gap noted above is closed in CI, not in this local dev sandbox
+(which cannot reach Docker image registries or GitHub release binaries — see git history
+for the earlier bounded attempts). `.github/workflows/supabase-e2e.yml`'s `supabase-e2e`
+job runs on a GitHub-hosted runner, which has a working Docker daemon: it installs the
+Supabase CLI, runs `supabase start` (the real local Postgres + GoTrue + PostgREST stack,
+migrations applied automatically on first boot), and runs
+`supabase/tests/e2e/auth-and-draft.e2e.ts` against it — real signup, login, profile
+auto-creation, draft insert/update/reload, and cross-user isolation over real HTTP
+through a real `@supabase/supabase-js` client and real GoTrue-issued JWTs. See that
+file's own header comment and `../../.github/workflows/supabase-e2e.yml` for what it
+covers. Before any production deployment, also re-run equivalent checks against a
+disposable hosted Supabase project — CI proves the local stack, not the hosted one.
 
 ## Running
 
@@ -106,13 +121,15 @@ hosted or production Supabase project.
 | `050_private_schema_isolation.sql` | `private` schema asserted unreachable (`42501`) to both `authenticated` and `anon`. |
 | `060_immutability_and_append_only.sql` | The activation-snapshot trigger (asserted `23000`), cross-challenge correction rejection (asserted `23503`), preserved Cut back history (row counts + values asserted), and append-only `check_in_events` (asserted `23000`, including for `service_role`) — all as the trusted role. |
 | `070_constraints.sql` | Representative valid (row count asserted) and invalid (`23514`/`23505` asserted) rows for status/enum, recipient, period, check-in, stake/currency, charge-attempt, and fulfillment constraints. |
+| `080_profile_trigger.sql` | The `on_auth_user_created` trigger: a new `auth.users` row produces exactly one `public.profiles` row with a matching id; repeating the trigger's own idempotent insert pattern against an id that already has a profile does not duplicate it; the trigger function itself is asserted uncallable (`42501`) by `authenticated` or `anon`. |
 
 ## Harness self-test
 
 Before relying on this suite, the harness itself was proven trustworthy — not just the
 migration — by deliberately breaking things and confirming the runner notices:
 
-1. **Normal run**: `supabase/tests/run.sh` — exit `0`, all 83 assertions pass.
+1. **Normal run**: `supabase/tests/run.sh` — exit `0`, all 89 assertions pass (83 from the
+   original schema/RLS/constraints suite, 6 from `080_profile_trigger.sql`).
 2. **Deliberately broken control**: the `check_in_events` append-only triggers were
    commented out in a local, uncommitted copy of the migration. Re-running the suite
    exited `3`, and the transcript pinpointed exactly which assertion caught it
@@ -127,5 +144,13 @@ migration — by deliberately breaking things and confirming the runner notices:
 5. **Intentional assertion failure**: a temporary, never-committed test file asserting
    `1 = 2` was added, exercised (exit `3`, the exact deliberate failure reported), and
    removed. The `dropdb` cleanup line still ran, and no test database was left behind.
-6. **Repeatability**: two further clean runs from scratch both exited `0` with all 83
+6. **Repeatability**: two further clean runs from scratch both exited `0` with all 89
    assertions passing.
+
+A glob regression specific to this package's addition is worth naming: the test-file
+loop originally matched `0[2-7]*.sql`, silently excluding `080_profile_trigger.sql` (its
+prefix starts with `8`, outside `[2-7]`) — the suite still exited `0`, but with only the
+original 83 assertions, having silently run zero of the six new ones. This was caught by
+checking the assertion *count*, not just the exit code, after adding the new file, and
+fixed by widening the pattern to `0[2-9][0-9]_*.sql`. Anyone adding a new `NNN_*.sql` file
+in the `08`–`99` range should confirm the new assertions actually appear in the count.

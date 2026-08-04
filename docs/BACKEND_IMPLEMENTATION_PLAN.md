@@ -7,37 +7,56 @@ phase is a separate, focused package — do not start a phase before its prerequ
 product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 `docs/SUPABASE_SCHEMA.md`) are resolved.
 
-## 1. Authentication and profile ownership
+## 1. Authentication and profile ownership — implemented, verified against real local GoTrue/PostgREST in CI
 
 - **Trusted boundary:** Supabase Auth (GoTrue) issues and verifies JWTs; `auth.uid()` is
   the only identity source `public.profiles` and every `owner_id` column trust.
-- **Tables/functions:** `public.profiles` (exists). Consider a trigger that inserts a
-  profile row on `auth.users` signup, so the client never has to.
-- **Client responsibilities:** Sign up/in via the Supabase Auth SDK; create/update its
-  own `profiles.display_name`.
+- **Tables/functions:** `public.profiles` (exists). `20260804000000_profile_on_signup.sql`
+  adds the `on_auth_user_created` trigger that inserts a bare profile row on signup, so
+  the client never selects its own profile id.
+- **Client responsibilities:** `contexts/auth-context.tsx` wraps `supabase.auth.signUp`/
+  `signInWithPassword`/`signOut`, persists the session via AsyncStorage, and exposes
+  `updateDisplayName` for `profiles.display_name`. `app/auth/index.tsx` is the sign-in/up
+  screen; `app/account/index.tsx` is the minimal account surface.
 - **Server responsibilities:** Nothing beyond what Auth already provides, plus the
-  optional signup trigger above.
-- **Prerequisite product decisions:** Which sign-in methods are offered (email/password,
-  magic link, Sign in with Apple/Google) — not yet decided anywhere in the docs.
-- **Minimum tests:** `supabase/tests/020`–`040` already prove profile RLS; add one test
-  against a real GoTrue-issued JWT once the local Supabase stack is available.
+  signup trigger above.
+- **Prerequisite product decisions:** Which sign-in methods are offered — resolved for
+  this package as email/password only for the internal beta; Apple/Google remain future
+  work the auth boundary is shaped to add without touching unrelated code.
+- **Minimum tests:** `supabase/tests/020`–`040` prove profile RLS; `080_profile_trigger.sql`
+  proves the signup trigger's identity match and idempotency, all against the local
+  `000_auth_stub.sql` stand-in (this dev sandbox cannot reach Docker image registries or
+  GitHub release binaries — see git history for the earlier bounded attempts). The real
+  GoTrue layer that stub stands in for is covered separately:
+  `supabase/tests/e2e/auth-and-draft.e2e.ts`, run in CI
+  (`.github/workflows/supabase-e2e.yml`) against a real `supabase start` local stack,
+  signs a user up through real GoTrue, confirms the profile trigger fired for a real
+  `auth.users` row, and signs in to get a real GoTrue-issued JWT.
 - **Must remain impossible from the client:** Setting another user's `id`; reading any
   other profile; writing `auth.users` directly.
 
-## 2. Editable draft persistence
+## 2. Editable draft persistence — implemented, verified against real local GoTrue/PostgREST in CI
 
 - **Trusted boundary:** None yet — this is the pre-commitment stage, so the client owns
   its own draft outright.
 - **Tables/functions:** `public.challenge_drafts` (exists).
-- **Client responsibilities:** Map live `OnboardingContext` state through the existing
-  `mapOnboardingDraft` anti-corruption boundary and upsert the result into
-  `draft_payload`.
+- **Client responsibilities:** `lib/supabase/challenge-draft-repository.ts` maps live
+  `OnboardingContext` state through the existing `mapOnboardingDraft` anti-corruption
+  boundary and upserts the result into `draft_payload` once the draft is fully valid
+  (wired at the `/share/activate` trial-selection point); `fetchLatestEditableDraft` plus
+  `domain/challenge/to-onboarding-draft.ts`'s `restoreOnboardingDraftData` load and
+  restore the most recent saved draft back into onboarding state via the same explicit
+  mapping-boundary pattern, in reverse.
 - **Server responsibilities:** None beyond the constraints already in place.
-- **Prerequisite product decisions:** None blocking; this phase is structurally ready
-  today. It only needs `@supabase/supabase-js` wiring, which is explicitly out of scope
-  until the founder approves connecting the app to a real project.
-- **Minimum tests:** Round-trip a real `mapOnboardingDraft(...)` result through
-  insert/update and back; `supabase/tests/010_seed.sql` already does this once.
+- **Prerequisite product decisions:** None blocking.
+- **Minimum tests:** `domain/challenge/onboarding-draft-mapping.test.ts` round-trips
+  `mapOnboardingDraft` → `restoreOnboardingDraftData` → `mapOnboardingDraft` for every
+  direction (build/cut_back/stop) and proves recipient-id stability across repeated
+  saves; `supabase/tests/010_seed.sql` exercises a real insert of the mapped shape.
+  `supabase/tests/e2e/auth-and-draft.e2e.ts` (CI only) additionally proves, against a
+  real local PostgREST: insert vs. update of the same draft id without duplicating the
+  row, reload/readback round-tripping the saved data, a second user unable to read or
+  change the draft, and signed-out access unable to read it.
 - **Must remain impossible from the client:** Writing another owner's draft (proven in
   `030`/`040`); a `recipients` array outside 0–4 entries (constraint proven in `070`).
 

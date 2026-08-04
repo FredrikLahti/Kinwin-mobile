@@ -1,11 +1,13 @@
 import { Href, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
+import { useAuth } from '@/contexts/auth-context';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { status, user } = useAuth();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -14,7 +16,28 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.container}>
-          <Text style={styles.version}>Mobile V1</Text>
+          <View style={styles.topRow}>
+            <Text style={styles.version}>Mobile V1</Text>
+            {status === 'signed_in' ? (
+              <Pressable
+                accessibilityHint="Opens your account and saved draft"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => router.push('/account' as Href)}
+              >
+                <Text style={styles.authLink} numberOfLines={1}>{user?.email}</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityHint="Opens sign in and sign up"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => router.push('/auth' as Href)}
+              >
+                <Text style={styles.authLink}>Sign in</Text>
+              </Pressable>
+            )}
+          </View>
 
           <View style={styles.copy}>
             <Text style={styles.title}>Kinwin</Text>
@@ -54,6 +77,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 28,
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   version: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
@@ -65,6 +94,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.6,
+  },
+  authLink: {
+    flexShrink: 1,
+    color: '#343432',
+    fontSize: 13,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   copy: {
     gap: 16,

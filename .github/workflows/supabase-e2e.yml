@@ -1,0 +1,93 @@
+name: Supabase auth & draft persistence
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit tests, Postgres assertion suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          sudo systemctl start postgresql || sudo service postgresql start
+          pg_isready
+
+      # Native Postgres only — proves schema/RLS/triggers/constraints, not
+      # the GoTrue/PostgREST layer. See supabase-e2e below for that half,
+      # and supabase/tests/README.md for what this suite does and does not
+      # cover.
+      - name: PostgreSQL migration / RLS / constraint assertion suite
+        run: supabase/tests/run.sh
+
+  supabase-e2e:
+    name: GoTrue + PostgREST end-to-end (real local Supabase stack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Runs the full local stack (Postgres, GoTrue, PostgREST, Kong, ...)
+      # via Docker Compose, which GitHub-hosted runners have preinstalled.
+      # Applies every file under supabase/migrations/ in filename order on
+      # first boot, same as a hosted project would. Never touches a hosted
+      # project or production credentials — supabase/config.toml is
+      # local-only.
+      - name: Start local Supabase and apply migrations
+        run: supabase start
+
+      # Local-dev-only URL/anon key printed by `supabase start` — the same
+      # well-known values for every fresh local project, never a secret.
+      # `-o env` quotes each value (KEY="value"); $GITHUB_ENV does not strip
+      # shell quoting, so appending it verbatim would set e.g. SUPABASE_URL
+      # to the literal string `"http://127.0.0.1:54321"`, quote characters
+      # included — sed strips exactly that one matching pair per line.
+      - name: Export local Supabase connection details
+        run: |
+          supabase status -o env \
+            --override-name api.url=SUPABASE_URL \
+            --override-name auth.anon_key=SUPABASE_ANON_KEY \
+            | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
+            >> "$GITHUB_ENV"
+
+      - name: Auth + draft-persistence end-to-end suite against real GoTrue/PostgREST
+        run: npm run test:e2e
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop
