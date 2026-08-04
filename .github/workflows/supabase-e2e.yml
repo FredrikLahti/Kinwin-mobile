@@ -73,11 +73,16 @@ jobs:
 
       # Local-dev-only URL/anon key printed by `supabase start` — the same
       # well-known values for every fresh local project, never a secret.
+      # `-o env` quotes each value (KEY="value"); $GITHUB_ENV does not strip
+      # shell quoting, so appending it verbatim would set e.g. SUPABASE_URL
+      # to the literal string `"http://127.0.0.1:54321"`, quote characters
+      # included — sed strips exactly that one matching pair per line.
       - name: Export local Supabase connection details
         run: |
           supabase status -o env \
             --override-name api.url=SUPABASE_URL \
             --override-name auth.anon_key=SUPABASE_ANON_KEY \
+            | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
 
       - name: Auth + draft-persistence end-to-end suite against real GoTrue/PostgREST
