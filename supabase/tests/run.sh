@@ -58,25 +58,31 @@ echo "==> Creating disposable database '$DB_NAME'"
 
 PSQL=(psql -v ON_ERROR_STOP=1 -d "$DB_NAME")
 
+# Piped via stdin rather than psql's own -f: -f would have the `postgres`
+# OS user open the file directly, which fails with "Permission denied" in
+# CI (e.g. GitHub Actions), where the checkout isn't readable by other OS
+# users. Redirection is opened by the invoking user — who does have read
+# access — before sudo hands the already-open file descriptor to postgres,
+# so this works regardless of the checkout directory's permissions.
 echo "==> Applying local auth stub (not part of the production migration)"
-"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$SCRIPT_DIR/000_auth_stub.sql"
+"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$SCRIPT_DIR/000_auth_stub.sql"
 
 echo "==> Installing test-only assertion helpers (not part of the production migration)"
-"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$SCRIPT_DIR/001_test_helpers.sql"
+"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$SCRIPT_DIR/001_test_helpers.sql"
 
 echo "==> Applying every real migration unmodified, in filename order"
 for migration in "$MIGRATIONS_DIR"/*.sql; do
   echo "---- $(basename "$migration") ----"
-  "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$migration"
+  "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$migration"
 done
 
 echo "==> Seeding fixture data"
-"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$SCRIPT_DIR/010_seed.sql"
+"${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$SCRIPT_DIR/010_seed.sql"
 
 echo "==> Running RLS, immutability, and constraint assertions (fail-fast)"
 for f in "$SCRIPT_DIR"/0[2-9][0-9]_*.sql; do
   echo "---- $(basename "$f") ----"
-  "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" -f "$f"
+  "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$f"
 done
 
 echo "==> All assertions passed (process exit code is the source of truth, not this line)."

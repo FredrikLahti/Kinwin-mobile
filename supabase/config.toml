@@ -13,12 +13,15 @@ max_rows = 1000
 
 [db]
 port = 54322
-major_version = 16
+major_version = 17
+
+[db.seed]
+enabled = false
 
 [studio]
 enabled = false
 
-[inbucket]
+[local_smtp]
 enabled = false
 
 [storage]
