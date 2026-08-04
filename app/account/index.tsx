@@ -72,6 +72,7 @@ export default function AccountScreen() {
 
   const startNew = () => {
     void playImportantHaptic();
+    onboarding.resetDraft();
     router.push('/onboarding/goal' as Href);
   };
 
