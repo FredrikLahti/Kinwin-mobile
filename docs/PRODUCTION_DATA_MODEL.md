@@ -22,9 +22,14 @@ and consequence IDs, timestamps, timezone, and membership state—is supplied la
 
 ## Runtime and trust
 
-Periods represent day, week, or continuous challenge windows. They must later be generated on
-the server in the challenge timezone; this package deliberately performs no timezone arithmetic.
-Check-ins are append-only events. New Cut back totals supersede older totals during evaluation,
+Periods represent day, week, or continuous challenge windows, generated server-side in the
+challenge timezone by `private.generate_challenge_periods`
+(`supabase/migrations/20260809000000_server_generated_periods.sql`) — see
+`docs/SUPABASE_SCHEMA.md`'s "Trusted RPCs" section and `docs/PRODUCT_DECISIONS.md`'s "Timezone,
+start, and DST rules" section for the finalized rules and implementation. That function is not yet
+called from anywhere (full activation, phase 3b in `docs/BACKEND_IMPLEMENTATION_PLAN.md`, does not
+exist yet), so no challenge has real generated periods today. Check-ins are append-only events.
+New Cut back totals supersede older totals during evaluation,
 and future corrections refer to an earlier event instead of rewriting history.
 
 Final evaluation runs on trusted server data. The pure evaluation boundary currently returns typed
@@ -56,7 +61,6 @@ No table definition, row-level security policy, provider integration, or migrati
 
 ## Unresolved decisions
 
-- Exact timezone and daylight-saving period generation.
 - Correction policy for mistaken check-ins.
 - Evidence or verification requirements.
 - Exact Cut back continuity safeguard.

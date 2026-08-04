@@ -85,7 +85,7 @@ jobs:
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
 
-      - name: Auth, draft-persistence, prepare_challenge_from_draft, and cancel_pending_challenge end-to-end suite against real GoTrue/PostgREST
+      - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, and server-generated-periods end-to-end suite against real GoTrue/PostgREST
         run: npm run test:e2e
 
       - name: Stop local Supabase
