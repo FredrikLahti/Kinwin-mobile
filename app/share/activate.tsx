@@ -1,6 +1,6 @@
-import { Href, useRouter } from 'expo-router';
+import { Href, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -16,6 +16,7 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
+import { applyResolvedRecipientIds } from '@/domain/challenge/recipient-ids';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
@@ -44,6 +45,7 @@ export default function ShareActivateScreen() {
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
   const { isConfigured, status: authStatus, user } = useAuth();
+  const { resumeSave } = useLocalSearchParams<{ resumeSave?: string }>();
   const {
     behaviorDirection,
     behaviorText,
@@ -60,6 +62,8 @@ export default function ShareActivateScreen() {
     rhythm,
     savedDraftId,
     setMembershipChoice,
+    setRecipients,
+    setRewardOrganizer,
     setSavedDraftId,
     sitOutAcknowledged,
     stakeAmount,
@@ -184,12 +188,19 @@ export default function ShareActivateScreen() {
       }
       return;
     }
+    // Replace ephemeral local recipient ids with the stable ones the save
+    // actually used, so a later save of the same draft (e.g. after "Review
+    // membership again") reuses them instead of minting new UUIDs every time.
+    const resolved = applyResolvedRecipientIds(recipients, rewardOrganizer, result.recipientIds);
+    setRecipients(resolved.recipients);
+    setRewardOrganizer(resolved.rewardOrganizer);
     setSavedDraftId(result.draft.id);
     setSaveState('saved');
   }, [
     authStatus, behaviorDirection, behaviorText, currency, definitionText, durationWeeks,
     experienceCategory, goal, invitationMessage, isConfigured, measurementMode, recipients,
-    rewardOrganizer, rhythm, savedDraftId, setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
+    rewardOrganizer, rhythm, savedDraftId, setRecipients, setRewardOrganizer, setSavedDraftId,
+    sitOutAcknowledged, stakeAmount, user,
   ]);
 
   const selectTrial = () => {
@@ -200,14 +211,24 @@ export default function ShareActivateScreen() {
   };
 
   // Covers the "select trial while signed out -> sign in -> land back here"
-  // round trip: selectTrial's save attempt above stops at saveState
-  // 'signed_out' with no session yet, and nothing else would ever retry it
-  // once the user actually signs in and returns to this screen.
+  // round trip. /auth redirects back here with resumeSave=1 after a
+  // successful sign-in via router.replace, which mounts a brand new instance
+  // of this screen — so this can't rely on the earlier instance's local
+  // saveState ('signed_out') having survived the trip; it did not.
+  // resumedRef makes the retry fire at most once per mount even if this
+  // effect re-runs for unrelated reasons (e.g. saveDraft's identity
+  // changing as onboarding fields update).
+  const resumedRef = useRef(false);
   useEffect(() => {
-    if (trialSelected && authStatus === 'signed_in' && saveState === 'signed_out') {
+    if (resumeSave !== '1' || resumedRef.current) return;
+    // Marked immediately, before checking whether a save is actually due
+    // right now, so this can never fire a second time later even if
+    // trialSelected/authStatus change again while resumeSave is still '1'.
+    resumedRef.current = true;
+    if (trialSelected && authStatus === 'signed_in') {
       void saveDraft();
     }
-  }, [authStatus, saveDraft, saveState, trialSelected]);
+  }, [authStatus, resumeSave, saveDraft, trialSelected]);
 
   const retrySave = () => {
     void playSelectionHaptic();

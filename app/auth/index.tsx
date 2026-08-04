@@ -35,7 +35,13 @@ export default function AuthScreen() {
 
   useEffect(() => {
     if (status === 'signed_in') {
-      router.replace((returnTo && returnTo.startsWith('/') ? returnTo : '/account') as Href);
+      const target = returnTo && returnTo.startsWith('/') ? returnTo : '/account';
+      // resumeSave=1 tells a returning screen (e.g. /share/activate) that it
+      // was just navigated back to after a sign-in redirect, so it can retry
+      // a save that was pending — router.replace mounts a fresh instance of
+      // the target route, so that screen's own local state (e.g. "signed
+      // out, waiting to save") cannot be relied on to have survived the trip.
+      router.replace({ pathname: target, params: { resumeSave: '1' } } as Href);
     }
   }, [returnTo, router, status]);
 

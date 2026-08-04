@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { mapOnboardingDraft, OnboardingDraftData } from './from-onboarding-draft';
-import { resolveRecipientIds } from './recipient-ids';
+import { applyResolvedRecipientIds, resolveRecipientIds } from './recipient-ids';
 import { restoreOnboardingDraftData } from './to-onboarding-draft';
 import type { ChallengeDraftId, RecipientId, UserId } from './types';
 
@@ -140,4 +140,57 @@ test('resolveRecipientIds is stable across repeated calls for already-production
   const first = resolveRecipientIds([{ id: stableA, name: 'Anna' }, { id: stableB, name: 'Bob' }], mintId);
   const second = resolveRecipientIds([{ id: stableA, name: 'Anna' }, { id: stableB, name: 'Bob' }], mintId);
   assert.deepEqual(first, second);
+});
+
+test('applyResolvedRecipientIds replaces ephemeral ids and keeps names', () => {
+  const recipients = [{ id: 'recipient-1', name: 'Anna' }, { id: 'recipient-2', name: 'Bob' }];
+  const recipientIds = { 'recipient-1': '11111111-1111-4111-8111-111111111111', 'recipient-2': '22222222-2222-4222-8222-222222222222' };
+  const { recipients: next } = applyResolvedRecipientIds(recipients, null, recipientIds);
+  assert.deepEqual(next, [
+    { id: '11111111-1111-4111-8111-111111111111', name: 'Anna' },
+    { id: '22222222-2222-4222-8222-222222222222', name: 'Bob' },
+  ]);
+});
+
+test('applyResolvedRecipientIds remaps a reward organizer pointing at a replaced recipient', () => {
+  const recipients = [{ id: 'recipient-1', name: 'Anna' }];
+  const recipientIds = { 'recipient-1': '11111111-1111-4111-8111-111111111111' };
+  const { rewardOrganizer } = applyResolvedRecipientIds(
+    recipients,
+    { type: 'recipient', recipientId: 'recipient-1' },
+    recipientIds,
+  );
+  assert.deepEqual(rewardOrganizer, { type: 'recipient', recipientId: '11111111-1111-4111-8111-111111111111' });
+});
+
+test('applyResolvedRecipientIds leaves an "other" reward organizer untouched', () => {
+  const recipients = [{ id: 'recipient-1', name: 'Anna' }];
+  const recipientIds = { 'recipient-1': '11111111-1111-4111-8111-111111111111' };
+  const { rewardOrganizer } = applyResolvedRecipientIds(
+    recipients,
+    { type: 'other', name: 'A neighbor' },
+    recipientIds,
+  );
+  assert.deepEqual(rewardOrganizer, { type: 'other', name: 'A neighbor' });
+});
+
+test('a second save after applying resolved ids reuses them and mints nothing new', () => {
+  // Models the exact bug from review: recipient ids start ephemeral, the
+  // first save mints stable UUIDs, and the caller (activate.tsx) is
+  // expected to persist those back into onboarding state via
+  // applyResolvedRecipientIds — so a second save of the same draft must see
+  // UUID-shaped ids already and mint nothing new.
+  const original = [{ id: 'recipient-1730000000-a1', name: 'Anna' }, { id: 'recipient-1730000000-b2', name: 'Bob' }];
+  let minted = 0;
+  const firstSaveIds = resolveRecipientIds(original, () => { minted += 1; return `4444444${minted}-4444-4444-8444-444444444444`; });
+  assert.equal(minted, 2, 'both ephemeral ids should be minted on first save');
+
+  const { recipients: persisted } = applyResolvedRecipientIds(original, null, firstSaveIds);
+
+  const throwingMint = () => { throw new Error('mintId should not be called once ids are already stable'); };
+  const secondSaveIds = resolveRecipientIds(persisted, throwingMint);
+  assert.deepEqual(secondSaveIds, {
+    [persisted[0].id]: persisted[0].id,
+    [persisted[1].id]: persisted[1].id,
+  });
 });
