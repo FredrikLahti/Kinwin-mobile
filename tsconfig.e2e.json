@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] },
+    "outDir": ".test-e2e-dist"
+  },
+  "include": ["supabase/tests/e2e/auth-and-draft.e2e.ts"]
+}

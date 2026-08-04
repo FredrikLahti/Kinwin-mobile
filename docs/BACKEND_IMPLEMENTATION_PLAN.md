@@ -7,7 +7,7 @@ phase is a separate, focused package — do not start a phase before its prerequ
 product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 `docs/SUPABASE_SCHEMA.md`) are resolved.
 
-## 1. Authentication and profile ownership — implemented, pending live GoTrue verification
+## 1. Authentication and profile ownership — implemented, verified against real local GoTrue/PostgREST in CI
 
 - **Trusted boundary:** Supabase Auth (GoTrue) issues and verifies JWTs; `auth.uid()` is
   the only identity source `public.profiles` and every `owner_id` column trust.
@@ -24,16 +24,18 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   this package as email/password only for the internal beta; Apple/Google remain future
   work the auth boundary is shaped to add without touching unrelated code.
 - **Minimum tests:** `supabase/tests/020`–`040` prove profile RLS; `080_profile_trigger.sql`
-  proves the signup trigger's identity match and idempotency. Still missing: a test
-  against a real GoTrue-issued JWT — this environment could not run the full local
-  Supabase/GoTrue/PostgREST stack (Docker image pulls and direct GitHub-release binary
-  downloads were both blocked by network policy; see the auth/draft-persistence package's
-  final report for the exact evidence). The stub's `auth.uid()` reproduces Supabase's real
-  implementation faithfully but was never exercised against an actual GoTrue-issued token.
+  proves the signup trigger's identity match and idempotency, all against the local
+  `000_auth_stub.sql` stand-in (this dev sandbox cannot reach Docker image registries or
+  GitHub release binaries — see git history for the earlier bounded attempts). The real
+  GoTrue layer that stub stands in for is covered separately:
+  `supabase/tests/e2e/auth-and-draft.e2e.ts`, run in CI
+  (`.github/workflows/supabase-e2e.yml`) against a real `supabase start` local stack,
+  signs a user up through real GoTrue, confirms the profile trigger fired for a real
+  `auth.users` row, and signs in to get a real GoTrue-issued JWT.
 - **Must remain impossible from the client:** Setting another user's `id`; reading any
   other profile; writing `auth.users` directly.
 
-## 2. Editable draft persistence — implemented, pending live GoTrue verification
+## 2. Editable draft persistence — implemented, verified against real local GoTrue/PostgREST in CI
 
 - **Trusted boundary:** None yet — this is the pre-commitment stage, so the client owns
   its own draft outright.
@@ -51,8 +53,10 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   `mapOnboardingDraft` → `restoreOnboardingDraftData` → `mapOnboardingDraft` for every
   direction (build/cut_back/stop) and proves recipient-id stability across repeated
   saves; `supabase/tests/010_seed.sql` exercises a real insert of the mapped shape.
-  Still missing: an end-to-end save/reload against a live PostgREST — same GoTrue/
-  PostgREST gap as phase 1.
+  `supabase/tests/e2e/auth-and-draft.e2e.ts` (CI only) additionally proves, against a
+  real local PostgREST: insert vs. update of the same draft id without duplicating the
+  row, reload/readback round-tripping the saved data, a second user unable to read or
+  change the draft, and signed-out access unable to read it.
 - **Must remain impossible from the client:** Writing another owner's draft (proven in
   `030`/`040`); a `recipients` array outside 0–4 entries (constraint proven in `070`).
 

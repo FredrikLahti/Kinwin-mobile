@@ -1,0 +1,45 @@
+# Minimal local-only Supabase CLI project config. Used exclusively by
+# `supabase start` in CI (see .github/workflows/supabase-e2e.yml) to run the
+# real GoTrue + PostgREST layer this repo's hand-built Postgres test harness
+# (supabase/tests/) cannot reach. Never pointed at a hosted project.
+project_id = "kinwin-mobile"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 16
+
+[studio]
+enabled = false
+
+[inbucket]
+enabled = false
+
+[storage]
+enabled = false
+
+[realtime]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false

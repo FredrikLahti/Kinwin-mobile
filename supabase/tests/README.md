@@ -82,10 +82,18 @@ into `auth.users` as `service_role` instead — the stub grants that role (and o
 role) access to the `auth` schema for this purpose, since it is the harness's existing
 stand-in for trusted, non-client-reachable operations.
 
-Before any production deployment, re-run equivalent checks against a disposable hosted
-Supabase project or the full local Supabase stack (`supabase start`, which needs a
-reachable Docker daemon) to additionally cover the GoTrue/PostgREST layer itself — that
-remains a real, unclosed gap this suite does not and cannot claim to cover.
+The GoTrue/PostgREST gap noted above is closed in CI, not in this local dev sandbox
+(which cannot reach Docker image registries or GitHub release binaries — see git history
+for the earlier bounded attempts). `.github/workflows/supabase-e2e.yml`'s `supabase-e2e`
+job runs on a GitHub-hosted runner, which has a working Docker daemon: it installs the
+Supabase CLI, runs `supabase start` (the real local Postgres + GoTrue + PostgREST stack,
+migrations applied automatically on first boot), and runs
+`supabase/tests/e2e/auth-and-draft.e2e.ts` against it — real signup, login, profile
+auto-creation, draft insert/update/reload, and cross-user isolation over real HTTP
+through a real `@supabase/supabase-js` client and real GoTrue-issued JWTs. See that
+file's own header comment and `../../.github/workflows/supabase-e2e.yml` for what it
+covers. Before any production deployment, also re-run equivalent checks against a
+disposable hosted Supabase project — CI proves the local stack, not the hosted one.
 
 ## Running
 
