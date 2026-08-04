@@ -347,3 +347,28 @@ insert into public.challenges (
     'membershipStatusAtActivation', 'trialing'
   )
 );
+
+-- Archived draft fixture for 110_archived_draft_immutability.sql —
+-- deliberately minimal since only draft_status matters for that test.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-00000000000b',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-00000000000b',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(),
+    'rewardOrganizer', null,
+    'experienceCategory', null,
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', false,
+    'invitationMessage', '',
+    'membershipSelection', null
+  ),
+  'archived'
+);

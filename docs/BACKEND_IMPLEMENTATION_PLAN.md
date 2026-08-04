@@ -111,6 +111,14 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   `SECURITY DEFINER` function, `public.cancel_pending_challenge`
   (`supabase/migrations/20260806000000_cancel_pending_challenge.sql`), the only path
   that can move `challenge_status`/`consequences.status` to `canceled_before_activation`.
+  `supabase/migrations/20260807000000_archived_draft_immutability.sql` closes a related
+  gap found in review: the owner's existing `challenge_drafts` grants were never scoped
+  to `draft_status`, so a stale client save could otherwise still rewrite or delete an
+  already-archived draft — the row the read-only summary below is sourced from — even
+  though it can no longer construct/edit the challenge/recipients/consequence rows
+  themselves. A trigger now rejects `UPDATE`/`DELETE` on any `challenge_drafts` row once
+  `draft_status = 'archived'`, for every role, the same "immutable beyond the client
+  boundary too" pattern `check_in_events`' append-only trigger already established.
 - **Tables/functions:** Reads `challenges`, `challenge_recipients`, `consequences`, and
   the archived source draft's `draft_payload` (the only place the goal/behavior/
   successRule/duration/experience category still exist pre-full-activation). Writes,
@@ -145,9 +153,16 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   real PostgREST RPC call; it does not re-prove the active-challenge rejection case,
   since there is no client-reachable way yet to produce a real active challenge (that
   path is exercised at the Postgres level instead, directly against a fixture).
+  `supabase/tests/110_archived_draft_immutability.sql` proves an archived draft's
+  `UPDATE`/`DELETE` are rejected for every role including `service_role`, that the
+  rejected row survives unchanged, and that a non-archived draft remains fully editable
+  and deletable as before; `pending-commitment.e2e.ts` re-proves the rejection against a
+  real PostgREST request attempting exactly the update/delete a stale client save would
+  send.
 - **Must remain impossible from the client:** Any direct write to `challenges` or
   `consequences` (already proven — no grant); canceling another user's pending
-  commitment; canceling an already-active or completed challenge; deleting any row.
+  commitment; canceling an already-active or completed challenge; deleting any row;
+  updating or deleting an already-archived `challenge_drafts` row.
 
 ## 3b. Trusted full activation
 

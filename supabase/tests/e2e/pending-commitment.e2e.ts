@@ -77,7 +77,7 @@ function buildOnboardingData(recipientLocalId: string): OnboardingDraftData {
 }
 
 /** Saves a complete draft and prepares it into a pending commitment, mirroring the app's real save -> prepare sequence. */
-async function createPendingCommitment(client: ReturnType<typeof freshClient>, ownerId: string): Promise<string> {
+async function createPendingCommitment(client: ReturnType<typeof freshClient>, ownerId: string): Promise<{ challengeId: string; draftId: string }> {
   const localRecipientId = 'recipient-local-1';
   const draftId = randomUUID();
   const recipientIds = resolveRecipientIds([{ id: localRecipientId, name: 'Anna' }], () => randomUUID());
@@ -98,7 +98,7 @@ async function createPendingCommitment(client: ReturnType<typeof freshClient>, o
   const { data, error } = await client.rpc('prepare_challenge_from_draft', { draft_id: draftId });
   assert.equal(error, null, `prepare_challenge_from_draft failed: ${error?.message}`);
   assert.equal(data.status, 'pending_activation');
-  return data.challengeId as string;
+  return { challengeId: data.challengeId as string, draftId };
 }
 
 test('reading and canceling a pending commitment', async (t) => {
@@ -109,8 +109,9 @@ test('reading and canceling a pending commitment', async (t) => {
   });
 
   let challengeId = '';
+  let draftId = '';
   await t.test('a pending commitment exists to read', async () => {
-    challengeId = await createPendingCommitment(ownerA, userIdA);
+    ({ challengeId, draftId } = await createPendingCommitment(ownerA, userIdA));
   });
 
   await t.test('the owner can read their pending commitment (challenge, recipients, consequence)', async () => {
@@ -142,6 +143,23 @@ test('reading and canceling a pending commitment', async (t) => {
     assert.equal(consequenceError, null, `consequence read failed: ${consequenceError?.message}`);
     assert.equal(consequence!.status, 'payment_method_required');
     assert.equal(consequence!.stake_minor_units, 7500);
+  });
+
+  await t.test('the archived source draft the summary reads from can no longer be changed', async () => {
+    // A stale client session still holding this draft's id (e.g. the
+    // activate screen reopened after the commitment was already prepared)
+    // must not be able to silently rewrite the locked-in summary.
+    const { error: updateError } = await ownerA
+      .from('challenge_drafts')
+      .update({ draft_payload: { tampered: true }, draft_status: 'ready_for_activation' })
+      .eq('id', draftId);
+    assert.equal(updateError?.code, '23000', `expected the archived-draft trigger to reject this update, got: ${JSON.stringify(updateError)}`);
+
+    const { error: deleteError } = await ownerA.from('challenge_drafts').delete().eq('id', draftId);
+    assert.equal(deleteError?.code, '23000', `expected the archived-draft trigger to reject this delete, got: ${JSON.stringify(deleteError)}`);
+
+    const { data: draft } = await ownerA.from('challenge_drafts').select('draft_status').eq('id', draftId).single();
+    assert.equal(draft?.draft_status, 'archived', 'the archived draft must survive both rejected attempts unchanged');
   });
 
   const ownerB = freshClient();

@@ -2,7 +2,8 @@
 
 These SQL files exercise every migration under `supabase/migrations/` — the initial
 schema, `20260804000000_profile_on_signup.sql`, `20260805000000_prepare_challenge_from_draft.sql`,
-and `20260806000000_cancel_pending_challenge.sql` — against a real, disposable local
+`20260806000000_cancel_pending_challenge.sql`, and
+`20260807000000_archived_draft_immutability.sql` — against a real, disposable local
 PostgreSQL 16 database. `run.sh` applies them in filename order, the same order Supabase
 itself applies migrations in. Every expectation in every file
 is a machine assertion (`001_test_helpers.sql`) — **success is defined by the process
@@ -115,7 +116,7 @@ hosted or production Supabase project.
 | --- | --- |
 | `000_auth_stub.sql` | Local-only stand-in for `auth.users` / `auth.uid()`. Not part of the migration. |
 | `001_test_helpers.sql` | The `test.assert_*` helpers described above. Not part of the migration. |
-| `010_seed.sql` | Two owners, one fully activated challenge, one row in every table, six extra `challenge_drafts` fixtures for `090_prepare_challenge_from_draft.sql` (complete/ready, complete/ready reserved, incomplete/ready, complete/not-ready, complete/ready reserved for the atomicity test, complete-except-for-a-bare-rule-object/ready), and — for `100_cancel_pending_challenge.sql` — two pre-built pending commitments (challenge + recipient + consequence + archived source draft, as `prepare_challenge_from_draft` would have left them) plus one already-`active` challenge, inserted as a trusted party. |
+| `010_seed.sql` | Two owners, one fully activated challenge, one row in every table, six extra `challenge_drafts` fixtures for `090_prepare_challenge_from_draft.sql` (complete/ready, complete/ready reserved, incomplete/ready, complete/not-ready, complete/ready reserved for the atomicity test, complete-except-for-a-bare-rule-object/ready), for `100_cancel_pending_challenge.sql` two pre-built pending commitments (challenge + recipient + consequence + archived source draft, as `prepare_challenge_from_draft` would have left them) plus one already-`active` challenge, and for `110_archived_draft_immutability.sql` one more archived draft, inserted as a trusted party. |
 | `020_rls_anon.sql` | Anonymous access to every public table and one write attempt — every case asserted to fail with `42501`. |
 | `030_rls_authenticated_owner.sql` | Owner reads/writes their own profile and draft (row count + persisted value asserted); every write to activated/runtime tables asserted to fail with `42501`. |
 | `040_rls_authenticated_non_owner.sql` | A second authenticated user: row counts asserted zero on another owner's data; an update against another owner's draft asserted to affect zero rows and leave the value unchanged; manages their own profile normally. |
@@ -125,6 +126,7 @@ hosted or production Supabase project.
 | `080_profile_trigger.sql` | The `on_auth_user_created` trigger: a new `auth.users` row produces exactly one `public.profiles` row with a matching id; repeating the trigger's own idempotent insert pattern against an id that already has a profile does not duplicate it; the trigger function itself is asserted uncallable (`42501`) by `authenticated` or `anon`. |
 | `090_prepare_challenge_from_draft.sql` | The `prepare_challenge_from_draft` RPC: successful atomic creation of the challenge/recipient/consequence rows and draft archival; a repeated request returns the same challenge with no duplicate; another user cannot prepare someone else's draft (`P0002`, indistinguishable from not-found); an incomplete/tampered draft that still satisfies `challenge_drafts`' own looser CHECK constraints is rejected (`22023`), including a draft whose `behavior.rule`/`successRule` are bare, incomplete objects that pass those constraints but aren't a real, evaluable rule pair; a not-yet-ready draft is rejected; an unauthenticated call is rejected (`28000`); `anon` has no execute grant at all (`42501`); a deliberately-failed wrapping transaction proves every row count is unchanged afterward (true atomicity); direct client writes to the rows this RPC just created remain impossible (`42501`). |
 | `100_cancel_pending_challenge.sql` | Reading a pending commitment (owner sees it; a non-owner's read is silently filtered to zero rows; `anon` is denied outright, `42501`) and the `cancel_pending_challenge` RPC: successful atomic cancellation of both the challenge and its consequence; nothing deleted (recipient row and archived source draft both survive); a repeated cancel is idempotent; another user cannot cancel it (`P0002`); canceling an already-`active` challenge is rejected (`22023`) and leaves it unchanged; an unknown id is rejected the same as one owned by someone else; an unauthenticated call is rejected (`28000`); `anon` has no execute grant (`42501`); a new draft can be inserted right after cancellation; direct client writes to the canceled rows remain impossible (`42501`). |
+| `110_archived_draft_immutability.sql` | The archived-`challenge_drafts` immutability triggers: `UPDATE` and `DELETE` on an archived draft are both rejected (`23000`), including for `service_role`; the row survives every rejected attempt unchanged; a non-archived draft the owner creates remains fully editable and deletable, exactly as before. |
 
 ## Harness self-test
 

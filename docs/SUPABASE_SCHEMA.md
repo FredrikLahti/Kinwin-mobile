@@ -88,6 +88,17 @@ and Cut back totals are never overwritten as the source of truth.
 The SQL event names `stop_intact` and `stop_lapse` are the relational forms of the TypeScript
 `stop_status` discriminant, whose payload carries the corresponding status.
 
+`supabase/migrations/20260807000000_archived_draft_immutability.sql` applies the same
+"immutable for every role, not just the client" principle to `challenge_drafts`: once
+`draft_status = 'archived'` (the state `prepare_challenge_from_draft` leaves a draft in),
+a trigger unconditionally rejects `UPDATE` and `DELETE`, even though the owner's own
+grants on that table are not themselves scoped to `draft_status`. Without it, a stale
+client session still holding an already-prepared draft's id could silently rewrite or
+remove the row a pending commitment's read-only summary is sourced from, while the
+separately-created `challenge_recipients`/`consequences` rows stayed exactly as they
+were — breaking the "no longer editable" rule without touching any of the tables that
+actually represent the commitment.
+
 ## Trusted RPCs
 
 `supabase/migrations/20260805000000_prepare_challenge_from_draft.sql` adds
