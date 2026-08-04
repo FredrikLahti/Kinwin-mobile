@@ -91,3 +91,134 @@ insert into private.consequence_charge_attempts (id, consequence_id, idempotency
 
 insert into private.reward_fulfillments (id, consequence_id, fulfillment_provider, status, amount_minor_units, currency, requested_at) values
   ('44444444-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000001', 'tremendous', 'pending', 7500, 'USD', now());
+
+-- Additional drafts for 09X_prepare_challenge_from_draft.sql, which needs
+-- genuinely complete, ready_for_activation payloads (unlike the loose
+-- aaaaaaaa-...0001 draft above) to exercise the RPC's success path, plus a
+-- few deliberately imperfect siblings for its rejection paths. All owned by
+-- Owner A unless noted.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000002',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000002',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);
+
+-- Complete and ready, but reserved for the "another user cannot prepare
+-- this draft" test — never consumed by the success-path test above.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000003',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000003',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);
+
+-- Marked ready_for_activation (passing challenge_drafts' own coarse CHECK
+-- constraints) but missing several commitment fields the RPC itself must
+-- still reject: no recipients, no organizer, no experience category, the
+-- sit-out promise not acknowledged, no invitation message, no membership
+-- selection.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000004',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000004',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(),
+    'rewardOrganizer', null,
+    'experienceCategory', null,
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', false,
+    'invitationMessage', '',
+    'membershipSelection', null
+  ),
+  'ready_for_activation'
+);
+
+-- Otherwise-complete payload that is simply not ready yet.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000005',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000005',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'editing'
+);
+
+-- Complete and ready, reserved for the atomicity/rollback test — must stay
+-- untouched by every other test above so a failed downstream statement has
+-- something fresh to roll back.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000006',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000006',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);

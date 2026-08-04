@@ -88,9 +88,30 @@ and Cut back totals are never overwritten as the source of truth.
 The SQL event names `stop_intact` and `stop_lapse` are the relational forms of the TypeScript
 `stop_status` discriminant, whose payload carries the corresponding status.
 
+## Trusted RPCs
+
+`supabase/migrations/20260805000000_prepare_challenge_from_draft.sql` adds
+`public.prepare_challenge_from_draft(draft_id uuid)`, a `SECURITY DEFINER` function with a
+fixed `search_path` and `EXECUTE` granted only to `authenticated`. It is the only way a
+`challenges`/`challenge_recipients`/`consequences` row can come from client action: those
+tables still have no client `INSERT`/`UPDATE` grant at all. Given a draft id, it requires a
+real `auth.uid()`, loads the draft from the database (never from client-supplied contents),
+verifies ownership and `draft_status = 'ready_for_activation'`, revalidates every required
+commitment field server-side, and atomically creates one `challenges` row with
+`challenge_status = 'pending_activation'` (no `activation_snapshot`, timestamps, or timezone —
+those stay null), its `challenge_recipients`, and one `consequences` row in the honest
+pre-payment state `'payment_method_required'`, then archives the source draft. A unique
+partial index on `challenges.source_draft_id` plus an in-function idempotency check make
+repeated preparation of the same draft return the same challenge rather than duplicating it.
+It never creates membership, payment authorization, challenge periods, invitations, or an
+active status — see "Future trusted server work" below for those.
+See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a for client wiring and test coverage.
+
 ## Future trusted server work
 
-- Draft-readiness review and atomic activation, including snapshot/recipient/consequence creation.
+- Full activation of an already-prepared `pending_activation` challenge: the immutable
+  `activation_snapshot`, `activated_at`/`starts_at`/`planned_ends_at`, and timezone, plus real
+  payment authorization (`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b).
 - Timezone- and DST-aware period generation.
 - Validated, idempotent check-in append and correction handling.
 - Versioned deterministic evaluation and challenge lifecycle transitions.

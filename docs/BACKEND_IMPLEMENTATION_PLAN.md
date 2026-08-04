@@ -60,28 +60,74 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 - **Must remain impossible from the client:** Writing another owner's draft (proven in
   `030`/`040`); a `recipients` array outside 0–4 entries (constraint proven in `070`).
 
-## 3. Trusted atomic activation
+## 3a. Trusted draft-to-pending-commitment preparation — implemented, verified against real local GoTrue/PostgREST in CI
 
-- **Trusted boundary:** A single server-side transaction (Postgres function or Edge
-  Function running as `service_role`) — never the client — decides a draft is ready and
-  creates the commitment.
-- **Tables/functions:** Writes `challenges` (with `activation_snapshot`),
-  `challenge_recipients`, and `consequences` atomically; a new trusted function
-  (`activate_challenge_draft` or similar) does not exist yet.
-- **Client responsibilities:** Trigger activation and render the result; it can never
-  construct `activation_snapshot` itself (no write grant exists on `challenges`).
+- **Trusted boundary:** `public.prepare_challenge_from_draft` — a `SECURITY DEFINER`
+  Postgres function, never the client — requires a real `auth.uid()`, loads the draft
+  from the database (never from client-supplied contents), and atomically creates the
+  commitment.
+- **Tables/functions:** `supabase/migrations/20260805000000_prepare_challenge_from_draft.sql`
+  atomically writes one `challenges` row with `challenge_status = 'pending_activation'`
+  (no `activation_snapshot`, timestamps, or timezone — those stay null by the table's own
+  CHECK constraint), its `challenge_recipients`, and one `consequences` row in an honest
+  pre-payment state (`'payment_method_required'`), then archives the source draft. It
+  deliberately does **not** create membership, payment authorization, challenge periods,
+  invitations, or an active status — see phase 3b below for those.
+- **Client responsibilities:** `lib/supabase/challenge-repository.ts`'s
+  `prepareChallengeFromDraft` calls the RPC once a draft has been saved as
+  `ready_for_activation` (wired into `app/share/activate.tsx` right after
+  `saveChallengeDraft` succeeds); it can never construct any of the written rows itself
+  (no write grant exists on `challenges`/`challenge_recipients`/`consequences`). The
+  screen renders this server-saved pending commitment as a state clearly distinct from
+  the pre-existing local, session-only "Preview active challenge" prototype shortcut,
+  which is unchanged and still writes nothing.
 - **Server responsibilities:** Re-run `validateActivationReadiness`-equivalent checks
-  server-side (never trust the client's own pass/fail), generate IDs, and write the
-  snapshot, recipients, and consequence row in one transaction.
-- **Prerequisite product decisions:** Recipient replacement after activation; whether
-  challenge start waits for sharing — both listed as unresolved.
-- **Minimum tests:** Atomicity under simulated partial failure (rollback leaves no
-  half-created challenge); re-validation rejects a tampered/incomplete draft even when a
-  client-side check would have passed; the immutability trigger (proven in
-  `060_immutability_and_append_only.sql`) continues to block any later tampering.
+  server-side (never trust the client's own pass/fail or the draft's own coarse CHECK
+  constraints), and write the challenge, recipients, and consequence row in one atomic
+  transaction; return the same result on a repeated request for an already-prepared
+  draft instead of creating a duplicate (enforced by a unique partial index on
+  `challenges.source_draft_id`, with a `unique_violation` handler for the concurrent-call
+  race).
+- **Prerequisite product decisions:** Recipient confirmation does not block preparation;
+  recipients cannot be replaced by the user after commitment creation — both resolved for
+  this package.
+- **Minimum tests:** `supabase/tests/090_prepare_challenge_from_draft.sql` proves atomic
+  row creation, draft archival, idempotent repeats, non-owner rejection (indistinguishable
+  from "not found"), rejection of incomplete/tampered drafts that still pass the draft
+  table's own looser constraints, unauthenticated/anonymous rejection, and — via a
+  deliberately-failed wrapping transaction — that a downstream failure leaves every
+  row count unchanged (true atomicity, not several separately-observable statements).
+  `supabase/tests/e2e/prepare-challenge.e2e.ts` (CI only) re-proves the success path,
+  idempotent repeat, cross-user rejection, and that direct client writes remain
+  impossible, against a real GoTrue-issued JWT and real PostgREST RPC call.
 - **Must remain impossible from the client:** Any direct write to `challenges`,
-  `challenge_recipients`, or `consequences` (already proven — no grant); activating the
-  same draft twice.
+  `challenge_recipients`, or `consequences` (already proven — no grant); preparing the
+  same draft twice; preparing another user's draft; a fake active/activated status.
+
+## 3b. Trusted full activation
+
+- **Trusted boundary:** A single server-side transaction — never the client — decides a
+  pending commitment is ready to actually start and transitions it to `active`.
+- **Tables/functions:** Updates the `challenges` row 3a already created with
+  `activation_snapshot`, `activated_at`, `starts_at`, `planned_ends_at`, and `timezone`;
+  a new trusted function (`activate_challenge_draft` or similar) does not exist yet. This
+  is the remaining, still-unimplemented half of the original "Trusted atomic activation"
+  phase — real payment authorization, period generation, and status become `active` only
+  here, not in 3a.
+- **Client responsibilities:** Trigger activation once the surrounding flow (payment
+  method, recipient link, sharing) is real, and render the result.
+- **Server responsibilities:** Re-validate readiness again at this later point (the
+  underlying draft is gone by then — archived in 3a — so this reads from the
+  `pending_activation` challenge instead), generate the immutable snapshot, and write it
+  atomically together with `starts_at`/`planned_ends_at`/`timezone`.
+- **Prerequisite product decisions:** Whether challenge start waits for sharing — still
+  unresolved.
+- **Minimum tests:** Atomicity under simulated partial failure; the immutability trigger
+  (proven in `060_immutability_and_append_only.sql`) continues to block any later
+  tampering with the snapshot it writes.
+- **Must remain impossible from the client:** Any direct write to `challenges` (already
+  proven — no grant); activating the same pending commitment twice; a fake active status
+  without a real snapshot.
 
 ## 4. Server-generated periods
 

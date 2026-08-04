@@ -17,6 +17,10 @@
 * The user promises not to participate in the resulting experience.
 * Kinwin encourages honesty but does not pretend it can police real-world behavior.
 * Recipient confirmation does not block a challenge from starting.
+* Recipient confirmation does not block challenge preparation (converting a completed draft into a server-owned pending commitment).
+* Recipients cannot be replaced by the user after commitment creation.
+* Repeating a request to prepare the same draft must return the same challenge, never create a duplicate.
+* The client must never write directly to `challenges`, `challenge_recipients`, or `consequences` — only a trusted server-side function may.
 * If membership access expires during an active challenge, the challenge enters restricted Completion Mode. Essential check-ins, challenge status, final result, and consequence completion remain available, but new challenges and full member features require active membership.
 * Personal learnings should eventually be stored in “What works for me.”
 
@@ -44,11 +48,19 @@
   flow (message, recipient preview, membership gate, prototype activation shortcut) are
   implemented.
 * The active-challenge preview flows are implemented: Home, Progress, Check-in, Recovery, and
-  Personal Playbook.
-* All of the above remain local, session-only preview behavior. Nothing is persisted outside the
-  running app session, and reloading the app clears preview activity by design.
-* No real authentication, persistence, Stripe charging, Tremendous fulfillment, analytics, or push
-  notifications are connected. All financial and authoritative challenge evaluation remains
+  Personal Playbook. These remain local, session-only preview behavior — nothing beyond them is
+  persisted, and reloading the app clears preview activity by design.
+* Real Supabase authentication (email/password) and editable-draft persistence are implemented and
+  verified against a real local GoTrue/PostgREST stack in CI (see
+  `docs/BACKEND_IMPLEMENTATION_PLAN.md` phases 1–2).
+* A trusted server RPC (`prepare_challenge_from_draft`) converts a completed, saved draft into a
+  server-owned, `pending_activation` challenge plus its recipients and a pre-payment consequence
+  record — real persistence, but deliberately not an active challenge. It is a distinct state from
+  the local "Preview active challenge" prototype shortcut, which stays session-only and unchanged
+  (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a).
+* No Stripe charging, Tremendous fulfillment, analytics, or push notifications are connected yet.
+  Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot),
+  period generation, check-in evaluation, and payment authorization/charging all remain
   server-trusted and unimplemented in the client.
 * A production-oriented domain model (`domain/`) and an initial Supabase migration
   (`supabase/migrations/`, documented in `docs/SUPABASE_SCHEMA.md` and
