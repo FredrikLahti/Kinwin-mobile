@@ -77,6 +77,13 @@ export default function ShareActivateScreen() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [preparedChallengeId, setPreparedChallengeId] = useState<string | null>(null);
+  // Which step an 'error' state came from, so retrying re-runs only that
+  // step. Retrying a failed *prepare* step by re-running the whole draft
+  // save would re-send draft_status: 'ready_for_activation' for a draft the
+  // RPC may have already archived — silently reviving it as the latest
+  // editable draft even though its recipient/consequence rows are already
+  // immutable and reflect the version that was actually prepared.
+  const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
   const revealProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
   const gateProgress = useSharedValue(membershipChoice ? 1 : 0);
   const nextActionProgress = useSharedValue(membershipChoice ? 1 : 0);
@@ -160,6 +167,32 @@ export default function ShareActivateScreen() {
     ],
   }));
 
+  // Isolated so a failure here can be retried on its own (see
+  // lastFailedStep) without ever re-running the draft save that precedes
+  // it. Idempotent server-side, so calling it again after an earlier
+  // failure — network drop, timeout, anything — is always safe.
+  const runPrepare = useCallback(async (draftId: string, ownerId: string) => {
+    setSaveState('preparing');
+    setSaveErrorMessage(null);
+    const prepared = await prepareChallengeFromDraft(draftId, ownerId);
+    if (!prepared.ok) {
+      setLastFailedStep('prepare');
+      setSaveState('error');
+      switch (prepared.kind) {
+        case 'not_authenticated':
+        case 'not_configured':
+          setSaveErrorMessage('Sign in to save your pending commitment.');
+          break;
+        default:
+          setSaveErrorMessage('message' in prepared ? prepared.message : 'Could not save your pending commitment.');
+      }
+      return;
+    }
+    setLastFailedStep(null);
+    setPreparedChallengeId(prepared.challengeId);
+    setSaveState('prepared');
+  }, []);
+
   const saveDraft = useCallback(async () => {
     if (!isConfigured) return;
     if (authStatus !== 'signed_in' || !user) {
@@ -181,6 +214,7 @@ export default function ShareActivateScreen() {
       data, recipients, existingDraftId: savedDraftId, userId: user.id,
     });
     if (!result.ok) {
+      setLastFailedStep('save');
       setSaveState('error');
       switch (result.kind) {
         case 'invalid':
@@ -205,30 +239,13 @@ export default function ShareActivateScreen() {
     setSaveState('saved');
 
     // The draft is complete and saved — ask the trusted server boundary to
-    // turn it into a server-owned pending_activation commitment. This is
-    // idempotent (repeated calls for the same draft return the same
-    // challenge), so retrying after an earlier failure here is always safe.
-    setSaveState('preparing');
-    const prepared = await prepareChallengeFromDraft(result.draft.id, user.id);
-    if (!prepared.ok) {
-      setSaveState('error');
-      switch (prepared.kind) {
-        case 'not_authenticated':
-        case 'not_configured':
-          setSaveErrorMessage('Sign in to save your pending commitment.');
-          break;
-        default:
-          setSaveErrorMessage('message' in prepared ? prepared.message : 'Could not save your pending commitment.');
-      }
-      return;
-    }
-    setPreparedChallengeId(prepared.challengeId);
-    setSaveState('prepared');
+    // turn it into a server-owned pending_activation commitment.
+    await runPrepare(result.draft.id, user.id);
   }, [
     authStatus, behaviorDirection, behaviorText, currency, definitionText, durationWeeks,
     experienceCategory, goal, invitationMessage, isConfigured, measurementMode, recipients,
-    rewardOrganizer, rhythm, savedDraftId, setRecipients, setRewardOrganizer, setSavedDraftId,
-    sitOutAcknowledged, stakeAmount, user,
+    rewardOrganizer, rhythm, runPrepare, savedDraftId, setRecipients, setRewardOrganizer,
+    setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
   ]);
 
   const selectTrial = () => {
@@ -260,6 +277,14 @@ export default function ShareActivateScreen() {
 
   const retrySave = () => {
     void playSelectionHaptic();
+    // Only re-run the step that actually failed: if the draft itself was
+    // already saved and just the prepare RPC failed, re-saving the draft
+    // would resend draft_status: 'ready_for_activation' and could revive
+    // an already-archived draft (see runPrepare above).
+    if (lastFailedStep === 'prepare' && savedDraftId && user) {
+      void runPrepare(savedDraftId, user.id);
+      return;
+    }
     void saveDraft();
   };
 

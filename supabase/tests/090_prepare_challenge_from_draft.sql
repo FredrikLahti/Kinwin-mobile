@@ -188,6 +188,28 @@ select test.assert_fails(
   $stmt$select public.prepare_challenge_from_draft('99999999-9999-9999-9999-999999999999')$stmt$,
   'P0002'
 );
+
+-- A draft that is otherwise fully valid but carries a bare
+-- {"direction":"build"} rule (no measurement/rhythm) and a matching
+-- skeleton successRule — satisfying challenge_drafts' own coarse "is a
+-- JSON object" CHECK constraints but not a real, evaluable commitment —
+-- is rejected, and creates nothing.
+select test.assert_fails(
+  'incomplete_rule_pair_rejected',
+  $stmt$select public.prepare_challenge_from_draft('aaaaaaaa-0000-0000-0000-000000000007')$stmt$,
+  '22023'
+);
+do $$
+declare
+  status_val text;
+  challenge_count bigint;
+begin
+  select draft_status into status_val from public.challenge_drafts where id = 'aaaaaaaa-0000-0000-0000-000000000007';
+  perform test.assert_equals('incomplete_rule_pair_draft_left_untouched', status_val, 'ready_for_activation');
+  select count(*) into challenge_count from public.challenges where source_draft_id = 'aaaaaaaa-0000-0000-0000-000000000007';
+  perform test.assert_equals('incomplete_rule_pair_creates_no_challenge', challenge_count, 0::bigint);
+end;
+$$;
 reset role;
 
 -- A request with no real identity (auth.uid() is null) is rejected before

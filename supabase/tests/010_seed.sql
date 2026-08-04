@@ -106,9 +106,9 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
     'id', 'aaaaaaaa-0000-0000-0000-000000000002',
     'ownerId', '11111111-1111-1111-1111-111111111111',
     'goal', 'Sleep better',
-    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
     'duration', jsonb_build_object('unit', 'week', 'value', 4),
-    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
     'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
     'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
     'experienceCategory', 'dinner',
@@ -131,9 +131,9 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
     'id', 'aaaaaaaa-0000-0000-0000-000000000003',
     'ownerId', '11111111-1111-1111-1111-111111111111',
     'goal', 'Sleep better',
-    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
     'duration', jsonb_build_object('unit', 'week', 'value', 4),
-    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
     'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
     'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
     'experienceCategory', 'dinner',
@@ -183,9 +183,9 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
     'id', 'aaaaaaaa-0000-0000-0000-000000000005',
     'ownerId', '11111111-1111-1111-1111-111111111111',
     'goal', 'Sleep better',
-    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
     'duration', jsonb_build_object('unit', 'week', 'value', 4),
-    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
     'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
     'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
     'experienceCategory', 'dinner',
@@ -207,6 +207,35 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
   jsonb_build_object(
     'schemaVersion', 1,
     'id', 'aaaaaaaa-0000-0000-0000-000000000006',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);
+
+-- Otherwise fully complete and valid — every field but behavior.rule/
+-- successRule isolates the one gap 090_prepare_challenge_from_draft.sql's
+-- rule-validation test exists for: a bare {"direction":"build"} rule with
+-- no measurement or rhythm, and a successRule missing every build-specific
+-- field. challenge_drafts' own CHECK constraints only require these to be
+-- JSON objects, so this still satisfies them.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000007',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000007',
     'ownerId', '11111111-1111-1111-1111-111111111111',
     'goal', 'Sleep better',
     'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build')),
