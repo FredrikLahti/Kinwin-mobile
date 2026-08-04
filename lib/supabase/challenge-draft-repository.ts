@@ -6,6 +6,7 @@ import { restoreOnboardingDraftData } from '@/domain/challenge/to-onboarding-dra
 import type { ChallengeDraft } from '@/domain/challenge/types';
 
 import { supabase } from './client';
+import { planDraftMutation } from './draft-mutation';
 
 export type SaveDraftInput = {
   readonly data: OnboardingDraftData;
@@ -15,7 +16,7 @@ export type SaveDraftInput = {
 };
 
 export type SaveDraftResult =
-  | { readonly ok: true; readonly draft: ChallengeDraft }
+  | { readonly ok: true; readonly draft: ChallengeDraft; readonly recipientIds: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly kind: 'invalid'; readonly issues: readonly DraftMappingIssue[] }
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
@@ -23,7 +24,7 @@ export type SaveDraftResult =
 /**
  * Saves a complete, normalized ChallengeDraft through the same
  * mapOnboardingDraft anti-corruption boundary the domain layer already
- * defines. Only ever upserts the caller's own draft (challenge_drafts RLS
+ * defines. Only ever writes the caller's own draft (challenge_drafts RLS
  * additionally enforces this server-side); reuses stable recipient/draft
  * IDs across repeated saves instead of minting new ones every time.
  */
@@ -41,23 +42,18 @@ export async function saveChallengeDraft(input: SaveDraftInput): Promise<SaveDra
   });
   if (!mapped.ok) return { ok: false, kind: 'invalid', issues: mapped.issues };
 
-  const { error } = await supabase.from('challenge_drafts').upsert(
-    {
-      id: draftId,
-      owner_id: input.userId,
-      schema_version: mapped.value.schemaVersion,
-      draft_payload: mapped.value,
-      draft_status: 'ready_for_activation',
-    },
-    { onConflict: 'id' },
-  );
+  const plan = planDraftMutation(input.existingDraftId, draftId, input.userId, mapped.value);
+  const { error } =
+    plan.kind === 'insert'
+      ? await supabase.from('challenge_drafts').insert(plan.row)
+      : await supabase.from('challenge_drafts').update(plan.row).eq('id', plan.id);
 
   if (error) {
     const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
     return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
   }
 
-  return { ok: true, draft: mapped.value };
+  return { ok: true, draft: mapped.value, recipientIds };
 }
 
 export type LoadDraftResult =
