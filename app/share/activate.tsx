@@ -1,6 +1,6 @@
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -149,7 +149,7 @@ export default function ShareActivateScreen() {
     ],
   }));
 
-  const saveDraft = async () => {
+  const saveDraft = useCallback(async () => {
     if (!isConfigured) return;
     if (authStatus !== 'signed_in' || !user) {
       setSaveState('signed_out');
@@ -186,7 +186,11 @@ export default function ShareActivateScreen() {
     }
     setSavedDraftId(result.draft.id);
     setSaveState('saved');
-  };
+  }, [
+    authStatus, behaviorDirection, behaviorText, currency, definitionText, durationWeeks,
+    experienceCategory, goal, invitationMessage, isConfigured, measurementMode, recipients,
+    rewardOrganizer, rhythm, savedDraftId, setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
+  ]);
 
   const selectTrial = () => {
     if (!draftIsValid || trialSelected) return;
@@ -194,6 +198,16 @@ export default function ShareActivateScreen() {
     setMembershipChoice('monthly_trial');
     void saveDraft();
   };
+
+  // Covers the "select trial while signed out -> sign in -> land back here"
+  // round trip: selectTrial's save attempt above stops at saveState
+  // 'signed_out' with no session yet, and nothing else would ever retry it
+  // once the user actually signs in and returns to this screen.
+  useEffect(() => {
+    if (trialSelected && authStatus === 'signed_in' && saveState === 'signed_out') {
+      void saveDraft();
+    }
+  }, [authStatus, saveDraft, saveState, trialSelected]);
 
   const retrySave = () => {
     void playSelectionHaptic();
