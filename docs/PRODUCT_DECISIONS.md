@@ -32,6 +32,43 @@
 * If membership access expires during an active challenge, the challenge enters restricted Completion Mode. Essential check-ins, challenge status, final result, and consequence completion remain available, but new challenges and full member features require active membership.
 * Personal learnings should eventually be stored in “What works for me.”
 
+## Timezone, start, and DST rules
+
+* The challenge timezone is an IANA timezone (for example `Europe/Stockholm`), validated
+  server-side against the server's own timezone database.
+* The timezone is frozen at final activation and never changes for the rest of the
+  challenge, regardless of later travel or a device's own timezone changing.
+* Measurement starts at the next local midnight strictly after the activation instant —
+  never the activation instant itself, even if activation happens to land exactly on a
+  local midnight.
+* Challenge duration is measured in whole local calendar weeks, not a fixed number of UTC
+  hours.
+* Daylight saving transitions preserve local midnight period boundaries: a local day (or
+  the local day inside a weekly period) that contains a DST transition spans 23 or 25 UTC
+  hours instead of exactly 24, but every period boundary still lands on true local
+  midnight — with one narrow, explicit exception: a small number of IANA zones (for
+  example `America/Santiago`) run their spring-forward transition at exactly local
+  midnight, so that one instant does not exist that day. On that specific day, the
+  boundary is the first valid local instant after the gap (e.g. 01:00 instead of 00:00)
+  rather than an earlier approximation — the same deterministic, tzdata-consistent
+  conversion applies uniformly to every boundary, so this never produces a gap or overlap
+  between periods, only a one-hour-later boundary on that one day in that one zone.
+* Travel or a device's own timezone changing after activation must never alter already
+  generated periods — the frozen challenge timezone from activation is the only one that
+  is ever used.
+* Period structure by direction and rhythm/boundary: Build with a daily rhythm, and Cut
+  back with a day boundary, each generate one period per local calendar day. Build with a
+  weekly_count or specific_days rhythm, and Cut back with a week boundary, each generate
+  one rolling seven-local-day period per challenge week. Stop generates one continuous
+  period covering the whole challenge.
+* Implemented by `private.generate_challenge_periods`
+  (`supabase/migrations/20260809000000_server_generated_periods.sql`) — the single
+  authoritative server-side implementation of this date/DST logic; see
+  `docs/SUPABASE_SCHEMA.md`'s "Trusted RPCs" section and
+  `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 4. Not yet called from anywhere — full
+  activation (phase 3b) does not exist yet, so this does not yet affect any real
+  challenge.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”
@@ -73,9 +110,12 @@
   truthful placeholder for the still-unbuilt payment step — it never fakes payment or activation
   (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii).
 * No Stripe charging, Tremendous fulfillment, analytics, or push notifications are connected yet.
-  Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot),
-  period generation, check-in evaluation, and payment authorization/charging all remain
-  server-trusted and unimplemented in the client.
+  Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot) and
+  payment authorization/charging remain unimplemented. The trusted, deterministic period generator
+  (`private.generate_challenge_periods`, see the "Timezone, start, and DST rules" section above) is
+  implemented and tested but not yet called from anywhere, since it is designed to run from within
+  full activation, which does not exist yet; check-in evaluation also remains unimplemented. None of
+  this is wired to the client.
 * A production-oriented domain model (`domain/`) and an initial Supabase migration
   (`supabase/migrations/`, documented in `docs/SUPABASE_SCHEMA.md` and
   `docs/PRODUCTION_DATA_MODEL.md`) exist as version-controlled groundwork. The migration has not

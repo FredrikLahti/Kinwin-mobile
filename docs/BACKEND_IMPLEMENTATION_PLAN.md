@@ -188,14 +188,19 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   `activation_snapshot`, `activated_at`, `starts_at`, `planned_ends_at`, and `timezone`;
   a new trusted function (`activate_challenge_draft` or similar) does not exist yet. This
   is the remaining, still-unimplemented half of the original "Trusted atomic activation"
-  phase — real payment authorization, period generation, and status become `active` only
-  here, not in 3a.
+  phase — real payment authorization and status become `active` only here, not in 3a.
+  Period generation itself is already implemented (phase 4 below,
+  `private.generate_challenge_periods`) and ready to be called from within this
+  transaction once it exists — this phase still needs to decide the activation instant,
+  write it and the timezone onto `challenges`, and call that function with them.
 - **Client responsibilities:** Trigger activation once the surrounding flow (payment
   method, recipient link, sharing) is real, and render the result.
 - **Server responsibilities:** Re-validate readiness again at this later point (the
   underlying draft is gone by then — archived in 3a — so this reads from the
-  `pending_activation` challenge instead), generate the immutable snapshot, and write it
-  atomically together with `starts_at`/`planned_ends_at`/`timezone`.
+  `pending_activation` challenge instead), generate the immutable snapshot, write it
+  atomically together with `starts_at`/`planned_ends_at`/`timezone`, and call
+  `private.generate_challenge_periods` with the same activation instant and timezone in
+  the same transaction.
 - **Prerequisite product decisions:** Whether challenge start waits for sharing — still
   unresolved.
 - **Minimum tests:** Atomicity under simulated partial failure; the immutability trigger
@@ -205,22 +210,65 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   proven — no grant); activating the same pending commitment twice; a fake active status
   without a real snapshot.
 
-## 4. Server-generated periods
+## 4. Server-generated periods — generator implemented, not yet wired to activation
 
-- **Trusted boundary:** Period generation runs server-side, in the snapshot's timezone,
-  with an explicit DST policy — the `GeneratePeriods` TypeScript type is currently only a
-  signature, deliberately unimplemented.
-- **Tables/functions:** `public.challenge_periods`; a real implementation of
-  `GeneratePeriods`.
-- **Client responsibilities:** Read-only display.
-- **Server responsibilities:** Implement the actual generation algorithm once the DST
-  policy is decided.
+- **Trusted boundary:** `private.generate_challenge_periods` — a `SECURITY DEFINER`
+  Postgres function in the `private` schema, unreachable to any client role and not
+  reachable via PostgREST at all (`private` is not in `supabase/config.toml`'s exposed
+  `api.schemas`). It accepts only the pending challenge id, the activation instant, and
+  the IANA timezone; it loads the rule and duration from the immutable archived source
+  draft (never from a parameter), so no client-supplied rule content can ever reach it.
+  Designed to be called from the future full-activation transaction (phase 3b below),
+  never directly. `domain/challenge/periods.ts`'s `GeneratePeriods` TypeScript type stays
+  an unimplemented signature on purpose — this SQL function is the single authoritative
+  date/DST implementation, so no competing TypeScript algorithm can drift from it.
+- **Tables/functions:** `supabase/migrations/20260809000000_server_generated_periods.sql`
+  adds `private.generate_challenge_periods(p_challenge_id, p_activation_instant,
+  p_timezone)` and its idempotency ledger, `private.challenge_period_generations`. Writes
+  only `public.challenge_periods` rows for an already-`pending_activation` challenge; it
+  does **not** flip `challenge_status` to `active` and does **not** populate
+  `activation_snapshot`/`activated_at`/`starts_at`/`planned_ends_at`/`timezone` on
+  `challenges` — that remains phase 3b's job.
+- **Client responsibilities:** None yet — not wired to the client. Eventually read-only
+  display of generated periods.
+- **Server responsibilities:** Validate the timezone against the server's own IANA
+  tzdata (`pg_timezone_names`); reject a challenge that is not `pending_activation`
+  (canceled, active, completion_mode, or completed) or whose source draft is missing,
+  not yet archived, or structurally malformed; compute `starts_at` as the next local
+  midnight strictly after the activation instant and `planned_ends_at` as
+  `duration.value` whole local weeks later; generate one `challenge_periods` row per
+  local calendar day (Build daily rhythm; Cut back day boundary), one per rolling
+  seven-local-day challenge week (Build weekly_count/specific_days rhythm; Cut back week
+  boundary), or one continuous row for the whole challenge (Stop) — every boundary
+  computed from local-naive timestamp arithmetic and converted to a UTC instant
+  individually, so it lands on true local midnight and correctly spans 23 or 25 UTC
+  hours across a DST transition instead of a fixed 24-hour offset; return the same
+  result for an identical repeated call (same activation instant and timezone) and
+  reject a conflicting repeat instead of silently replacing periods; roll back
+  completely (no partial periods, no ledger row) if any step fails, since the whole call
+  is one atomic statement.
 - **Prerequisite product decisions:** "Exact timezone and daylight-saving period
-  generation" — explicitly unresolved.
-- **Minimum tests:** Period boundaries across a real DST transition, once the policy
-  exists; `ends_at > starts_at` is already constraint-proven in `070_constraints.sql`.
+  generation" — resolved for this package; see `docs/PRODUCT_DECISIONS.md`'s "Timezone,
+  start, and DST rules" section for the finalized rules (IANA timezone frozen at
+  activation, measurement starts at next local midnight, duration in local calendar
+  weeks, DST preserves local midnight boundaries, travel/device-timezone changes never
+  alter generated periods).
+- **Minimum tests:** `supabase/tests/130_server_generated_periods.sql` proves daily and
+  weekly Build periods, daily and weekly Cut back periods, one continuous Stop period,
+  correct period count and final boundary, a real Europe/Stockholm spring-forward
+  23-UTC-hour day, a real Europe/Stockholm autumn-back 25-UTC-hour day, weekly
+  boundaries staying at local midnight across that same autumn transition, invalid/empty
+  timezone rejection, rejection of a canceled/active/malformed commitment, identical
+  repeat idempotency, conflicting repeat rejection, a simulated mid-loop failure leaving
+  no partial periods, and that direct `anon`/`authenticated` execution remains
+  impossible. `supabase/tests/e2e/server-generated-periods.e2e.ts` (CI only) re-proves,
+  against a real local GoTrue/PostgREST stack, that the function is unreachable to both
+  an anonymous client and a real signed-up user — PostgREST refuses the request before
+  any grant is even checked, since `private` is never an exposed schema.
 - **Must remain impossible from the client:** Inserting or mutating periods (already
-  proven — no grant).
+  proven — no grant); calling `private.generate_challenge_periods` at all, from any
+  role other than `service_role` (proven — no schema `USAGE`, no function `EXECUTE`
+  grant, and unreachable via PostgREST regardless of role).
 
 ## 5. Trusted idempotent check-in append
 

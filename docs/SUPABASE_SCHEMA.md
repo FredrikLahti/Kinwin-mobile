@@ -137,12 +137,42 @@ already-archived source draft all survive, unchanged apart from those two status
 columns. See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii for client wiring and
 test coverage.
 
+`supabase/migrations/20260809000000_server_generated_periods.sql` adds
+`private.generate_challenge_periods(p_challenge_id uuid, p_activation_instant timestamptz,
+p_timezone text)` — a `SECURITY DEFINER` function in the `private` schema (not `public`),
+with `EXECUTE` granted only to `service_role`; `anon` and `authenticated` cannot reach it
+at all, since `private` is neither PostgREST-exposed nor `USAGE`-granted to either role.
+Designed to be called from the future full-activation transaction
+(`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b), never directly by the client. Given a
+pending challenge id, an activation instant, and an IANA timezone, it validates the
+timezone against the server's own tzdata, requires the challenge to be
+`pending_activation` (rejecting canceled/active/completion_mode/completed challenges),
+loads the rule and duration from the immutable archived source draft (never from a
+parameter — the caller cannot supply rule content), and atomically creates every
+`challenge_periods` row: one per local calendar day for a daily Build rhythm or a
+day-boundary Cut back rule, one per rolling seven-local-day challenge week for a
+weekly_count/specific_days Build rhythm or a week-boundary Cut back rule, or one
+continuous row for a Stop challenge. `starts_at` is the next local midnight strictly
+after the activation instant; `planned_ends_at` is `duration.value` whole local weeks
+later; every individual boundary is computed from local-naive timestamp arithmetic and
+converted to a UTC instant separately, so a day or week containing a DST transition
+correctly spans 23 or 25 UTC hours while every boundary still lands on true local
+midnight. A companion table, `private.challenge_period_generations`, records what a
+challenge was actually generated with, so an identical repeated call (same instant and
+timezone) returns the same result, and a conflicting repeat (different instant or
+timezone) is rejected rather than silently replacing periods. It does not change
+`challenge_status` or populate `activation_snapshot`/`activated_at`/`starts_at`/
+`planned_ends_at`/`timezone` on `challenges` — that remains phase 3b's job. See
+`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 4 for details and test coverage, and
+`docs/PRODUCT_DECISIONS.md`'s "Timezone, start, and DST rules" section for the finalized
+product rules this implements.
+
 ## Future trusted server work
 
 - Full activation of an already-prepared `pending_activation` challenge: the immutable
-  `activation_snapshot`, `activated_at`/`starts_at`/`planned_ends_at`, and timezone, plus real
-  payment authorization (`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b).
-- Timezone- and DST-aware period generation.
+  `activation_snapshot`, `activated_at`/`starts_at`/`planned_ends_at`, and timezone, plus
+  real payment authorization and a call to `private.generate_challenge_periods` with the
+  chosen activation instant and timezone (`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b).
 - Validated, idempotent check-in append and correction handling.
 - Versioned deterministic evaluation and challenge lifecycle transitions.
 - Atomic Completion Mode transitions after entitlement synchronization.
@@ -152,8 +182,9 @@ test coverage.
 
 ## Unresolved decisions
 
-The unresolved decisions in `PRODUCTION_DATA_MODEL.md` still apply: timezone/DST rules, correction
-and evidence policy, exact Cut back continuity evaluation, payment retry/grace behavior, recipient
-replacement, start-versus-sharing timing, active-commitment account deletion, disputes/manual
-review, external-organizer identity, and store entitlement integration. Public recipient access and
-membership-history retention also remain intentionally undecided.
+The unresolved decisions in `PRODUCTION_DATA_MODEL.md` still apply: correction and evidence policy,
+exact Cut back continuity evaluation, payment retry/grace behavior, recipient replacement,
+start-versus-sharing timing, active-commitment account deletion, disputes/manual review,
+external-organizer identity, and store entitlement integration. Public recipient access and
+membership-history retention also remain intentionally undecided. Timezone/DST period-generation
+rules are now resolved — see `docs/PRODUCT_DECISIONS.md`'s "Timezone, start, and DST rules" section.
