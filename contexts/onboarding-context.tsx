@@ -3,10 +3,13 @@ import {
   Dispatch,
   ReactNode,
   SetStateAction,
+  useCallback,
   useContext,
   useMemo,
   useState,
 } from 'react';
+
+import type { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 
 export type BehaviorDirection = 'build' | 'cut' | 'stop';
 export type MeasurementMode = 'completion' | 'count' | 'time' | 'amount' | 'abstinence';
@@ -84,6 +87,7 @@ type OnboardingContextValue = {
   recipients: RecipientDraft[];
   rewardOrganizer: RewardOrganizer;
   rhythm: RhythmState;
+  savedDraftId: string | null;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setDefinitionText: (text: string) => void;
@@ -97,12 +101,15 @@ type OnboardingContextValue = {
   setRecipients: Dispatch<SetStateAction<RecipientDraft[]>>;
   setRewardOrganizer: Dispatch<SetStateAction<RewardOrganizer>>;
   setRhythm: Dispatch<SetStateAction<RhythmState>>;
+  setSavedDraftId: Dispatch<SetStateAction<string | null>>;
   setSitOutAcknowledged: Dispatch<SetStateAction<boolean>>;
   setStakeAmount: Dispatch<SetStateAction<number | null>>;
   setStakeAmountInput: Dispatch<SetStateAction<string>>;
   sitOutAcknowledged: boolean;
   stakeAmount: number | null;
   stakeAmountInput: string;
+  /** Explicit mapping boundary: hydrates every onboarding field from a normalized, already-validated draft. */
+  loadDraftData: (data: OnboardingDraftData, draftId: string) => void;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -124,6 +131,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     createRecipientDraft(),
   ]);
   const [rewardOrganizer, setRewardOrganizer] = useState<RewardOrganizer>(null);
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
   const [sitOutAcknowledged, setSitOutAcknowledged] = useState(false);
   const [stakeAmount, setStakeAmount] = useState<number | null>(null);
   const [stakeAmountInput, setStakeAmountInput] = useState('');
@@ -136,6 +144,26 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     type: null,
   });
 
+  const loadDraftData = useCallback((data: OnboardingDraftData, draftId: string) => {
+    setGoal(data.goal);
+    setBehaviorText(data.behaviorText);
+    setDefinitionText(data.definitionText);
+    setBehaviorDirection(data.behaviorDirection);
+    setMeasurementMode(data.measurementMode);
+    setRhythm({ ...data.rhythm, selectedWeekdays: [...data.rhythm.selectedWeekdays] });
+    setDurationWeeks(data.durationWeeks);
+    setRecipients(data.recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })));
+    setRewardOrganizer(data.rewardOrganizer);
+    setExperienceCategory(data.experienceCategory);
+    setStakeAmount(data.stakeAmount);
+    setStakeAmountInput(data.stakeAmount !== null ? String(data.stakeAmount) : '');
+    setSitOutAcknowledged(data.sitOutAcknowledged);
+    setInvitationMessage(data.invitationMessage);
+    setInvitationMessageCustomized(true);
+    setMembershipChoice(data.membershipChoice);
+    setSavedDraftId(draftId);
+  }, []);
+
   const value = useMemo(
     () => ({
       behaviorDirection,
@@ -147,11 +175,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       goal,
       invitationMessage,
       invitationMessageCustomized,
+      loadDraftData,
       membershipChoice,
       measurementMode,
       recipients,
       rewardOrganizer,
       rhythm,
+      savedDraftId,
       setBehaviorDirection,
       setBehaviorText,
       setDefinitionText,
@@ -165,6 +195,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setRecipients,
       setRewardOrganizer,
       setRhythm,
+      setSavedDraftId,
       setSitOutAcknowledged,
       setStakeAmount,
       setStakeAmountInput,
@@ -181,11 +212,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       goal,
       invitationMessage,
       invitationMessageCustomized,
+      loadDraftData,
       membershipChoice,
       measurementMode,
       recipients,
       rewardOrganizer,
       rhythm,
+      savedDraftId,
       sitOutAcknowledged,
       stakeAmount,
       stakeAmountInput,

@@ -1,6 +1,6 @@
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -13,10 +13,15 @@ import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
 import { OnboardingProgress } from '@/components/onboarding/onboarding-progress';
 import { formatRecipientNames } from '@/components/share/recipient-promise-page';
 import { kinwinTheme as theme } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
+import { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
 import { calculateSuccessRule } from '@/lib/success-rule';
+
+type SaveState = 'idle' | 'signed_out' | 'saving' | 'saved' | 'error';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   adventure: 'Adventure',
@@ -38,19 +43,29 @@ export default function ShareActivateScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
+  const { isConfigured, status: authStatus, user } = useAuth();
   const {
+    behaviorDirection,
     behaviorText,
+    currency,
+    definitionText,
     durationWeeks,
     experienceCategory,
     goal,
     invitationMessage,
+    measurementMode,
     membershipChoice,
     recipients,
     rewardOrganizer,
+    rhythm,
+    savedDraftId,
     setMembershipChoice,
+    setSavedDraftId,
     sitOutAcknowledged,
     stakeAmount,
   } = onboarding;
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const revealProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
   const gateProgress = useSharedValue(membershipChoice ? 1 : 0);
   const nextActionProgress = useSharedValue(membershipChoice ? 1 : 0);
@@ -134,10 +149,55 @@ export default function ShareActivateScreen() {
     ],
   }));
 
+  const saveDraft = async () => {
+    if (!isConfigured) return;
+    if (authStatus !== 'signed_in' || !user) {
+      setSaveState('signed_out');
+      return;
+    }
+    setSaveState('saving');
+    setSaveErrorMessage(null);
+    const data: OnboardingDraftData = {
+      goal, behaviorText, definitionText, behaviorDirection, measurementMode, rhythm, durationWeeks,
+      recipients: recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })),
+      rewardOrganizer, experienceCategory, stakeAmount, currency,
+      sitOutAcknowledged, invitationMessage,
+      // The state update from setMembershipChoice above hasn't re-rendered
+      // yet; the trial was just selected, so this save is always for that.
+      membershipChoice: 'monthly_trial',
+    };
+    const result = await saveChallengeDraft({
+      data, recipients, existingDraftId: savedDraftId, userId: user.id,
+    });
+    if (!result.ok) {
+      setSaveState('error');
+      switch (result.kind) {
+        case 'invalid':
+          setSaveErrorMessage('Some earlier step is incomplete.');
+          break;
+        case 'not_authenticated':
+        case 'not_configured':
+          setSaveErrorMessage('Sign in to save your progress.');
+          break;
+        default:
+          setSaveErrorMessage(result.message);
+      }
+      return;
+    }
+    setSavedDraftId(result.draft.id);
+    setSaveState('saved');
+  };
+
   const selectTrial = () => {
     if (!draftIsValid || trialSelected) return;
     void playImportantHaptic();
     setMembershipChoice('monthly_trial');
+    void saveDraft();
+  };
+
+  const retrySave = () => {
+    void playSelectionHaptic();
+    void saveDraft();
   };
 
   const reviewMembershipAgain = () => {
@@ -379,6 +439,27 @@ export default function ShareActivateScreen() {
                     </Text>
                   </View>
                 </View>
+                <View accessibilityLiveRegion="polite" style={styles.saveStatusRow}>
+                  {saveState === 'saving' && <Text style={styles.saveStatusText}>Saving your draft…</Text>}
+                  {saveState === 'saved' && <Text style={styles.saveStatusSuccess}>Draft saved. You can continue it later.</Text>}
+                  {saveState === 'signed_out' && (
+                    <Pressable
+                      accessibilityHint="Opens sign in, then returns here to save your progress"
+                      accessibilityRole="button"
+                      onPress={() => router.push('/auth?returnTo=/share/activate' as Href)}
+                    >
+                      <Text style={styles.saveStatusAction}>Sign in to save your progress</Text>
+                    </Pressable>
+                  )}
+                  {saveState === 'error' && (
+                    <View style={styles.saveStatusErrorRow}>
+                      <Text style={styles.saveStatusError}>{saveErrorMessage ?? 'Could not save your draft.'}</Text>
+                      <Pressable accessibilityHint="Retries saving your draft" accessibilityRole="button" onPress={retrySave}>
+                        <Text style={styles.saveStatusAction}>Retry</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
                 <Pressable
                   accessibilityHint="Clears only the local membership choice"
                   accessibilityLabel="Review membership again"
@@ -569,6 +650,12 @@ const styles = StyleSheet.create({
   selectedCopy: { flex: 1 },
   trialSelectedTitle: { color: theme.colors.bone, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   trialSelectedText: { marginTop: 3, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 16 },
+  saveStatusRow: { minHeight: 22, marginTop: 10, paddingHorizontal: 2 },
+  saveStatusText: { color: theme.colors.warmGrey, fontSize: 12, lineHeight: 17 },
+  saveStatusSuccess: { color: theme.colors.copperBright, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  saveStatusAction: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  saveStatusErrorRow: { gap: 4 },
+  saveStatusError: { color: '#E37D6A', fontSize: 12, lineHeight: 17 },
   reviewAction: { minHeight: 46, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   reviewActionPressed: { backgroundColor: theme.colors.surface },
   reviewActionText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },
