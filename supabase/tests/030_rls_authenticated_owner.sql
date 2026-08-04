@@ -7,14 +7,17 @@ select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111
 
 -- Reads: owner sees exactly their own row in every table.
 select test.assert_equals('owner_sees_own_profile', (select count(*) from public.profiles), 1::bigint);
--- Seven drafts: the original loose fixture plus six added for
--- 090_prepare_challenge_from_draft.sql (see 010_seed.sql).
-select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 7::bigint);
-select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 1::bigint);
-select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 1::bigint);
+-- Nine drafts: the original loose fixture plus six added for
+-- 090_prepare_challenge_from_draft.sql and two added for
+-- 100_cancel_pending_challenge.sql (see 010_seed.sql).
+select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 9::bigint);
+-- Four challenges: the original activated one plus three added for
+-- 100_cancel_pending_challenge.sql (two pending, one active).
+select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 4::bigint);
+select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 3::bigint);
 select test.assert_equals('owner_sees_own_periods', (select count(*) from public.challenge_periods), 1::bigint);
 select test.assert_equals('owner_sees_own_checkins', (select count(*) from public.check_in_events), 1::bigint);
-select test.assert_equals('owner_sees_own_consequences', (select count(*) from public.consequences), 1::bigint);
+select test.assert_equals('owner_sees_own_consequences', (select count(*) from public.consequences), 3::bigint);
 select test.assert_equals('owner_sees_own_invitations', (select count(*) from public.invitations), 1::bigint);
 select test.assert_equals('owner_sees_own_membership', (select count(*) from public.memberships), 1::bigint);
 

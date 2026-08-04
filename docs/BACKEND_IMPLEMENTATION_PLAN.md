@@ -104,6 +104,51 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   `challenge_recipients`, or `consequences` (already proven — no grant); preparing the
   same draft twice; preparing another user's draft; a fake active/activated status.
 
+## 3a-ii. Pending-commitment management (read + cancel) — implemented, verified against real local GoTrue/PostgREST in CI
+
+- **Trusted boundary:** Reads use the same owner-only RLS policies and grants proven in
+  phase 2/3a — no new policy or grant exists for this. Cancellation is a new
+  `SECURITY DEFINER` function, `public.cancel_pending_challenge`
+  (`supabase/migrations/20260806000000_cancel_pending_challenge.sql`), the only path
+  that can move `challenge_status`/`consequences.status` to `canceled_before_activation`.
+- **Tables/functions:** Reads `challenges`, `challenge_recipients`, `consequences`, and
+  the archived source draft's `draft_payload` (the only place the goal/behavior/
+  successRule/duration/experience category still exist pre-full-activation). Writes,
+  atomically: `challenges.challenge_status` and `consequences.status` to
+  `'canceled_before_activation'`. Deletes nothing, ever — the challenge, its recipients,
+  its consequence, and the archived draft all survive a cancellation unchanged apart
+  from those two status columns.
+- **Client responsibilities:** `lib/supabase/challenge-repository.ts`'s
+  `fetchPendingCommitment` reads the latest pending commitment and restores the archived
+  draft's payload through the existing `restoreOnboardingDraftData` boundary (reversed
+  from phase 2) to render a read-only summary; `cancelPendingChallenge` calls the RPC.
+  `app/account/pending-commitment.tsx` is the new entry point (linked from
+  `app/account/index.tsx`), rendering loading/none/summary/payment-placeholder/confirm/
+  canceling/canceled/error states. The summary is never editable and never offers
+  recipient replacement; "Continue setup" only ever opens a truthful placeholder
+  explaining payment setup is still future work — it never fakes Stripe or an active
+  status. Canceling resets local onboarding state so a new draft never inherits any
+  field from the canceled one.
+- **Server responsibilities:** Verify ownership and current status before canceling;
+  reject cancellation of anything other than `pending_activation` (indistinguishable
+  "not found" response for both a missing challenge and one owned by someone else); stay
+  idempotent for a repeated cancel of an already-canceled challenge.
+- **Prerequisite product decisions:** None blocking — recipients already cannot be
+  replaced (no relevant write path exists at all), and cancellation before activation was
+  explicitly scoped for this package.
+- **Minimum tests:** `supabase/tests/100_cancel_pending_challenge.sql` proves owner
+  reads, non-owner/anon read denial, atomic cancellation (challenge and consequence
+  together), idempotent repeats, non-owner cancel rejection, rejection of canceling an
+  already-`active` challenge, that nothing is deleted, and that a new draft can be
+  created afterward. `supabase/tests/e2e/pending-commitment.e2e.ts` (CI only) re-proves
+  the same success/idempotency/cross-user paths against a real GoTrue-issued JWT and
+  real PostgREST RPC call; it does not re-prove the active-challenge rejection case,
+  since there is no client-reachable way yet to produce a real active challenge (that
+  path is exercised at the Postgres level instead, directly against a fixture).
+- **Must remain impossible from the client:** Any direct write to `challenges` or
+  `consequences` (already proven — no grant); canceling another user's pending
+  commitment; canceling an already-active or completed challenge; deleting any row.
+
 ## 3b. Trusted full activation
 
 - **Trusted boundary:** A single server-side transaction — never the client — decides a

@@ -251,3 +251,99 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
   ),
   'ready_for_activation'
 );
+
+-- Fixtures for 100_cancel_pending_challenge.sql: server-owned pending
+-- commitments as prepare_challenge_from_draft would have left them (source
+-- draft archived, challenge_recipients + consequences already created),
+-- inserted directly as a trusted party rather than by calling the RPC, so
+-- this file stays independent of 090's own test flow.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000008',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000008',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'archived'
+);
+
+-- Pending, reserved for the successful-cancellation test.
+insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status) values
+  ('bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000008', 1, 1, 'pending_activation');
+insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
+  ('cccccccc-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 'Anna', 0, 'recipient_organizer');
+insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency) values
+  ('ffffffff-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'payment_method_required', 7500, 'USD');
+
+-- Pending, reserved for the "another user cannot cancel it" test — must
+-- stay untouched by every other test above.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-000000000009',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-000000000009',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'archived'
+);
+insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status) values
+  ('bbbbbbbb-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000009', 1, 1, 'pending_activation');
+insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
+  ('cccccccc-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 'Anna', 0, 'recipient_organizer');
+insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency) values
+  ('ffffffff-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'payment_method_required', 7500, 'USD');
+
+-- Already active (fully activated, own snapshot) — reserved for the
+-- "cancellation of an active challenge is rejected" test.
+insert into public.challenges (
+  id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status,
+  timezone, activated_at, starts_at, planned_ends_at, activation_snapshot
+) values (
+  'bbbbbbbb-0000-0000-0000-000000000004',
+  '11111111-1111-1111-1111-111111111111',
+  null,
+  1, 1, 'active',
+  'Europe/Stockholm', now(), now(), now() + interval '28 days',
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'bbbbbbbb-0000-0000-0000-000000000004',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'ruleEngineVersion', 1,
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session'),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'consequenceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'membershipStatusAtActivation', 'trialing'
+  )
+);

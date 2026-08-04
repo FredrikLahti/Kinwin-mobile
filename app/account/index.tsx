@@ -155,6 +155,22 @@ export default function AccountScreen() {
             </Pressable>
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>PENDING COMMITMENT</Text>
+            <Text style={styles.body}>
+              If a completed draft has been saved on the server as a pending commitment, view its
+              status, continue setup, or cancel it there.
+            </Text>
+            <Pressable
+              accessibilityHint="Opens your pending commitment, if any"
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); router.push('/account/pending-commitment' as Href); }}
+              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+            >
+              <Text style={styles.textButtonLabel}>View pending commitment</Text>
+            </Pressable>
+          </View>
+
           <Pressable
             accessibilityHint="Signs out of your Kinwin account"
             accessibilityRole="button"

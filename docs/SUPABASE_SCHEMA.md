@@ -107,6 +107,19 @@ It never creates membership, payment authorization, challenge periods, invitatio
 active status — see "Future trusted server work" below for those.
 See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a for client wiring and test coverage.
 
+`supabase/migrations/20260806000000_cancel_pending_challenge.sql` adds
+`public.cancel_pending_challenge(challenge_id uuid)`, the same `SECURITY DEFINER` /
+fixed-`search_path` / `authenticated`-only-`EXECUTE` shape. It is the only way
+`challenge_status`/`consequences.status` can reach `'canceled_before_activation'` from
+client action. Requires a real `auth.uid()`, verifies ownership, allows the transition
+only from `pending_activation` (an already-canceled challenge returns the same result
+idempotently instead of erroring; anything else — including an already-`active` or
+completed challenge — is rejected), and atomically updates both the challenge and its
+consequence. Deletes nothing: the challenge, its recipients, its consequence, and the
+already-archived source draft all survive, unchanged apart from those two status
+columns. See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii for client wiring and
+test coverage.
+
 ## Future trusted server work
 
 - Full activation of an already-prepared `pending_activation` challenge: the immutable
