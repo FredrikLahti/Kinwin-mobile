@@ -176,11 +176,16 @@ test('signup, profile creation, login, draft save/update/reload, and cross-user 
     assert.equal(stillReady?.draft_status, 'ready_for_activation', 'User A\'s draft must be unchanged by User B\'s attempted update');
   });
 
+  // Unlike User B (authenticated, RLS silently filters to an empty result),
+  // `anon` has no GRANT at all on challenge_drafts — only `authenticated`
+  // does (see the initial migration and supabase/tests/020_rls_anon.sql's
+  // anon_select_challenge_drafts_denied) — so an anon/signed-out request is
+  // rejected outright with 42501 before RLS is even evaluated, not
+  // filtered down to zero rows.
   await t.test('signed-out access cannot read the draft', async () => {
     const anon = freshClient();
-    const { data, error } = await anon.from('challenge_drafts').select('id').eq('id', draftId);
-    assert.equal(error, null, `unexpected error (should be an empty, RLS-filtered result, not an error): ${error?.message}`);
-    assert.equal(data?.length, 0, 'a signed-out client must not be able to read any draft');
+    const { error } = await anon.from('challenge_drafts').select('id').eq('id', draftId);
+    assert.equal(error?.code, '42501', `expected a permission-denied error for anon (no GRANT on this table), got: ${JSON.stringify(error)}`);
   });
 
   await t.test('sign-out actually invalidates the session (the auth-layer half of clearing protected state)', async () => {
@@ -196,8 +201,7 @@ test('signup, profile creation, login, draft save/update/reload, and cross-user 
     assert.equal(signOutError, null, `signOut failed: ${signOutError?.message}`);
     const { data: sessionAfter } = await ownerA.auth.getSession();
     assert.equal(sessionAfter.session, null, 'session must be cleared after signOut');
-    const { data, error } = await ownerA.from('challenge_drafts').select('id').eq('id', draftId);
-    assert.equal(error, null, `unexpected error (should be an empty, RLS-filtered result, not an error): ${error?.message}`);
-    assert.equal(data?.length, 0, 'the same client must lose read access to its own draft immediately after signing out');
+    const { error } = await ownerA.from('challenge_drafts').select('id').eq('id', draftId);
+    assert.equal(error?.code, '42501', `expected the now-anon client to be permission-denied (no GRANT on this table), got: ${JSON.stringify(error)}`);
   });
 });
