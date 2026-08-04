@@ -20,9 +20,15 @@ import { applyResolvedRecipientIds } from '@/domain/challenge/recipient-ids';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
+import { prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
 import { calculateSuccessRule } from '@/lib/success-rule';
 
-type SaveState = 'idle' | 'signed_out' | 'saving' | 'saved' | 'error';
+// 'saved' only ever appears transiently between a successful draft save and
+// the pending-commitment RPC call that follows it. 'prepared' is the
+// server-saved, server-owned pending_activation commitment — a materially
+// different state from the local-only "Preview active challenge" shortcut
+// below, which never talks to the server at all.
+type SaveState = 'idle' | 'signed_out' | 'saving' | 'saved' | 'preparing' | 'prepared' | 'error';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   adventure: 'Adventure',
@@ -70,6 +76,14 @@ export default function ShareActivateScreen() {
   } = onboarding;
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [preparedChallengeId, setPreparedChallengeId] = useState<string | null>(null);
+  // Which step an 'error' state came from, so retrying re-runs only that
+  // step. Retrying a failed *prepare* step by re-running the whole draft
+  // save would re-send draft_status: 'ready_for_activation' for a draft the
+  // RPC may have already archived — silently reviving it as the latest
+  // editable draft even though its recipient/consequence rows are already
+  // immutable and reflect the version that was actually prepared.
+  const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
   const revealProgress = useSharedValue(Platform.OS === 'web' ? 1 : 0);
   const gateProgress = useSharedValue(membershipChoice ? 1 : 0);
   const nextActionProgress = useSharedValue(membershipChoice ? 1 : 0);
@@ -153,6 +167,32 @@ export default function ShareActivateScreen() {
     ],
   }));
 
+  // Isolated so a failure here can be retried on its own (see
+  // lastFailedStep) without ever re-running the draft save that precedes
+  // it. Idempotent server-side, so calling it again after an earlier
+  // failure — network drop, timeout, anything — is always safe.
+  const runPrepare = useCallback(async (draftId: string, ownerId: string) => {
+    setSaveState('preparing');
+    setSaveErrorMessage(null);
+    const prepared = await prepareChallengeFromDraft(draftId, ownerId);
+    if (!prepared.ok) {
+      setLastFailedStep('prepare');
+      setSaveState('error');
+      switch (prepared.kind) {
+        case 'not_authenticated':
+        case 'not_configured':
+          setSaveErrorMessage('Sign in to save your pending commitment.');
+          break;
+        default:
+          setSaveErrorMessage('message' in prepared ? prepared.message : 'Could not save your pending commitment.');
+      }
+      return;
+    }
+    setLastFailedStep(null);
+    setPreparedChallengeId(prepared.challengeId);
+    setSaveState('prepared');
+  }, []);
+
   const saveDraft = useCallback(async () => {
     if (!isConfigured) return;
     if (authStatus !== 'signed_in' || !user) {
@@ -174,6 +214,7 @@ export default function ShareActivateScreen() {
       data, recipients, existingDraftId: savedDraftId, userId: user.id,
     });
     if (!result.ok) {
+      setLastFailedStep('save');
       setSaveState('error');
       switch (result.kind) {
         case 'invalid':
@@ -196,11 +237,15 @@ export default function ShareActivateScreen() {
     setRewardOrganizer(resolved.rewardOrganizer);
     setSavedDraftId(result.draft.id);
     setSaveState('saved');
+
+    // The draft is complete and saved — ask the trusted server boundary to
+    // turn it into a server-owned pending_activation commitment.
+    await runPrepare(result.draft.id, user.id);
   }, [
     authStatus, behaviorDirection, behaviorText, currency, definitionText, durationWeeks,
     experienceCategory, goal, invitationMessage, isConfigured, measurementMode, recipients,
-    rewardOrganizer, rhythm, savedDraftId, setRecipients, setRewardOrganizer, setSavedDraftId,
-    sitOutAcknowledged, stakeAmount, user,
+    rewardOrganizer, rhythm, runPrepare, savedDraftId, setRecipients, setRewardOrganizer,
+    setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
   ]);
 
   const selectTrial = () => {
@@ -232,6 +277,14 @@ export default function ShareActivateScreen() {
 
   const retrySave = () => {
     void playSelectionHaptic();
+    // Only re-run the step that actually failed: if the draft itself was
+    // already saved and just the prepare RPC failed, re-saving the draft
+    // would resend draft_status: 'ready_for_activation' and could revive
+    // an already-archived draft (see runPrepare above).
+    if (lastFailedStep === 'prepare' && savedDraftId && user) {
+      void runPrepare(savedDraftId, user.id);
+      return;
+    }
     void saveDraft();
   };
 
@@ -476,7 +529,8 @@ export default function ShareActivateScreen() {
                 </View>
                 <View accessibilityLiveRegion="polite" style={styles.saveStatusRow}>
                   {saveState === 'saving' && <Text style={styles.saveStatusText}>Saving your draft…</Text>}
-                  {saveState === 'saved' && <Text style={styles.saveStatusSuccess}>Draft saved. You can continue it later.</Text>}
+                  {saveState === 'preparing' && <Text style={styles.saveStatusText}>Saving your pending commitment on the server…</Text>}
+                  {saveState === 'prepared' && <Text style={styles.saveStatusSuccess}>Pending commitment saved on the server. You can continue later.</Text>}
                   {saveState === 'signed_out' && (
                     <Pressable
                       accessibilityHint="Opens sign in, then returns here to save your progress"
@@ -489,12 +543,24 @@ export default function ShareActivateScreen() {
                   {saveState === 'error' && (
                     <View style={styles.saveStatusErrorRow}>
                       <Text style={styles.saveStatusError}>{saveErrorMessage ?? 'Could not save your draft.'}</Text>
-                      <Pressable accessibilityHint="Retries saving your draft" accessibilityRole="button" onPress={retrySave}>
+                      <Pressable accessibilityHint="Retries saving your draft and pending commitment" accessibilityRole="button" onPress={retrySave}>
                         <Text style={styles.saveStatusAction}>Retry</Text>
                       </Pressable>
                     </View>
                   )}
                 </View>
+                {saveState === 'prepared' && preparedChallengeId && (
+                  <View style={styles.pendingCommitmentCopy}>
+                    <Text style={styles.pendingCommitmentLabel}>SERVER-SAVED · PENDING COMMITMENT</Text>
+                    <Text style={styles.pendingCommitmentText}>
+                      The server created a pending commitment record for this challenge. It is not
+                      active — payment, recipient link, and sharing still have to happen first.
+                    </Text>
+                    <Text style={styles.pendingCommitmentReference}>
+                      Reference: {preparedChallengeId.slice(0, 8)}…
+                    </Text>
+                  </View>
+                )}
                 <Pressable
                   accessibilityHint="Clears only the local membership choice"
                   accessibilityLabel="Review membership again"
@@ -508,10 +574,11 @@ export default function ShareActivateScreen() {
                   <Text style={styles.reviewActionText}>Review membership again</Text>
                 </Pressable>
                 <View style={styles.prototypeShortcutCopy}>
-                  <Text style={styles.prototypeShortcutLabel}>PROTOTYPE ONLY</Text>
+                  <Text style={styles.prototypeShortcutLabel}>LOCAL PREVIEW ONLY</Text>
                   <Text style={styles.prototypeShortcutText}>
                     Prototype shortcut—skips payment setup, recipient-link creation, sharing, and
-                    real activation.
+                    real activation. It stays entirely on this device, session-only, and is
+                    separate from the server-saved pending commitment above.
                   </Text>
                 </View>
                 <AnimatedPrimaryButton
@@ -691,6 +758,19 @@ const styles = StyleSheet.create({
   saveStatusAction: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   saveStatusErrorRow: { gap: 4 },
   saveStatusError: { color: '#E37D6A', fontSize: 12, lineHeight: 17 },
+  pendingCommitmentCopy: {
+    marginTop: 10, borderLeftWidth: 2, borderLeftColor: theme.colors.copperBright,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  pendingCommitmentLabel: {
+    color: theme.colors.copperBright, fontSize: 8, fontWeight: '800', letterSpacing: 1.2,
+  },
+  pendingCommitmentText: {
+    marginTop: 5, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17,
+  },
+  pendingCommitmentReference: {
+    marginTop: 6, color: theme.colors.warmGrey, fontSize: 10, lineHeight: 15,
+  },
   reviewAction: { minHeight: 46, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   reviewActionPressed: { backgroundColor: theme.colors.surface },
   reviewActionText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },

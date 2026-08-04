@@ -7,7 +7,9 @@ select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111
 
 -- Reads: owner sees exactly their own row in every table.
 select test.assert_equals('owner_sees_own_profile', (select count(*) from public.profiles), 1::bigint);
-select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 1::bigint);
+-- Seven drafts: the original loose fixture plus six added for
+-- 090_prepare_challenge_from_draft.sql (see 010_seed.sql).
+select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 7::bigint);
 select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 1::bigint);
 select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 1::bigint);
 select test.assert_equals('owner_sees_own_periods', (select count(*) from public.challenge_periods), 1::bigint);

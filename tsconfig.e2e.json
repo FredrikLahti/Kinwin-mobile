@@ -10,5 +10,5 @@
     "paths": { "@/*": ["./*"] },
     "outDir": ".test-e2e-dist"
   },
-  "include": ["supabase/tests/e2e/auth-and-draft.e2e.ts"]
+  "include": ["supabase/tests/e2e/auth-and-draft.e2e.ts", "supabase/tests/e2e/prepare-challenge.e2e.ts"]
 }

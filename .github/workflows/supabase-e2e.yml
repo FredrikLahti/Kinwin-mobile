@@ -1,4 +1,4 @@
-name: Supabase auth & draft persistence
+name: Supabase auth, draft & commitment persistence
 
 on:
   pull_request:
@@ -85,7 +85,7 @@ jobs:
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
 
-      - name: Auth + draft-persistence end-to-end suite against real GoTrue/PostgREST
+      - name: Auth, draft-persistence, and prepare_challenge_from_draft end-to-end suite against real GoTrue/PostgREST
         run: npm run test:e2e
 
       - name: Stop local Supabase
