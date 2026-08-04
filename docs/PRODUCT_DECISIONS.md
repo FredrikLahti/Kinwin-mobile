@@ -46,7 +46,13 @@
 * Daylight saving transitions preserve local midnight period boundaries: a local day (or
   the local day inside a weekly period) that contains a DST transition spans 23 or 25 UTC
   hours instead of exactly 24, but every period boundary still lands on true local
-  midnight.
+  midnight — with one narrow, explicit exception: a small number of IANA zones (for
+  example `America/Santiago`) run their spring-forward transition at exactly local
+  midnight, so that one instant does not exist that day. On that specific day, the
+  boundary is the first valid local instant after the gap (e.g. 01:00 instead of 00:00)
+  rather than an earlier approximation — the same deterministic, tzdata-consistent
+  conversion applies uniformly to every boundary, so this never produces a gap or overlap
+  between periods, only a one-hour-later boundary on that one day in that one zone.
 * Travel or a device's own timezone changing after activation must never alter already
   generated periods — the frozen challenge timezone from activation is the only one that
   is ever used.

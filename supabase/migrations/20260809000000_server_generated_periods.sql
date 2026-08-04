@@ -148,6 +148,19 @@ begin
   -- correct regardless of the activation instant's local time-of-day —
   -- even an instant that lands exactly on local midnight is not itself
   -- "after" that midnight, so the next one is always the following day.
+  --
+  -- Nonexistent-local-midnight policy: a small number of IANA zones (e.g.
+  -- America/Santiago) run their spring-forward transition at exactly local
+  -- midnight, so "00:00:00" on the transition day is not a real instant.
+  -- PostgreSQL's own `AT TIME ZONE` conversion for such a naive timestamp
+  -- deterministically resolves it to the first valid local instant after
+  -- the gap (e.g. 01:00:00 that day) — every boundary below is computed
+  -- the same way, from the same tzdata-consistent conversion, so this
+  -- never creates a gap or overlap between adjacent periods; it only means
+  -- that one specific boundary, on one specific day, in a small number of
+  -- zones, is not literally "00:00:00" local. See
+  -- supabase/tests/130_server_generated_periods.sql's
+  -- `nonexistent_local_midnight_*` cases for the exact, proven behavior.
   v_local_start := (((p_activation_instant at time zone p_timezone)::date) + 1)::timestamp;
   v_starts_at := v_local_start at time zone p_timezone;
 
@@ -233,7 +246,10 @@ begin
     -- interval to the previous timestamptz) — this is what keeps every
     -- period's boundary at true local midnight across a DST transition,
     -- letting an individual day span 23 or 25 UTC hours instead of always
-    -- exactly 24.
+    -- exactly 24. On the rare day a zone's own transition makes local
+    -- midnight nonexistent, see the nonexistent-local-midnight policy note
+    -- above `v_local_start` — the same per-boundary conversion applies here
+    -- too, and stays gap-/overlap-free for the same reason.
     for v_i in 0 .. v_period_count - 1 loop
       if v_period_kind = 'day' then
         v_period_start := (v_local_start + (v_i || ' days')::interval) at time zone p_timezone;

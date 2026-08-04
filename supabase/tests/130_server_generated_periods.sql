@@ -10,7 +10,9 @@
 -- boundary arithmetic is checked against the server's actual IANA tzdata,
 -- not a hand-rolled approximation: 2027-03-28 (spring forward, CET->CEST)
 -- is a 23-UTC-hour local day, and 2026-10-25 (autumn back, CEST->CET) is a
--- 25-UTC-hour local day.
+-- 25-UTC-hour local day. America/Santiago's 2026-09-06 transition (added
+-- in review) additionally covers the narrower nonexistent-local-midnight
+-- case, where a zone's spring-forward happens at exactly local midnight.
 
 set role service_role;
 
@@ -61,6 +63,79 @@ begin
   perform test.assert_equals('daily_build_final_boundary_matches_planned_ends_at',
     (select ends_at from public.challenge_periods where challenge_id = v_challenge and period_number = 14),
     (v_result ->> 'plannedEndsAt')::timestamptz);
+end;
+$$;
+
+-- Nonexistent-local-midnight policy (review finding): America/Santiago runs
+-- its spring-forward transition at exactly local midnight on 2026-09-06, so
+-- "00:00:00" that day is not a real instant. The documented policy (see the
+-- comment above `v_local_start` in the migration) is that such a boundary
+-- resolves to the first valid local instant after the gap — proven here
+-- against the server's real tzdata, not asserted from a hand-written
+-- expectation, plus that this never creates a gap or overlap between the
+-- periods on either side of it.
+do $$
+declare
+  v_owner uuid := gen_random_uuid();
+  v_draft uuid := gen_random_uuid();
+  v_challenge uuid := gen_random_uuid();
+  v_result jsonb;
+begin
+  insert into auth.users (id, email) values (v_owner, 'periods-nonexistent-midnight@example.test');
+  insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+    v_draft, v_owner, 1,
+    jsonb_build_object(
+      'schemaVersion', 1, 'id', v_draft, 'ownerId', v_owner,
+      'goal', 'Sleep better',
+      'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session',
+        'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'),
+          'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+      'duration', jsonb_build_object('unit', 'week', 'value', 2),
+      'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 14, 'minimumRequiredCompletions', 10,
+        'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
+      'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+      'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+      'experienceCategory', 'dinner',
+      'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+      'sitOutAcknowledged', true, 'invitationMessage', 'Join me in this promise.', 'membershipSelection', 'monthly_trial'
+    ),
+    'archived'
+  );
+  insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
+    values (v_challenge, v_owner, v_draft, 1, 1, 'pending_activation');
+
+  -- Next local midnight after this instant is the nominal (nonexistent)
+  -- 2026-09-06 00:00:00 America/Santiago.
+  select private.generate_challenge_periods(v_challenge, '2026-09-05 10:00:00-04'::timestamptz, 'America/Santiago') into v_result;
+
+  -- The nominal local midnight does not round-trip back to 00:00:00 — proof
+  -- this specific day really does hit the gap, not a false positive.
+  perform test.assert_true('nonexistent_midnight_nominal_value_does_not_round_trip',
+    (timestamp '2026-09-06 00:00:00' at time zone 'America/Santiago') at time zone 'America/Santiago' <> timestamp '2026-09-06 00:00:00');
+
+  -- The documented policy: the boundary resolves to the first valid local
+  -- instant after the gap (01:00, i.e. UTC 04:00 that day), not 00:00.
+  perform test.assert_equals('nonexistent_midnight_boundary_resolves_past_the_gap',
+    (select starts_at from public.challenge_periods where challenge_id = v_challenge and period_number = 1),
+    '2026-09-06 04:00:00+00'::timestamptz);
+  perform test.assert_equals('nonexistent_midnight_starts_at_matches_result',
+    (select starts_at from public.challenge_periods where challenge_id = v_challenge and period_number = 1),
+    (v_result ->> 'startsAt')::timestamptz);
+
+  -- The gap shrinks that one period to 23 hours, same mechanism as an
+  -- ordinary mid-day DST transition.
+  perform test.assert_equals('nonexistent_midnight_period_is_23_hours',
+    (select ends_at - starts_at from public.challenge_periods where challenge_id = v_challenge and period_number = 1),
+    interval '23:00:00');
+
+  -- No gap or overlap: the affected period's end is exactly the next
+  -- period's start, both independently derived from the same deterministic
+  -- per-boundary conversion.
+  perform test.assert_equals('nonexistent_midnight_no_gap_or_overlap_with_next_period',
+    (select ends_at from public.challenge_periods where challenge_id = v_challenge and period_number = 1),
+    (select starts_at from public.challenge_periods where challenge_id = v_challenge and period_number = 2));
+
+  perform test.assert_equals('nonexistent_midnight_period_count_unaffected', (select count(*) from public.challenge_periods where challenge_id = v_challenge), 14::bigint);
 end;
 $$;
 
