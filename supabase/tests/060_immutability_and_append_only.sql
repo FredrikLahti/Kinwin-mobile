@@ -69,8 +69,12 @@ end;
 $$;
 
 -- Correction event: a correction pointing at another challenge's event must be rejected by the composite FK.
+-- Status is incidental here (any non-activated status satisfies the
+-- CHECK constraint) — 'canceled_before_activation' rather than
+-- 'pending_activation' so this doesn't collide with
+-- challenges_owner_one_pending_idx's one-per-owner invariant.
 insert into public.challenges (id, owner_id, schema_version, rule_engine_version, challenge_status)
-  values ('99999999-0000-0000-0000-000000000009', '11111111-1111-1111-1111-111111111111', 1, 1, 'pending_activation');
+  values ('99999999-0000-0000-0000-000000000009', '11111111-1111-1111-1111-111111111111', 1, 1, 'canceled_before_activation');
 select test.assert_fails(
   'cross_challenge_correction_denied',
   $stmt$insert into public.check_in_events (id, challenge_id, owner_id, event_type, event_payload, source, client_recorded_at, correction_of_event_id)
@@ -93,8 +97,9 @@ end;
 $$;
 
 -- Older Cut back totals are preserved (append semantics): two totals for the same period both remain queryable.
+-- Same incidental-status note as above.
 insert into public.challenges (id, owner_id, schema_version, rule_engine_version, challenge_status)
-  values ('88888888-0000-0000-0000-000000000008', '11111111-1111-1111-1111-111111111111', 1, 1, 'pending_activation');
+  values ('88888888-0000-0000-0000-000000000008', '11111111-1111-1111-1111-111111111111', 1, 1, 'canceled_before_activation');
 insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, target_payload)
   values ('77777777-0000-0000-0000-000000000007', '88888888-0000-0000-0000-000000000008', 1, 'day', now(), now() + interval '1 day', jsonb_build_object('type', 'maximum_value', 'maximum', 3));
 insert into public.check_in_events (id, challenge_id, owner_id, period_id, event_type, event_payload, source, client_recorded_at)

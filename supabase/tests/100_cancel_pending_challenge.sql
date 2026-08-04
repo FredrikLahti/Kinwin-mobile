@@ -2,6 +2,28 @@
 -- (20260806000000): the trusted RPC boundary that lets the owner cancel a
 -- pending_activation challenge before activation, atomically, idempotently,
 -- and only for their own challenge — preserving every row.
+--
+-- Only one pending_activation challenge may ever exist per owner
+-- (challenges_owner_one_pending_idx, added in
+-- 20260808000000_one_pending_commitment_per_owner.sql), so every test
+-- below that needs the pending challenge bbbbbbbb-…0002 to still be
+-- pending runs before the "successful cancellation" test — after that, it
+-- stays canceled for the rest of this file.
+--
+-- Created here (as service_role, the shape prepare_challenge_from_draft
+-- itself would have left) rather than in 010_seed.sql: by the time this
+-- file runs, 090_prepare_challenge_from_draft.sql has already created and
+-- canceled its own pending commitment for Owner A, so this is the first
+-- point Owner A is guaranteed to have zero — seeding one any earlier would
+-- collide with 090's own tests.
+set role service_role;
+insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status) values
+  ('bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000008', 1, 1, 'pending_activation');
+insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
+  ('cccccccc-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 'Anna', 0, 'recipient_organizer');
+insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency) values
+  ('ffffffff-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'payment_method_required', 7500, 'USD');
+reset role;
 
 -- Owner A can read their own pending commitment (challenge, recipients,
 -- consequence) — the same client-side read path the new repository method
@@ -35,6 +57,28 @@ select test.assert_equals(
   (select count(*) from public.challenges where id = 'bbbbbbbb-0000-0000-0000-000000000002'),
   0::bigint
 );
+
+-- Another authenticated user cannot cancel it either — rejected
+-- identically to "not found", and leaves it untouched. Runs while
+-- bbbbbbbb-…0002 is still pending, before Owner A's own cancellation below.
+select test.assert_fails(
+  'non_owner_cannot_cancel_pending_challenge',
+  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000002')$stmt$,
+  'P0002'
+);
+reset role;
+set role service_role;
+do $$
+declare
+  status_val text;
+  consequence_status_val text;
+begin
+  select challenge_status into status_val from public.challenges where id = 'bbbbbbbb-0000-0000-0000-000000000002';
+  perform test.assert_equals('non_owner_cancel_attempt_leaves_challenge_untouched', status_val, 'pending_activation');
+  select status into consequence_status_val from public.consequences where challenge_id = 'bbbbbbbb-0000-0000-0000-000000000002';
+  perform test.assert_equals('non_owner_cancel_attempt_leaves_consequence_untouched', consequence_status_val, 'payment_method_required');
+end;
+$$;
 reset role;
 
 -- Signed-out access is denied outright (no grant on challenges at all).
@@ -128,34 +172,7 @@ begin
 end;
 $$;
 
--- Another authenticated user cannot cancel Owner A's (still pending)
--- challenge — rejected identically to "not found", and leaves it untouched.
-reset role;
-set role authenticated;
-select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
-select test.assert_fails(
-  'non_owner_cannot_cancel_pending_challenge',
-  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000003')$stmt$,
-  'P0002'
-);
-reset role;
-set role service_role;
-do $$
-declare
-  status_val text;
-  consequence_status_val text;
-begin
-  select challenge_status into status_val from public.challenges where id = 'bbbbbbbb-0000-0000-0000-000000000003';
-  perform test.assert_equals('non_owner_cancel_attempt_leaves_challenge_untouched', status_val, 'pending_activation');
-  select status into consequence_status_val from public.consequences where challenge_id = 'bbbbbbbb-0000-0000-0000-000000000003';
-  perform test.assert_equals('non_owner_cancel_attempt_leaves_consequence_untouched', consequence_status_val, 'payment_method_required');
-end;
-$$;
-reset role;
-
 -- An active challenge cannot be canceled through this RPC.
-set role authenticated;
-select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 select test.assert_fails(
   'active_challenge_cancel_rejected',
   $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000004')$stmt$,
@@ -183,7 +200,7 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', '', false);
 select test.assert_fails(
   'unauthenticated_cancel_rejected',
-  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000003')$stmt$,
+  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000002')$stmt$,
   '28000'
 );
 reset role;

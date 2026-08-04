@@ -8,17 +8,23 @@ select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111
 -- Reads: owner sees exactly their own row in every table.
 select test.assert_equals('owner_sees_own_profile', (select count(*) from public.profiles), 1::bigint);
 -- Ten drafts: the original loose fixture plus six added for
--- 090_prepare_challenge_from_draft.sql, two added for
--- 100_cancel_pending_challenge.sql, and one added for
--- 110_archived_draft_immutability.sql (see 010_seed.sql).
+-- 090_prepare_challenge_from_draft.sql, one added for
+-- 100_cancel_pending_challenge.sql, one added for
+-- 110_archived_draft_immutability.sql, and one added for
+-- 120_one_pending_commitment_per_owner.sql (see 010_seed.sql).
+-- Neither 100's nor 120's pending-commitment fixture is seeded here —
+-- challenges_owner_one_pending_idx allows at most one pending_activation
+-- challenge per owner at a time, and 090's own tests need Owner A to start
+-- (and, after its own cleanup, end) at zero, so each of 100/120 creates its
+-- own inline instead.
 select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 10::bigint);
--- Four challenges: the original activated one plus three added for
--- 100_cancel_pending_challenge.sql (two pending, one active).
-select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 4::bigint);
-select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 3::bigint);
+-- Two challenges: the original activated one plus the already-active one
+-- added for 100_cancel_pending_challenge.sql.
+select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 2::bigint);
+select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 1::bigint);
 select test.assert_equals('owner_sees_own_periods', (select count(*) from public.challenge_periods), 1::bigint);
 select test.assert_equals('owner_sees_own_checkins', (select count(*) from public.check_in_events), 1::bigint);
-select test.assert_equals('owner_sees_own_consequences', (select count(*) from public.consequences), 3::bigint);
+select test.assert_equals('owner_sees_own_consequences', (select count(*) from public.consequences), 1::bigint);
 select test.assert_equals('owner_sees_own_invitations', (select count(*) from public.invitations), 1::bigint);
 select test.assert_equals('owner_sees_own_membership', (select count(*) from public.memberships), 1::bigint);
 

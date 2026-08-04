@@ -280,44 +280,13 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
   'archived'
 );
 
--- Pending, reserved for the successful-cancellation test.
-insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status) values
-  ('bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000008', 1, 1, 'pending_activation');
-insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
-  ('cccccccc-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', 'Anna', 0, 'recipient_organizer');
-insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency) values
-  ('ffffffff-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'payment_method_required', 7500, 'USD');
+-- Its pending challenge (bbbbbbbb-…0002) is *not* seeded here — Owner A
+-- must have zero pending_activation challenges at seed time so
+-- 090_prepare_challenge_from_draft.sql's own tests (which create and then
+-- clean up a real one) don't collide with challenges_owner_one_pending_idx.
+-- 100_cancel_pending_challenge.sql creates it inline instead, once 090 has
+-- already finished and canceled its own.
 
--- Pending, reserved for the "another user cannot cancel it" test — must
--- stay untouched by every other test above.
-insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
-  'aaaaaaaa-0000-0000-0000-000000000009',
-  '11111111-1111-1111-1111-111111111111',
-  1,
-  jsonb_build_object(
-    'schemaVersion', 1,
-    'id', 'aaaaaaaa-0000-0000-0000-000000000009',
-    'ownerId', '11111111-1111-1111-1111-111111111111',
-    'goal', 'Sleep better',
-    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
-    'duration', jsonb_build_object('unit', 'week', 'value', 4),
-    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
-    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
-    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
-    'experienceCategory', 'dinner',
-    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
-    'sitOutAcknowledged', true,
-    'invitationMessage', 'Join me in this promise.',
-    'membershipSelection', 'monthly_trial'
-  ),
-  'archived'
-);
-insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status) values
-  ('bbbbbbbb-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000009', 1, 1, 'pending_activation');
-insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
-  ('cccccccc-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', 'Anna', 0, 'recipient_organizer');
-insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency) values
-  ('ffffffff-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'payment_method_required', 7500, 'USD');
 
 -- Already active (fully activated, own snapshot) — reserved for the
 -- "cancellation of an active challenge is rejected" test.
@@ -371,4 +340,35 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
     'membershipSelection', null
   ),
   'archived'
+);
+
+-- Fixture for 120_one_pending_commitment_per_owner.sql: an otherwise fully
+-- valid, ready_for_activation draft. That file creates its own pending
+-- commitment fixture directly (as service_role) rather than seeding one
+-- here, since the new challenges_owner_one_pending_idx unique index means
+-- Owner A can never have two pending_activation challenges seeded at once
+-- — 100_cancel_pending_challenge.sql's own pending fixture (cccccccc-…0002)
+-- must already be canceled before another can exist, which only happens
+-- while that file runs, not at seed time.
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  'aaaaaaaa-0000-0000-0000-00000000000f',
+  '11111111-1111-1111-1111-111111111111',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1,
+    'id', 'aaaaaaaa-0000-0000-0000-00000000000f',
+    'ownerId', '11111111-1111-1111-1111-111111111111',
+    'goal', 'Read more',
+    'behavior', jsonb_build_object('description', 'Read before bed', 'completionDefinition', 'Read for 20 minutes', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 20, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 2), 'periodTarget', 1, 'periodUnit', 'day'),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Björn')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'wellness',
+    'stake', jsonb_build_object('minorUnits', 5000, 'currency', 'USD'),
+    'sitOutAcknowledged', true,
+    'invitationMessage', 'Join me in this promise.',
+    'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
 );

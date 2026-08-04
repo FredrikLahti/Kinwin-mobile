@@ -118,6 +118,12 @@ It never creates membership, payment authorization, challenge periods, invitatio
 active status — see "Future trusted server work" below for those.
 See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a for client wiring and test coverage.
 
+`supabase/migrations/20260808000000_one_pending_commitment_per_owner.sql` (added in
+review) adds a second unique partial index, `challenges_owner_one_pending_idx` on
+`challenges (owner_id) where challenge_status = 'pending_activation'`, and updates
+`prepare_challenge_from_draft` to check for and reject preparing a draft while the owner
+already has a different pending commitment — a user may only ever have one at a time.
+
 `supabase/migrations/20260806000000_cancel_pending_challenge.sql` adds
 `public.cancel_pending_challenge(challenge_id uuid)`, the same `SECURITY DEFINER` /
 fixed-`search_path` / `authenticated`-only-`EXECUTE` shape. It is the only way

@@ -87,9 +87,19 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   transaction; return the same result on a repeated request for an already-prepared
   draft instead of creating a duplicate (enforced by a unique partial index on
   `challenges.source_draft_id`, with a `unique_violation` handler for the concurrent-call
-  race).
+  race). `supabase/migrations/20260808000000_one_pending_commitment_per_owner.sql`
+  (added in review) additionally enforces at most one `pending_activation` challenge per
+  owner at a time — a second partial unique index
+  (`challenges_owner_one_pending_idx`), an explicit pre-insert check with a clear
+  rejection message, and the same kind of `unique_violation` recovery for the
+  concurrent-call race, this time distinguishing "lost the per-draft race" (return the
+  existing challenge) from "lost the per-owner race" (a *different* draft's concurrent
+  prepare won — surface the "already pending" rejection instead).
 - **Prerequisite product decisions:** Recipient confirmation does not block preparation;
-  recipients cannot be replaced by the user after commitment creation — both resolved for
+  recipients cannot be replaced by the user after commitment creation; a user may only
+  ever have one pending commitment at a time (added in review; the account screen's
+  "Start a new draft instead" steers to the existing one via `hasPendingCommitment`
+  instead of letting the RPC reject it later, deeper into onboarding) — all resolved for
   this package.
 - **Minimum tests:** `supabase/tests/090_prepare_challenge_from_draft.sql` proves atomic
   row creation, draft archival, idempotent repeats, non-owner rejection (indistinguishable
@@ -97,12 +107,18 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   table's own looser constraints, unauthenticated/anonymous rejection, and — via a
   deliberately-failed wrapping transaction — that a downstream failure leaves every
   row count unchanged (true atomicity, not several separately-observable statements).
-  `supabase/tests/e2e/prepare-challenge.e2e.ts` (CI only) re-proves the success path,
-  idempotent repeat, cross-user rejection, and that direct client writes remain
-  impossible, against a real GoTrue-issued JWT and real PostgREST RPC call.
+  `supabase/tests/120_one_pending_commitment_per_owner.sql` proves the new unique index
+  directly, that preparing a second draft while one is pending is rejected without
+  touching either the second draft or the first (still-pending) commitment, and that
+  canceling the first unblocks preparing the second. `supabase/tests/e2e/prepare-challenge.e2e.ts`
+  (CI only) re-proves the success path, idempotent repeat, cross-user rejection, and that
+  direct client writes remain impossible; `supabase/tests/e2e/pending-commitment.e2e.ts`
+  re-proves the one-pending-at-a-time rejection and its lifting after cancellation —
+  against a real GoTrue-issued JWT and real PostgREST RPC call.
 - **Must remain impossible from the client:** Any direct write to `challenges`,
   `challenge_recipients`, or `consequences` (already proven — no grant); preparing the
-  same draft twice; preparing another user's draft; a fake active/activated status.
+  same draft twice; preparing another user's draft; a fake active/activated status;
+  preparing a second draft while one commitment is already pending.
 
 ## 3a-ii. Pending-commitment management (read + cancel) — implemented, verified against real local GoTrue/PostgREST in CI
 

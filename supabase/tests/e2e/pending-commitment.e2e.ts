@@ -185,6 +185,33 @@ test('reading and canceling a pending commitment', async (t) => {
     assert.equal(stillPending?.challenge_status, 'pending_activation', 'User B\'s rejected attempt must not touch User A\'s challenge');
   });
 
+  let secondDraftId = '';
+  await t.test('a second draft cannot be prepared while one commitment is still pending', async () => {
+    secondDraftId = randomUUID();
+    const recipientIds = resolveRecipientIds([{ id: 'recipient-local-2', name: 'Björn' }], () => randomUUID());
+    const mapped = mapOnboardingDraft(buildOnboardingData('recipient-local-2'), {
+      draftId: secondDraftId as ChallengeDraftId,
+      ownerId: userIdA as UserId,
+      recipientIds,
+    });
+    assert.equal(mapped.ok, true, 'fixture must map to a valid draft');
+    if (!mapped.ok) throw new Error('unreachable');
+    const plan = planDraftMutation(null, secondDraftId, userIdA, mapped.value);
+    assert.equal(plan.kind, 'insert');
+    if (plan.kind !== 'insert') throw new Error('unreachable');
+    const { error: insertError } = await ownerA.from('challenge_drafts').insert(plan.row);
+    assert.equal(insertError, null, `second draft insert failed: ${insertError?.message}`);
+
+    const { data, error } = await ownerA.rpc('prepare_challenge_from_draft', { draft_id: secondDraftId });
+    assert.ok(error, 'expected preparing a second draft to be rejected while one commitment is already pending');
+    assert.equal(data, null);
+
+    const { data: draft } = await ownerA.from('challenge_drafts').select('draft_status').eq('id', secondDraftId).single();
+    assert.equal(draft?.draft_status, 'ready_for_activation', 'the rejected second draft must not be archived');
+    const { data: challenges } = await ownerA.from('challenges').select('id').eq('source_draft_id', secondDraftId);
+    assert.equal(challenges?.length, 0, 'the rejected second draft must not create a challenge');
+  });
+
   await t.test('the owner cancels the pending commitment', async () => {
     const { data, error } = await ownerA.rpc('cancel_pending_challenge', { challenge_id: challengeId });
     assert.equal(error, null, `cancel_pending_challenge failed: ${error?.message}`);
@@ -219,8 +246,8 @@ test('reading and canceling a pending commitment', async (t) => {
 
   await t.test('the user can create a new draft after cancellation', async () => {
     const newDraftId = randomUUID();
-    const recipientIds = resolveRecipientIds([{ id: 'recipient-local-2', name: 'Björn' }], () => randomUUID());
-    const mapped = mapOnboardingDraft(buildOnboardingData('recipient-local-2'), {
+    const recipientIds = resolveRecipientIds([{ id: 'recipient-local-3', name: 'Cleo' }], () => randomUUID());
+    const mapped = mapOnboardingDraft(buildOnboardingData('recipient-local-3'), {
       draftId: newDraftId as ChallengeDraftId,
       ownerId: userIdA as UserId,
       recipientIds,
@@ -232,5 +259,11 @@ test('reading and canceling a pending commitment', async (t) => {
     if (plan.kind !== 'insert') throw new Error('unreachable');
     const { error } = await ownerA.from('challenge_drafts').insert(plan.row);
     assert.equal(error, null, `starting a new draft after cancellation failed: ${error?.message}`);
+  });
+
+  await t.test('the previously-blocked second draft can now be prepared, since nothing is pending anymore', async () => {
+    const { data, error } = await ownerA.rpc('prepare_challenge_from_draft', { draft_id: secondDraftId });
+    assert.equal(error, null, `prepare_challenge_from_draft failed after the block should have lifted: ${error?.message}`);
+    assert.equal(data.status, 'pending_activation');
   });
 });

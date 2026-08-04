@@ -20,6 +20,9 @@
 * Recipient confirmation does not block challenge preparation (converting a completed draft into a server-owned pending commitment).
 * Recipients cannot be replaced by the user after commitment creation.
 * A pending commitment is no longer editable once created.
+* A user may only ever have one pending commitment at a time; preparing a second draft while
+  one is already pending is rejected server-side, and the account screen steers toward
+  resolving the existing one instead of starting another.
 * The owner can cancel a pending commitment before activation; cancellation is explicit
   (requires confirmation), preserves every row for history rather than deleting anything, and
   frees the user to start a fresh draft.
