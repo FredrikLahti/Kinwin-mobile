@@ -1,0 +1,372 @@
+import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { formatRecipientNames } from '@/components/share/recipient-promise-page';
+import { kinwinTheme as theme } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
+import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import {
+  cancelPendingChallenge,
+  fetchPendingCommitment,
+  PendingCommitment,
+} from '@/lib/supabase/challenge-repository';
+import { calculateSuccessRule } from '@/lib/success-rule';
+
+const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
+  adventure: 'Adventure',
+  culture: 'Culture',
+  dinner: 'Dinner',
+  getaway: 'Getaway',
+  wellness: 'Wellness',
+};
+
+// Every state a signed-in user can be in on this screen. 'summary' is the
+// only one that can reach 'confirmCancel'/'paymentPlaceholder'/'canceling';
+// those three all carry the same commitment back so the screen never loses
+// it while the user is deciding.
+type ScreenState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'summary'; readonly commitment: PendingCommitment }
+  | { readonly kind: 'paymentPlaceholder'; readonly commitment: PendingCommitment }
+  | { readonly kind: 'confirmCancel'; readonly commitment: PendingCommitment }
+  | { readonly kind: 'canceling'; readonly commitment: PendingCommitment }
+  | { readonly kind: 'canceled' }
+  | { readonly kind: 'error'; readonly message: string; readonly retry: 'load' | 'cancel'; readonly commitment: PendingCommitment | null };
+
+export default function PendingCommitmentScreen() {
+  const router = useRouter();
+  const reducedMotion = useReducedMotion();
+  const { user } = useAuth();
+  const onboarding = useOnboarding();
+  const [state, setState] = useState<ScreenState>({ kind: 'loading' });
+
+  const load = useCallback(async () => {
+    if (!user) return;
+    setState({ kind: 'loading' });
+    const result = await fetchPendingCommitment(user.id);
+    if (!result.ok) {
+      const message = 'message' in result ? result.message : 'Sign in to see your pending commitment.';
+      setState({ kind: 'error', message, retry: 'load', commitment: null });
+      return;
+    }
+    setState(result.commitment ? { kind: 'summary', commitment: result.commitment } : { kind: 'none' });
+  }, [user]);
+
+  // Refetches every time this screen gains focus (not just on first mount),
+  // so returning here after canceling elsewhere, or after a later payment
+  // step exists, never shows a stale commitment.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const openPaymentPlaceholder = () => {
+    if (state.kind !== 'summary') return;
+    void playSelectionHaptic();
+    setState({ kind: 'paymentPlaceholder', commitment: state.commitment });
+  };
+
+  const backToSummary = (commitment: PendingCommitment) => {
+    void playSelectionHaptic();
+    setState({ kind: 'summary', commitment });
+  };
+
+  const askToCancel = () => {
+    if (state.kind !== 'summary') return;
+    void playSelectionHaptic();
+    setState({ kind: 'confirmCancel', commitment: state.commitment });
+  };
+
+  const abortCancel = (commitment: PendingCommitment) => {
+    void playSelectionHaptic();
+    setState({ kind: 'summary', commitment });
+  };
+
+  const confirmCancel = useCallback(async (commitment: PendingCommitment) => {
+    if (!user) return;
+    setState({ kind: 'canceling', commitment });
+    const result = await cancelPendingChallenge(commitment.challengeId, user.id);
+    if (!result.ok) {
+      const message = 'message' in result ? result.message : 'Sign in to cancel your pending commitment.';
+      setState({ kind: 'error', message, retry: 'cancel', commitment });
+      return;
+    }
+    void playImportantHaptic();
+    // The commitment is gone; a fresh draft must never inherit any of its
+    // fields (recipients especially — replacement is not allowed even
+    // indirectly through a half-populated onboarding context).
+    onboarding.resetDraft();
+    setState({ kind: 'canceled' });
+  }, [onboarding, user]);
+
+  const retry = () => {
+    void playSelectionHaptic();
+    if (state.kind !== 'error') return;
+    if (state.retry === 'cancel' && state.commitment) {
+      void confirmCancel(state.commitment);
+      return;
+    }
+    void load();
+  };
+
+  const startNewDraft = () => {
+    void playImportantHaptic();
+    onboarding.resetDraft();
+    router.replace('/onboarding/goal' as Href);
+  };
+
+  const goBack = () => {
+    void playSelectionHaptic();
+    router.back();
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+      <StatusBar style="light" />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Pressable
+              accessibilityHint="Returns to your account"
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={goBack}
+              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+            >
+              <Text aria-hidden style={styles.backIcon}>‹</Text>
+            </Pressable>
+            <Text style={styles.wordmark}>KINWIN</Text>
+          </View>
+
+          <View style={styles.intro}>
+            <Text style={styles.phaseLabel}>PENDING COMMITMENT</Text>
+            <Text accessibilityRole="header" style={styles.headline}>
+              {state.kind === 'canceled' ? 'Commitment canceled' : 'Your pending commitment'}
+            </Text>
+          </View>
+
+          {state.kind === 'loading' && (
+            <Text accessibilityLiveRegion="polite" style={styles.body}>Checking your pending commitment…</Text>
+          )}
+
+          {state.kind === 'none' && (
+            <View style={styles.section}>
+              <Text style={styles.body}>
+                You don&apos;t have a pending commitment yet. Complete setup to create one.
+              </Text>
+              <Pressable
+                accessibilityHint="Starts a new onboarding draft"
+                accessibilityRole="button"
+                onPress={startNewDraft}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>Start a new draft</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {(state.kind === 'summary' || state.kind === 'paymentPlaceholder' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
+            <CommitmentSummary commitment={state.commitment} />
+          )}
+
+          {state.kind === 'summary' && (
+            <View style={styles.actions}>
+              <AnimatedPrimaryButton
+                accessibilityHint="Shows what happens next toward payment and activation"
+                label="Continue setup"
+                onPress={openPaymentPlaceholder}
+                reducedMotion={reducedMotion}
+              />
+              <Pressable
+                accessibilityHint="Asks for confirmation before canceling this pending commitment"
+                accessibilityRole="button"
+                onPress={askToCancel}
+                style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
+              >
+                <Text style={styles.dangerButtonLabel}>Cancel commitment</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {state.kind === 'paymentPlaceholder' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>NEXT: PAYMENT SETUP</Text>
+              <Text style={styles.body}>
+                Payment setup is the next step and is not built yet. No payment method has been
+                collected, no charge has been authorized, and this challenge has not been activated.
+              </Text>
+              <Pressable
+                accessibilityHint="Returns to the pending commitment summary"
+                accessibilityRole="button"
+                onPress={() => backToSummary(state.commitment)}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>Back to summary</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {state.kind === 'confirmCancel' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>CONFIRM CANCELLATION</Text>
+              <Text style={styles.body}>
+                Canceling is only possible before activation — nothing has been charged or activated
+                yet, so this simply ends the commitment. This cannot be undone; you would need to
+                start a new draft to try again.
+              </Text>
+              <AnimatedPrimaryButton
+                accessibilityHint="Permanently cancels this pending commitment"
+                label="Yes, cancel commitment"
+                onPress={() => void confirmCancel(state.commitment)}
+                reducedMotion={reducedMotion}
+              />
+              <Pressable
+                accessibilityHint="Keeps the pending commitment and returns to the summary"
+                accessibilityRole="button"
+                onPress={() => abortCancel(state.commitment)}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>No, keep it</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {state.kind === 'canceling' && (
+            <Text accessibilityLiveRegion="polite" style={styles.body}>Canceling your commitment…</Text>
+          )}
+
+          {state.kind === 'canceled' && (
+            <View style={styles.section}>
+              <Text style={styles.body}>
+                This commitment has been canceled. The record is kept for your history, but it no
+                longer holds a place — you&apos;re free to start a new draft.
+              </Text>
+              <AnimatedPrimaryButton
+                accessibilityHint="Starts a fresh onboarding draft"
+                label="Start a new draft"
+                onPress={startNewDraft}
+                reducedMotion={reducedMotion}
+              />
+            </View>
+          )}
+
+          {state.kind === 'error' && (
+            <View style={styles.section}>
+              <Text style={styles.errorText}>{state.message}</Text>
+              <Pressable
+                accessibilityHint="Tries the last action again"
+                accessibilityRole="button"
+                onPress={retry}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>Retry</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitment }) {
+  const successRule = calculateSuccessRule({
+    ...commitment.draftData,
+    rhythm: { ...commitment.draftData.rhythm, selectedWeekdays: [...commitment.draftData.rhythm.selectedWeekdays] },
+  });
+  const categoryLabel = commitment.draftData.experienceCategory
+    ? CATEGORY_LABELS[commitment.draftData.experienceCategory]
+    : 'Not set';
+  const organizer = commitment.recipients.find((recipient) => recipient.isOrganizer);
+  const recipientNames = commitment.recipients.map((recipient) => recipient.displayName);
+  const stakeLabel = `$${(commitment.stakeMinorUnits / 100).toLocaleString('en-US')}`;
+
+  return (
+    <View style={styles.summary}>
+      <View style={styles.lockedNotice}>
+        <View aria-hidden style={styles.lockedMark} />
+        <Text style={styles.lockedText}>
+          This commitment is locked in and saved on the server. It can no longer be edited, and
+          recipients cannot be replaced — cancel and start a new draft to change anything.
+        </Text>
+      </View>
+
+      <SummaryRow label="GOAL" value={commitment.draftData.goal} />
+      <SummaryRow label="PROMISED BEHAVIOR" value={commitment.draftData.behaviorText} />
+      <SummaryRow label="SUCCESS RULE" value={successRule?.overall ?? successRule?.challengeSummary ?? 'Not available'} />
+      <SummaryRow label="DURATION" value={`${commitment.draftData.durationWeeks ?? '—'} weeks`} />
+      <SummaryRow
+        label="RECIPIENTS AND ORGANIZER"
+        value={`${formatRecipientNames(recipientNames)}${organizer ? ` · Organizer: ${organizer.displayName}` : ''}`}
+      />
+      <SummaryRow label="CONSEQUENCE CATEGORY" value={categoryLabel} />
+      <SummaryRow label="STAKE" value={stakeLabel} />
+      <SummaryRow label="CURRENT STATUS" value="Pending — payment setup and final activation are still required." />
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: theme.colors.ink },
+  scrollContent: { flexGrow: 1 },
+  content: {
+    flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
+    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+  },
+  header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
+  backButton: {
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
+  },
+  backButtonPressed: { backgroundColor: theme.colors.surface },
+  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
+  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  intro: { gap: 8 },
+  phaseLabel: { color: theme.colors.copper, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
+  headline: {
+    color: theme.colors.bone,
+    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
+    fontSize: 30, fontWeight: '400', lineHeight: 36,
+  },
+  body: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
+  section: { gap: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
+  sectionLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
+  textButton: { minHeight: 44, justifyContent: 'center' },
+  textButtonPressed: { opacity: 0.7 },
+  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  summary: { gap: 16 },
+  lockedNotice: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
+  },
+  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.copper },
+  lockedText: { flex: 1, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17 },
+  summaryRow: {
+    gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
+  },
+  summaryLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  summaryValue: { color: theme.colors.bone, fontSize: 14, lineHeight: 20 },
+  actions: { gap: 12, paddingTop: 4 },
+  dangerButton: {
+    minHeight: 48, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,
+  },
+  dangerButtonPressed: { backgroundColor: theme.colors.surface },
+  dangerButtonLabel: { color: '#E37D6A', fontSize: 14, fontWeight: '700' },
+});

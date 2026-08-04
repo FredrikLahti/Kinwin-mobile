@@ -87,9 +87,19 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   transaction; return the same result on a repeated request for an already-prepared
   draft instead of creating a duplicate (enforced by a unique partial index on
   `challenges.source_draft_id`, with a `unique_violation` handler for the concurrent-call
-  race).
+  race). `supabase/migrations/20260808000000_one_pending_commitment_per_owner.sql`
+  (added in review) additionally enforces at most one `pending_activation` challenge per
+  owner at a time — a second partial unique index
+  (`challenges_owner_one_pending_idx`), an explicit pre-insert check with a clear
+  rejection message, and the same kind of `unique_violation` recovery for the
+  concurrent-call race, this time distinguishing "lost the per-draft race" (return the
+  existing challenge) from "lost the per-owner race" (a *different* draft's concurrent
+  prepare won — surface the "already pending" rejection instead).
 - **Prerequisite product decisions:** Recipient confirmation does not block preparation;
-  recipients cannot be replaced by the user after commitment creation — both resolved for
+  recipients cannot be replaced by the user after commitment creation; a user may only
+  ever have one pending commitment at a time (added in review; the account screen's
+  "Start a new draft instead" steers to the existing one via `hasPendingCommitment`
+  instead of letting the RPC reject it later, deeper into onboarding) — all resolved for
   this package.
 - **Minimum tests:** `supabase/tests/090_prepare_challenge_from_draft.sql` proves atomic
   row creation, draft archival, idempotent repeats, non-owner rejection (indistinguishable
@@ -97,12 +107,78 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   table's own looser constraints, unauthenticated/anonymous rejection, and — via a
   deliberately-failed wrapping transaction — that a downstream failure leaves every
   row count unchanged (true atomicity, not several separately-observable statements).
-  `supabase/tests/e2e/prepare-challenge.e2e.ts` (CI only) re-proves the success path,
-  idempotent repeat, cross-user rejection, and that direct client writes remain
-  impossible, against a real GoTrue-issued JWT and real PostgREST RPC call.
+  `supabase/tests/120_one_pending_commitment_per_owner.sql` proves the new unique index
+  directly, that preparing a second draft while one is pending is rejected without
+  touching either the second draft or the first (still-pending) commitment, and that
+  canceling the first unblocks preparing the second. `supabase/tests/e2e/prepare-challenge.e2e.ts`
+  (CI only) re-proves the success path, idempotent repeat, cross-user rejection, and that
+  direct client writes remain impossible; `supabase/tests/e2e/pending-commitment.e2e.ts`
+  re-proves the one-pending-at-a-time rejection and its lifting after cancellation —
+  against a real GoTrue-issued JWT and real PostgREST RPC call.
 - **Must remain impossible from the client:** Any direct write to `challenges`,
   `challenge_recipients`, or `consequences` (already proven — no grant); preparing the
-  same draft twice; preparing another user's draft; a fake active/activated status.
+  same draft twice; preparing another user's draft; a fake active/activated status;
+  preparing a second draft while one commitment is already pending.
+
+## 3a-ii. Pending-commitment management (read + cancel) — implemented, verified against real local GoTrue/PostgREST in CI
+
+- **Trusted boundary:** Reads use the same owner-only RLS policies and grants proven in
+  phase 2/3a — no new policy or grant exists for this. Cancellation is a new
+  `SECURITY DEFINER` function, `public.cancel_pending_challenge`
+  (`supabase/migrations/20260806000000_cancel_pending_challenge.sql`), the only path
+  that can move `challenge_status`/`consequences.status` to `canceled_before_activation`.
+  `supabase/migrations/20260807000000_archived_draft_immutability.sql` closes a related
+  gap found in review: the owner's existing `challenge_drafts` grants were never scoped
+  to `draft_status`, so a stale client save could otherwise still rewrite or delete an
+  already-archived draft — the row the read-only summary below is sourced from — even
+  though it can no longer construct/edit the challenge/recipients/consequence rows
+  themselves. A trigger now rejects `UPDATE`/`DELETE` on any `challenge_drafts` row once
+  `draft_status = 'archived'`, for every role, the same "immutable beyond the client
+  boundary too" pattern `check_in_events`' append-only trigger already established.
+- **Tables/functions:** Reads `challenges`, `challenge_recipients`, `consequences`, and
+  the archived source draft's `draft_payload` (the only place the goal/behavior/
+  successRule/duration/experience category still exist pre-full-activation). Writes,
+  atomically: `challenges.challenge_status` and `consequences.status` to
+  `'canceled_before_activation'`. Deletes nothing, ever — the challenge, its recipients,
+  its consequence, and the archived draft all survive a cancellation unchanged apart
+  from those two status columns.
+- **Client responsibilities:** `lib/supabase/challenge-repository.ts`'s
+  `fetchPendingCommitment` reads the latest pending commitment and restores the archived
+  draft's payload through the existing `restoreOnboardingDraftData` boundary (reversed
+  from phase 2) to render a read-only summary; `cancelPendingChallenge` calls the RPC.
+  `app/account/pending-commitment.tsx` is the new entry point (linked from
+  `app/account/index.tsx`), rendering loading/none/summary/payment-placeholder/confirm/
+  canceling/canceled/error states. The summary is never editable and never offers
+  recipient replacement; "Continue setup" only ever opens a truthful placeholder
+  explaining payment setup is still future work — it never fakes Stripe or an active
+  status. Canceling resets local onboarding state so a new draft never inherits any
+  field from the canceled one.
+- **Server responsibilities:** Verify ownership and current status before canceling;
+  reject cancellation of anything other than `pending_activation` (indistinguishable
+  "not found" response for both a missing challenge and one owned by someone else); stay
+  idempotent for a repeated cancel of an already-canceled challenge.
+- **Prerequisite product decisions:** None blocking — recipients already cannot be
+  replaced (no relevant write path exists at all), and cancellation before activation was
+  explicitly scoped for this package.
+- **Minimum tests:** `supabase/tests/100_cancel_pending_challenge.sql` proves owner
+  reads, non-owner/anon read denial, atomic cancellation (challenge and consequence
+  together), idempotent repeats, non-owner cancel rejection, rejection of canceling an
+  already-`active` challenge, that nothing is deleted, and that a new draft can be
+  created afterward. `supabase/tests/e2e/pending-commitment.e2e.ts` (CI only) re-proves
+  the same success/idempotency/cross-user paths against a real GoTrue-issued JWT and
+  real PostgREST RPC call; it does not re-prove the active-challenge rejection case,
+  since there is no client-reachable way yet to produce a real active challenge (that
+  path is exercised at the Postgres level instead, directly against a fixture).
+  `supabase/tests/110_archived_draft_immutability.sql` proves an archived draft's
+  `UPDATE`/`DELETE` are rejected for every role including `service_role`, that the
+  rejected row survives unchanged, and that a non-archived draft remains fully editable
+  and deletable as before; `pending-commitment.e2e.ts` re-proves the rejection against a
+  real PostgREST request attempting exactly the update/delete a stale client save would
+  send.
+- **Must remain impossible from the client:** Any direct write to `challenges` or
+  `consequences` (already proven — no grant); canceling another user's pending
+  commitment; canceling an already-active or completed challenge; deleting any row;
+  updating or deleting an already-archived `challenge_drafts` row.
 
 ## 3b. Trusted full activation
 

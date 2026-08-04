@@ -80,9 +80,19 @@ echo "==> Seeding fixture data"
 "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$SCRIPT_DIR/010_seed.sql"
 
 echo "==> Running RLS, immutability, and constraint assertions (fail-fast)"
-for f in "$SCRIPT_DIR"/0[2-9][0-9]_*.sql; do
+# 020-099 and 100-999: numbered test files run in filename order after the
+# 000/001/010 setup files above. `nullglob` makes an empty range expand to
+# nothing instead of a literal, unmatched pattern, so adding a new range
+# here can never silently break the loop even if it's ever briefly empty —
+# see supabase/tests/README.md's "Harness self-test" for the earlier,
+# shipped version of exactly this bug (020-099 alone was too narrow to
+# catch 080_profile_trigger.sql at first) and 100_cancel_pending_challenge.sql
+# was caught the same way before it ever merged.
+shopt -s nullglob
+for f in "$SCRIPT_DIR"/0[2-9][0-9]_*.sql "$SCRIPT_DIR"/[1-9][0-9][0-9]_*.sql; do
   echo "---- $(basename "$f") ----"
   "${RUN_AS_POSTGRES[@]}" "${PSQL[@]}" < "$f"
 done
+shopt -u nullglob
 
 echo "==> All assertions passed (process exit code is the source of truth, not this line)."

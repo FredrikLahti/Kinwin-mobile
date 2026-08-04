@@ -19,6 +19,7 @@ import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
+import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
 
 type DraftLookup = { status: 'loading' } | { status: 'none' } | { status: 'found' } | { status: 'error'; message: string };
 
@@ -31,6 +32,11 @@ export default function AccountScreen() {
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [draftLookup, setDraftLookup] = useState<DraftLookup>({ status: 'loading' });
+  // Only one pending commitment is ever allowed per owner (enforced
+  // server-side too); "Start a new draft instead" checks this so it can
+  // steer to the existing one instead of letting prepare_challenge_from_draft
+  // reject a second one later, deeper into onboarding.
+  const [hasPendingCommitment, setHasPendingCommitment] = useState(false);
 
   useEffect(() => {
     setDisplayName(profile?.displayName ?? '');
@@ -50,6 +56,16 @@ export default function AccountScreen() {
   useEffect(() => {
     void loadDraftLookup();
   }, [loadDraftLookup]);
+
+  const loadPendingCommitmentFlag = useCallback(async () => {
+    if (!user) return;
+    const result = await fetchPendingCommitment(user.id);
+    setHasPendingCommitment(result.ok && result.commitment !== null);
+  }, [user]);
+
+  useEffect(() => {
+    void loadPendingCommitmentFlag();
+  }, [loadPendingCommitmentFlag]);
 
   const saveName = async () => {
     void playSelectionHaptic();
@@ -72,6 +88,12 @@ export default function AccountScreen() {
 
   const startNew = () => {
     void playImportantHaptic();
+    if (hasPendingCommitment) {
+      // Only one pending commitment is allowed at a time (also enforced
+      // server-side) — resolve or cancel it there before starting another.
+      router.push('/account/pending-commitment' as Href);
+      return;
+    }
     onboarding.resetDraft();
     router.push('/onboarding/goal' as Href);
   };
@@ -146,12 +168,34 @@ export default function AccountScreen() {
               </>
             )}
             <Pressable
-              accessibilityHint="Starts a new onboarding draft"
+              accessibilityHint={
+                hasPendingCommitment
+                  ? 'Opens your existing pending commitment instead — only one is allowed at a time'
+                  : 'Starts a new onboarding draft'
+              }
               accessibilityRole="button"
               onPress={startNew}
               style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
             >
-              <Text style={styles.textButtonLabel}>Start a new draft instead</Text>
+              <Text style={styles.textButtonLabel}>
+                {hasPendingCommitment ? 'Resolve your pending commitment first' : 'Start a new draft instead'}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>PENDING COMMITMENT</Text>
+            <Text style={styles.body}>
+              If a completed draft has been saved on the server as a pending commitment, view its
+              status, continue setup, or cancel it there.
+            </Text>
+            <Pressable
+              accessibilityHint="Opens your pending commitment, if any"
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); router.push('/account/pending-commitment' as Href); }}
+              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+            >
+              <Text style={styles.textButtonLabel}>View pending commitment</Text>
             </Pressable>
           </View>
 

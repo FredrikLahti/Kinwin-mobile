@@ -88,6 +88,17 @@ and Cut back totals are never overwritten as the source of truth.
 The SQL event names `stop_intact` and `stop_lapse` are the relational forms of the TypeScript
 `stop_status` discriminant, whose payload carries the corresponding status.
 
+`supabase/migrations/20260807000000_archived_draft_immutability.sql` applies the same
+"immutable for every role, not just the client" principle to `challenge_drafts`: once
+`draft_status = 'archived'` (the state `prepare_challenge_from_draft` leaves a draft in),
+a trigger unconditionally rejects `UPDATE` and `DELETE`, even though the owner's own
+grants on that table are not themselves scoped to `draft_status`. Without it, a stale
+client session still holding an already-prepared draft's id could silently rewrite or
+remove the row a pending commitment's read-only summary is sourced from, while the
+separately-created `challenge_recipients`/`consequences` rows stayed exactly as they
+were — breaking the "no longer editable" rule without touching any of the tables that
+actually represent the commitment.
+
 ## Trusted RPCs
 
 `supabase/migrations/20260805000000_prepare_challenge_from_draft.sql` adds
@@ -106,6 +117,25 @@ repeated preparation of the same draft return the same challenge rather than dup
 It never creates membership, payment authorization, challenge periods, invitations, or an
 active status — see "Future trusted server work" below for those.
 See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a for client wiring and test coverage.
+
+`supabase/migrations/20260808000000_one_pending_commitment_per_owner.sql` (added in
+review) adds a second unique partial index, `challenges_owner_one_pending_idx` on
+`challenges (owner_id) where challenge_status = 'pending_activation'`, and updates
+`prepare_challenge_from_draft` to check for and reject preparing a draft while the owner
+already has a different pending commitment — a user may only ever have one at a time.
+
+`supabase/migrations/20260806000000_cancel_pending_challenge.sql` adds
+`public.cancel_pending_challenge(challenge_id uuid)`, the same `SECURITY DEFINER` /
+fixed-`search_path` / `authenticated`-only-`EXECUTE` shape. It is the only way
+`challenge_status`/`consequences.status` can reach `'canceled_before_activation'` from
+client action. Requires a real `auth.uid()`, verifies ownership, allows the transition
+only from `pending_activation` (an already-canceled challenge returns the same result
+idempotently instead of erroring; anything else — including an already-`active` or
+completed challenge — is rejected), and atomically updates both the challenge and its
+consequence. Deletes nothing: the challenge, its recipients, its consequence, and the
+already-archived source draft all survive, unchanged apart from those two status
+columns. See `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii for client wiring and
+test coverage.
 
 ## Future trusted server work
 

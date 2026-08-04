@@ -19,7 +19,15 @@
 * Recipient confirmation does not block a challenge from starting.
 * Recipient confirmation does not block challenge preparation (converting a completed draft into a server-owned pending commitment).
 * Recipients cannot be replaced by the user after commitment creation.
+* A pending commitment is no longer editable once created.
+* A user may only ever have one pending commitment at a time; preparing a second draft while
+  one is already pending is rejected server-side, and the account screen steers toward
+  resolving the existing one instead of starting another.
+* The owner can cancel a pending commitment before activation; cancellation is explicit
+  (requires confirmation), preserves every row for history rather than deleting anything, and
+  frees the user to start a fresh draft.
 * Repeating a request to prepare the same draft must return the same challenge, never create a duplicate.
+* Repeating a request to cancel an already-canceled commitment must return the same result, never error.
 * The client must never write directly to `challenges`, `challenge_recipients`, or `consequences` — only a trusted server-side function may.
 * If membership access expires during an active challenge, the challenge enters restricted Completion Mode. Essential check-ins, challenge status, final result, and consequence completion remain available, but new challenges and full member features require active membership.
 * Personal learnings should eventually be stored in “What works for me.”
@@ -58,6 +66,12 @@
   record — real persistence, but deliberately not an active challenge. It is a distinct state from
   the local "Preview active challenge" prototype shortcut, which stays session-only and unchanged
   (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a).
+* A pending commitment survives an app restart or new login: a dedicated screen
+  (`app/account/pending-commitment.tsx`, linked from the account screen) reads it back, shows a
+  read-only summary of everything already locked in, and lets the owner cancel it (via the trusted
+  `cancel_pending_challenge` RPC) before starting a new draft. "Continue setup" only opens a
+  truthful placeholder for the still-unbuilt payment step — it never fakes payment or activation
+  (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii).
 * No Stripe charging, Tremendous fulfillment, analytics, or push notifications are connected yet.
   Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot),
   period generation, check-in evaluation, and payment authorization/charging all remain
