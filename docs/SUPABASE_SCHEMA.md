@@ -167,16 +167,51 @@ timezone) is rejected rather than silently replacing periods. It does not change
 `docs/PRODUCT_DECISIONS.md`'s "Timezone, start, and DST rules" section for the finalized
 product rules this implements.
 
+`supabase/migrations/20260810000000_consequence_setup_stripe.sql` adds three RPCs for
+the Stripe test-mode payment-method-setup foundation:
+`public.prepare_consequence_setup(p_owner_id, p_challenge_id, p_consequence_id)`,
+`public.record_consequence_setup_attempt(p_owner_id, p_challenge_id,
+p_stripe_customer_id, p_stripe_setup_intent_id)`, and
+`public.apply_consequence_setup_event(p_stripe_event_id, p_event_type,
+p_stripe_setup_intent_id, p_stripe_customer_id, p_stripe_payment_method_id, p_status)`.
+Unlike `private.generate_challenge_periods` above, these live in `public` rather than
+`private` — PostgREST (and therefore an Edge Function calling them through the
+service-role Supabase client's `.rpc()`) can only reach functions in an exposed schema,
+and `private` deliberately is not one. Living in `public` does not make them reachable
+by `anon`/`authenticated`: `EXECUTE` is granted only to `service_role`, the same
+grant-restriction pattern `prepare_challenge_from_draft`/`cancel_pending_challenge`
+already use (there restricted to `authenticated` instead, since those are called
+directly by the client). The tables they read and write —
+`private.stripe_customers`, `private.consequence_setup_attempts`,
+`private.stripe_webhook_events`, and the pre-existing
+`private.consequence_provider_references` — stay in `private`; being `security
+definer`, the functions can reach them regardless of the caller's own grants, so no
+client role gains any new access to `private` itself.
+
+The two callers of these RPCs are Supabase Edge Functions, not the client directly:
+`supabase/functions/create-consequence-setup-intent` (requires a real Supabase user
+JWT; derives the caller from it, never the request body; calls `prepare_consequence_setup`
+then, after creating or reusing a Stripe Customer/SetupIntent, `record_consequence_setup_attempt`)
+and `supabase/functions/stripe-consequence-webhook` (Supabase JWT verification disabled
+for this one function only — `verify_jwt = false` in `supabase/config.toml` — since
+Stripe signs its own requests with an HMAC secret instead; verifies that signature
+before trusting anything in the body, then calls `apply_consequence_setup_event`). See
+`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 8 and `docs/PAYMENT_SETUP.md` for the full
+flow, security properties, and local testing instructions.
+
 ## Future trusted server work
 
 - Full activation of an already-prepared `pending_activation` challenge: the immutable
   `activation_snapshot`, `activated_at`/`starts_at`/`planned_ends_at`, and timezone, plus
-  real payment authorization and a call to `private.generate_challenge_periods` with the
-  chosen activation instant and timezone (`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b).
+  real (not pre-activation) payment authorization and a call to
+  `private.generate_challenge_periods` with the chosen activation instant and timezone
+  (`docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3b).
 - Validated, idempotent check-in append and correction handling.
 - Versioned deterministic evaluation and challenge lifecycle transitions.
 - Atomic Completion Mode transitions after entitlement synchronization.
-- Payment authorization, idempotent charging, retries, and reward fulfillment.
+- Idempotent charging (only after trusted evaluation reaches `failure`), payment
+  retries, and reward fulfillment — payment-method setup itself is implemented (see
+  above), charging is not.
 - Invitation creation/delivery and a carefully scoped recipient-access mechanism.
 - Audited administrative/manual-review and account-deletion workflows.
 

@@ -334,25 +334,66 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 - **Must remain impossible from the client:** Writing its own `membership_status` or
   `access_mode` (already proven — no grant).
 
-## 8. Payment authorization and charging
+## 8. Payment authorization and charging — payment-method setup implemented; charging not yet
 
-- **Trusted boundary:** Stripe (or equivalent) integration, entirely server-side; the
-  `private` schema is unreachable to any client role (proven in `050`).
-- **Tables/functions:** `public.consequences`, `private.consequence_provider_references`,
-  `private.consequence_charge_attempts`.
-- **Client responsibilities:** Collect a payment method via a hosted Stripe
-  element/SDK that talks to Stripe directly — the app never handles raw card data — and
-  display `consequences.status`.
-- **Server responsibilities:** Authorize on activation; charge only after trusted
-  evaluation (phase 6) reaches `failure`, using the idempotency-key-protected attempt
-  history proven in `070`.
+- **Trusted boundary:** Stripe test-mode integration, entirely server-side, via two
+  Supabase Edge Functions (`supabase/functions/create-consequence-setup-intent`,
+  `supabase/functions/stripe-consequence-webhook`) — the only place the Stripe secret
+  key or webhook signing secret are ever read (`Deno.env.get`, never committed; see
+  `docs/PAYMENT_SETUP.md`). The `private` schema stays unreachable to any client role
+  (proven in `050`); the three new trusted RPCs this phase adds
+  (`public.prepare_consequence_setup`, `public.record_consequence_setup_attempt`,
+  `public.apply_consequence_setup_event`) live in `public` instead — not `private` —
+  specifically so a service-role-authenticated Edge Function can reach them over
+  PostgREST, with `EXECUTE` granted only to `service_role`, never `anon`/`authenticated`
+  (see `supabase/migrations/20260810000000_consequence_setup_stripe.sql`'s own comment
+  on this for why, contrasted with phase 4's private-schema function).
+- **Tables/functions:** Reuses `public.consequences` and
+  `private.consequence_provider_references` unchanged — no competing consequence model.
+  Adds `private.stripe_customers` (one Stripe Customer per Kinwin owner),
+  `private.consequence_setup_attempts` (durable per-SetupIntent history), and
+  `private.stripe_webhook_events` (idempotency ledger keyed by Stripe's own event id).
+- **Client responsibilities:** None yet — this package is backend-only. A future
+  package collects the payment method via Stripe's React Native PaymentSheet using the
+  client secret this phase's `create-consequence-setup-intent` returns; the app still
+  never handles raw card data itself. See `docs/PRODUCT_DECISIONS.md`'s "Consequence
+  payment setup (Stripe test mode)" section for the exact consent copy data that future
+  client must show before opening PaymentSheet — not yet built.
+- **Server responsibilities (this phase, done):** Create or reuse exactly one Stripe
+  Customer per owner (Stripe idempotency key, concurrency-safe without a database
+  lock); create a SetupIntent (cards only, `usage: 'off_session'`, metadata limited to
+  opaque internal ids); verify the Stripe webhook signature before trusting anything in
+  its body; process every event idempotently by Stripe's own event id; atomically
+  authorize the consequence only after a verified success, never touching
+  `challenge_status`; preserve an already-authorized method during a replacement attempt
+  until the replacement itself succeeds; never let a superseded or late/post-cancellation
+  event move the shared authorization state.
+- **Server responsibilities (still future):** Authorize for real on full activation
+  (phase 3b) rather than pre-activation; charge only after trusted evaluation (phase 6)
+  reaches `failure`, using `private.consequence_charge_attempts`' idempotency-key-protected
+  history (proven in `070`); payment retry/grace and dispute/manual-review handling.
 - **Prerequisite product decisions:** "Payment retry and grace rules"; "Dispute and
-  manual-review process" — both unresolved.
-- **Minimum tests:** Idempotency-key replay (constraint already proven); a charge must
-  never originate from a client-claimed failure — architecturally guaranteed today by
-  private-schema isolation (proven in `050`).
-- **Must remain impossible from the client:** Any read or write of provider references
-  or charge attempts (proven); triggering a charge directly.
+  manual-review process" — both still unresolved, and out of this phase's scope.
+- **Minimum tests:** `supabase/tests/140_consequence_setup_stripe.sql` proves the three
+  RPCs directly (see that file and `supabase/tests/README.md` for the full list —
+  ownership/status rejection, concurrency-safe Customer reuse, no uncontrolled
+  duplicate attempts, atomic authorization, idempotent webhook replay, the
+  preserve-old-method-during-replacement and superseded-event guards, the
+  cancellation guard, and that `anon`/`authenticated` can reach neither the tables nor
+  the RPCs). `supabase/functions/_shared/consequence-setup/*.test.ts` unit-tests the Stripe-call
+  orchestration and event-to-RPC-argument mapping against an injectable fake Stripe
+  adapter — deterministic, no real Stripe dependency.
+  `supabase/tests/e2e/consequence-setup-stripe.e2e.ts` (CI only) re-proves auth/ownership
+  and real webhook signature verification against a real local GoTrue/PostgREST/Edge
+  Runtime stack, using placeholder Stripe secrets so it never depends on a real Stripe
+  account; an additional real Stripe test-mode round trip runs only when a maintainer
+  has already configured real test secrets locally (never requested or invented by the
+  suite itself).
+- **Must remain impossible from the client:** Any read or write of provider references,
+  setup attempts, webhook events, or charge attempts (proven); calling either Edge
+  Function's trusted RPCs directly; triggering a charge; causing `challenge_status` to
+  become `active` or `consequences.status` to become anything beyond the honest
+  pre-activation `authorized` state from this flow alone.
 
 ## 9. Reward fulfillment
 

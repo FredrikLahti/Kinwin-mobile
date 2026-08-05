@@ -62,11 +62,51 @@ jobs:
         with:
           version: latest
 
-      # Runs the full local stack (Postgres, GoTrue, PostgREST, Kong, ...)
-      # via Docker Compose, which GitHub-hosted runners have preinstalled.
-      # Applies every file under supabase/migrations/ in filename order on
-      # first boot, same as a hosted project would. Never touches a hosted
-      # project or production credentials — supabase/config.toml is
+      # supabase/functions/**/*.ts targets the Deno runtime (npm: specifiers,
+      # `.ts`-suffixed relative imports, `Deno.*` globals) and is deliberately
+      # excluded from tsconfig.json's own `npm run typecheck` (see that
+      # file's `exclude`) — Node's TypeScript cannot resolve any of that. This
+      # is that code's only static check: a real `deno check` against the
+      # real Deno type-checker, run before the slower `supabase start` step
+      # below so a Deno-specific mistake fails fast and clearly here rather
+      # than surfacing as a confusing runtime 500 deep in the e2e suite.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Run from inside supabase/functions/ (not the repo root) so Deno's
+      # config-file discovery — which walks up from the working directory,
+      # never down into subdirectories — actually finds
+      # supabase/functions/deno.json and its nodeModulesDir: "auto" (from
+      # the repo root, Deno instead saw only the unrelated root
+      # package.json — the mobile app's — and refused to auto-resolve the
+      # npm: specifiers).
+      - name: Typecheck Edge Functions with Deno
+        working-directory: supabase/functions
+        run: deno check **/*.ts
+
+      # Placeholder-only Stripe secrets for the local Edge Runtime — never
+      # real credentials, and this workflow never requests or invents real
+      # ones (see supabase/tests/e2e/consequence-setup-stripe.e2e.ts's own
+      # header comment). `supabase start` auto-loads this file for every
+      # local Edge Function. The webhook signing secret is also exported to
+      # $GITHUB_ENV so the Node e2e suite can sign requests with the exact
+      # same value the running function verifies against.
+      - name: Write placeholder Stripe secrets for the local Edge Runtime
+        run: |
+          mkdir -p supabase/functions
+          cat > supabase/functions/.env <<'EOF'
+          STRIPE_SECRET_KEY=sk_test_placeholder_not_a_real_key_ci_only
+          STRIPE_WEBHOOK_SIGNING_SECRET=whsec_placeholder_not_a_real_secret_ci_only
+          EOF
+          echo "STRIPE_WEBHOOK_SIGNING_SECRET=whsec_placeholder_not_a_real_secret_ci_only" >> "$GITHUB_ENV"
+
+      # Runs the full local stack (Postgres, GoTrue, PostgREST, Kong, Edge
+      # Runtime, ...) via Docker Compose, which GitHub-hosted runners have
+      # preinstalled. Applies every file under supabase/migrations/ in
+      # filename order and serves every function under supabase/functions/
+      # on first boot, same as a hosted project would. Never touches a
+      # hosted project or production credentials — supabase/config.toml is
       # local-only.
       - name: Start local Supabase and apply migrations
         run: supabase start
@@ -85,7 +125,7 @@ jobs:
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
 
-      - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, and server-generated-periods end-to-end suite against real GoTrue/PostgREST
+      - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, and consequence-setup-stripe end-to-end suite against real GoTrue/PostgREST/Edge Runtime
         run: npm run test:e2e
 
       - name: Stop local Supabase

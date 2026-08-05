@@ -1,7 +1,9 @@
 # Minimal local-only Supabase CLI project config. Used exclusively by
 # `supabase start` in CI (see .github/workflows/supabase-e2e.yml) to run the
 # real GoTrue + PostgREST layer this repo's hand-built Postgres test harness
-# (supabase/tests/) cannot reach. Never pointed at a hosted project.
+# (supabase/tests/) cannot reach, and now also the local Edge Runtime for
+# supabase/functions/ (see docs/PAYMENT_SETUP.md). Never pointed at a hosted
+# project.
 project_id = "kinwin-mobile"
 
 [api]
@@ -31,7 +33,18 @@ enabled = false
 enabled = false
 
 [edge_runtime]
-enabled = false
+enabled = true
+
+# Requires a real, verified Supabase user JWT — derives the caller from it,
+# never from the request body.
+[functions.create-consequence-setup-intent]
+verify_jwt = true
+
+# Stripe never sends a Supabase JWT; its own HMAC signature (verified inside
+# the function, before anything else is trusted) is this endpoint's real
+# boundary. See supabase/functions/stripe-consequence-webhook/index.ts.
+[functions.stripe-consequence-webhook]
+verify_jwt = false
 
 [analytics]
 enabled = false
