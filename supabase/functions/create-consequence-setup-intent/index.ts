@@ -9,14 +9,15 @@
 // All lifecycle decisions live in two trusted RPCs
 // (public.prepare_consequence_setup, public.record_consequence_setup_attempt
 // — see supabase/migrations/20260810000000_consequence_setup_stripe.sql) and
-// the pure orchestration in domain/consequence-setup/setup-intent-flow.ts.
+// the pure orchestration in
+// supabase/functions/_shared/consequence-setup/setup-intent-flow.ts.
 // This file is deliberately thin: verify the caller, call the first RPC,
 // call Stripe through the same interface that file's own unit tests use,
 // call the second RPC, respond with the minimum the future client needs.
 import { withSupabase } from 'npm:@supabase/server@^1';
 
-import { runCreateSetupIntent } from '../../../domain/consequence-setup/setup-intent-flow.ts';
-import { SetupPreparation } from '../../../domain/consequence-setup/types.ts';
+import { runCreateSetupIntent } from '../_shared/consequence-setup/setup-intent-flow.ts';
+import { SetupPreparation } from '../_shared/consequence-setup/types.ts';
 import { createRealStripeAdapter } from '../_shared/real-stripe-adapter.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');

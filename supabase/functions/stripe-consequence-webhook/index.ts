@@ -10,12 +10,13 @@
 // public.apply_consequence_setup_event (see
 // supabase/migrations/20260810000000_consequence_setup_stripe.sql) and the
 // pure event-to-RPC-arguments mapping in
-// domain/consequence-setup/webhook-flow.ts. This file is deliberately thin.
+// supabase/functions/_shared/consequence-setup/webhook-flow.ts. This file
+// is deliberately thin.
 import Stripe from 'npm:stripe@^22';
 import { withSupabase } from 'npm:@supabase/server@^1';
 
-import { planWebhookApplication } from '../../../domain/consequence-setup/webhook-flow.ts';
-import { StripeSetupIntent } from '../../../domain/consequence-setup/types.ts';
+import { planWebhookApplication } from '../_shared/consequence-setup/webhook-flow.ts';
+import { StripeSetupIntent } from '../_shared/consequence-setup/types.ts';
 import { createRealStripeAdapter } from '../_shared/real-stripe-adapter.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');

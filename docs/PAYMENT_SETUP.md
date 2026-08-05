@@ -54,10 +54,16 @@ Stripe ──── signed event ─────▶  verify_jwt disabled; Stripe
 
 Both Edge Functions are thin: the actual decisions (which Stripe calls to make, with
 which idempotency keys and metadata; how to map a webhook event to RPC arguments) live
-in `domain/consequence-setup/*.ts` — plain TypeScript with no Deno dependency, unit
-tested with `node --test` against an in-memory `FakeStripeAdapter`
-(`domain/consequence-setup/fake-stripe-adapter.ts`). The Edge Function entrypoints
-(`supabase/functions/create-consequence-setup-intent/index.ts`,
+in `supabase/functions/_shared/consequence-setup/*.ts` — plain TypeScript with no Deno
+dependency, unit tested with `node --test` against an in-memory `FakeStripeAdapter`
+(`supabase/functions/_shared/consequence-setup/fake-stripe-adapter.ts`). This lives
+inside `supabase/functions/` (not `domain/`, despite being plain, Deno-independent
+TypeScript) because the Supabase CLI's Edge Runtime — both `supabase start` locally and
+real deployment — only bundles files reachable from within `supabase/functions/`; a
+relative import reaching outside that tree fails at serve time even though `deno check`
+alone doesn't catch it (found out the hard way — see git history). `tsconfig.test.json`
+still compiles and runs its tests with plain `node --test`, independent of Deno. The
+Edge Function entrypoints (`supabase/functions/create-consequence-setup-intent/index.ts`,
 `supabase/functions/stripe-consequence-webhook/index.ts`) only wire real Supabase/Stripe
 clients into that same logic.
 
@@ -105,7 +111,7 @@ without naming which variable is missing or revealing any part of its value.
 - **PostgreSQL assertions** (`supabase/tests/140_consequence_setup_stripe.sql`, run via
   `supabase/tests/run.sh`): every trusted-RPC guarantee, directly against real
   PostgreSQL, no Stripe or Deno involved.
-- **Unit tests** (`domain/consequence-setup/*.test.ts`, run via `npm test`): the Stripe
+- **Unit tests** (`supabase/functions/_shared/consequence-setup/*.test.ts`, run via `npm test`): the Stripe
   orchestration and webhook-event-mapping logic, against `FakeStripeAdapter` —
   deterministic, no network access.
 - **Edge Function integration tests**

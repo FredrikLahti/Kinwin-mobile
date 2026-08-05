@@ -380,7 +380,7 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   duplicate attempts, atomic authorization, idempotent webhook replay, the
   preserve-old-method-during-replacement and superseded-event guards, the
   cancellation guard, and that `anon`/`authenticated` can reach neither the tables nor
-  the RPCs). `domain/consequence-setup/*.test.ts` unit-tests the Stripe-call
+  the RPCs). `supabase/functions/_shared/consequence-setup/*.test.ts` unit-tests the Stripe-call
   orchestration and event-to-RPC-argument mapping against an injectable fake Stripe
   adapter — deterministic, no real Stripe dependency.
   `supabase/tests/e2e/consequence-setup-stripe.e2e.ts` (CI only) re-proves auth/ownership

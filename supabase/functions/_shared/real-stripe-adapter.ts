@@ -6,12 +6,12 @@
 // Deno runtime in this repository's own dev/CI sandbox for that — but it is
 // deliberately thin: the only logic worth testing (which Stripe calls to
 // make, with which idempotency keys and metadata, in which order) lives in
-// domain/consequence-setup/*.ts and is unit-tested there with
-// FakeStripeAdapter. This file's only job is turning that same
-// `StripeAdapter` interface into real Stripe API calls.
+// ./consequence-setup/*.ts and is unit-tested there (via `node --test`,
+// see tsconfig.test.json) with FakeStripeAdapter. This file's only job is
+// turning that same `StripeAdapter` interface into real Stripe API calls.
 import Stripe from 'npm:stripe@^22';
 
-import type { StripeAdapter, StripeCustomer, StripeSetupIntent } from '../../../domain/consequence-setup/types.ts';
+import type { StripeAdapter, StripeCustomer, StripeSetupIntent } from './consequence-setup/types.ts';
 
 export function createRealStripeAdapter(secretKey: string): StripeAdapter {
   const stripe = new Stripe(secretKey);
