@@ -77,10 +77,16 @@ jobs:
       # Run from inside supabase/functions/ (not the repo root) so Deno's
       # config-file discovery — which walks up from the working directory,
       # never down into subdirectories — actually finds
-      # supabase/functions/deno.json and its nodeModulesDir: "auto". From
-      # the repo root, Deno instead saw only the unrelated root
-      # package.json (the mobile app's) and refused to auto-resolve the
-      # npm: specifiers.
+      # supabase/functions/deno.json. That file sets nodeModulesDir: "auto"
+      # (from the repo root, Deno instead saw only the unrelated root
+      # package.json — the mobile app's — and refused to auto-resolve the
+      # npm: specifiers) and unstable: ["sloppy-imports"] (the Edge Function
+      # entrypoints import domain/consequence-setup/*.ts, which — like the
+      # rest of domain/ — uses extensionless relative imports among
+      # themselves, this repo's existing Node/TypeScript convention; Deno
+      # checks that entire import graph too, not just the files passed on
+      # the command line, so it needs sloppy-imports to resolve those the
+      # same way Node's own resolution already does).
       - name: Typecheck Edge Functions with Deno
         working-directory: supabase/functions
         run: deno check **/*.ts

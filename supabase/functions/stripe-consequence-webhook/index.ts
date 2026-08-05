@@ -26,7 +26,11 @@ const STRIPE_WEBHOOK_SIGNING_SECRET = Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRE
 const cryptoProvider = Stripe.createSubtleCryptoProvider();
 
 export default {
-  fetch: withSupabase({ auth: 'none' }, async (req, ctx) => {
+  // See create-consequence-setup-intent/index.ts's identical comment: the
+  // `any` Database generic is needed for ctx.supabaseAdmin.rpc(...)'s
+  // hand-written argument shape, since this backend has no generated
+  // Supabase Database type.
+  fetch: withSupabase<any>({ auth: 'none' }, async (req, ctx) => {
     if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SIGNING_SECRET) {
       console.error('stripe-consequence-webhook: STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SIGNING_SECRET is not configured');
       return Response.json({ error: 'server_configuration_error' }, { status: 500 });

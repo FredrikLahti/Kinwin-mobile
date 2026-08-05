@@ -45,7 +45,11 @@ function rpcErrorResponse(error: { readonly code?: string; readonly message?: st
 }
 
 export default {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  // The `any` Database generic (overriding withSupabase's own `unknown`
+  // default) is deliberate: this backend has no generated Supabase
+  // Database type, so `ctx.supabaseAdmin.rpc(...)` needs it to accept the
+  // hand-written RPC argument shapes below instead of narrowing to `never`.
+  fetch: withSupabase<any>({ auth: 'user' }, async (req, ctx) => {
     if (!STRIPE_SECRET_KEY) {
       // Never leaks which secret is missing or any part of its value —
       // only that the server itself is not correctly configured.
