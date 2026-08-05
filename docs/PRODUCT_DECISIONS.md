@@ -69,6 +69,47 @@
   activation (phase 3b) does not exist yet, so this does not yet affect any real
   challenge.
 
+## Consequence payment setup (Stripe test mode)
+
+* Saving a payment method (a Stripe SetupIntent) is a distinct step from charging it —
+  this package only ever saves a method for later, possibly-offline use. It never
+  charges anything, and it never changes `challenge_status` to `active`; the pending
+  commitment stays `pending_activation` throughout.
+* Provider (Stripe) signature/webhook verification is the authoritative source of truth
+  for whether a payment method was actually saved — never the client's own claim, and
+  never the initial API response alone. `consequences.authorization_status` only
+  becomes `authorized` after a verified `setup_intent.succeeded` webhook event.
+* Membership entitlement (`memberships`) and consequence payment authorization are and
+  remain separate concerns. Final challenge activation (still future work, phase 3b)
+  will require both a valid membership and a verified consequence authorization — this
+  package resolves only the second, and only its pre-activation setup half.
+* Currency support is unchanged by this package: `consequences.currency` remains
+  constrained to `USD` (`070_constraints.sql`), and nothing here introduces multi-currency
+  handling.
+* Cards only in this first package; a future package may add other payment method types.
+* **Consent contract for the future client** (the visible screen itself is not built in
+  this package): before opening Stripe's PaymentSheet, the client must show the owner,
+  in plain language:
+  - no charge is made now;
+  - the exact stake amount and currency this method is being authorized for;
+  - the condition that may trigger a later charge (failing the challenge, per the
+    accepted success rule);
+  - that the resulting charge may happen while the owner is offline (Stripe's
+    `off_session` usage — this is not a live, in-person confirmation);
+  - that the method is saved specifically for this stated purpose, not stored for
+    general/future unrelated use;
+  - that completing payment setup alone does not activate the challenge — activation is
+    a separate, later step.
+  This is a list of the data the copy must convey, not approved legal wording — final
+  consent copy requires legal review before shipping, and nothing in this package
+  should be read as having already received it.
+* Implemented by `supabase/functions/create-consequence-setup-intent` and
+  `supabase/functions/stripe-consequence-webhook`; see `docs/SUPABASE_SCHEMA.md`'s
+  "Trusted RPCs" section, `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 8, and
+  `docs/PAYMENT_SETUP.md` for the full flow and local testing instructions. Backend-only
+  — PaymentSheet itself, memberships, charging, final activation, check-ins, and
+  Tremendous fulfillment are all deliberately out of scope for this package.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”
@@ -110,12 +151,15 @@
   truthful placeholder for the still-unbuilt payment step — it never fakes payment or activation
   (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii).
 * No Stripe charging, Tremendous fulfillment, analytics, or push notifications are connected yet.
-  Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot) and
-  payment authorization/charging remain unimplemented. The trusted, deterministic period generator
+  Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot)
+  remains unimplemented. The trusted, deterministic period generator
   (`private.generate_challenge_periods`, see the "Timezone, start, and DST rules" section above) is
   implemented and tested but not yet called from anywhere, since it is designed to run from within
-  full activation, which does not exist yet; check-in evaluation also remains unimplemented. None of
-  this is wired to the client.
+  full activation, which does not exist yet; check-in evaluation also remains unimplemented. A
+  trusted, test-mode Stripe payment-method-setup foundation (saving a card for later off-session
+  use, never charging it) is implemented server-side — see the "Consequence payment setup (Stripe
+  test mode)" section above — but is likewise not yet wired to the client, since PaymentSheet itself
+  is a separate future package. None of this is wired to the client.
 * A production-oriented domain model (`domain/`) and an initial Supabase migration
   (`supabase/migrations/`, documented in `docs/SUPABASE_SCHEMA.md` and
   `docs/PRODUCTION_DATA_MODEL.md`) exist as version-controlled groundwork. The migration has not

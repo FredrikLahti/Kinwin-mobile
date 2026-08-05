@@ -14,6 +14,7 @@
     "supabase/tests/e2e/auth-and-draft.e2e.ts",
     "supabase/tests/e2e/prepare-challenge.e2e.ts",
     "supabase/tests/e2e/pending-commitment.e2e.ts",
-    "supabase/tests/e2e/server-generated-periods.e2e.ts"
+    "supabase/tests/e2e/server-generated-periods.e2e.ts",
+    "supabase/tests/e2e/consequence-setup-stripe.e2e.ts"
   ]
 }
