@@ -7,17 +7,27 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ChallengePreviewProvider } from '@/contexts/challenge-preview-context';
 import { OnboardingProvider, useOnboarding } from '@/contexts/onboarding-context';
+import { StripeProvider } from '@/lib/stripe/native-stripe';
+import { readStripeConfig } from '@/lib/stripe/config';
 
 export default function RootLayout() {
+  const stripeConfig = readStripeConfig();
   return (
-    <AuthProvider>
-      <OnboardingProvider>
-        <ChallengePreviewProvider>
-          <AuthGate />
-        </ChallengePreviewProvider>
-        <StatusBar style="auto" />
-      </OnboardingProvider>
-    </AuthProvider>
+    // A missing publishable key never blocks the rest of the app: the real
+    // StripeProvider only calls native init when publishableKey is truthy
+    // (see @stripe/stripe-react-native's own source), and the web build of
+    // this component ignores it entirely — payment-setup.tsx is what
+    // actually reports "not configured" honestly.
+    <StripeProvider publishableKey={stripeConfig?.publishableKey ?? ''} urlScheme="kinwin">
+      <AuthProvider>
+        <OnboardingProvider>
+          <ChallengePreviewProvider>
+            <AuthGate />
+          </ChallengePreviewProvider>
+          <StatusBar style="auto" />
+        </OnboardingProvider>
+      </AuthProvider>
+    </StripeProvider>
   );
 }
 

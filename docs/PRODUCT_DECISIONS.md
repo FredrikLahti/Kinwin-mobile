@@ -87,9 +87,8 @@
   constrained to `USD` (`070_constraints.sql`), and nothing here introduces multi-currency
   handling.
 * Cards only in this first package; a future package may add other payment method types.
-* **Consent contract for the future client** (the visible screen itself is not built in
-  this package): before opening Stripe's PaymentSheet, the client must show the owner,
-  in plain language:
+* **Consent contract**, implemented by `app/account/payment-setup.tsx`'s consent screen:
+  before opening Stripe's PaymentSheet, the client shows the owner, in plain language:
   - no charge is made now;
   - the exact stake amount and currency this method is being authorized for;
   - the condition that may trigger a later charge (failing the challenge, per the
@@ -104,11 +103,12 @@
   consent copy requires legal review before shipping, and nothing in this package
   should be read as having already received it.
 * Implemented by `supabase/functions/create-consequence-setup-intent` and
-  `supabase/functions/stripe-consequence-webhook`; see `docs/SUPABASE_SCHEMA.md`'s
+  `supabase/functions/stripe-consequence-webhook`, and by the client consent + native
+  PaymentSheet flow at `app/account/payment-setup.tsx`; see `docs/SUPABASE_SCHEMA.md`'s
   "Trusted RPCs" section, `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 8, and
-  `docs/PAYMENT_SETUP.md` for the full flow and local testing instructions. Backend-only
-  — PaymentSheet itself, memberships, charging, final activation, check-ins, and
-  Tremendous fulfillment are all deliberately out of scope for this package.
+  `docs/PAYMENT_SETUP.md` for the full flow and local testing instructions. Memberships,
+  charging, final activation, check-ins, and Tremendous fulfillment remain deliberately
+  out of scope for this package.
 
 ## Brand and interaction
 
@@ -147,19 +147,22 @@
 * A pending commitment survives an app restart or new login: a dedicated screen
   (`app/account/pending-commitment.tsx`, linked from the account screen) reads it back, shows a
   read-only summary of everything already locked in, and lets the owner cancel it (via the trusted
-  `cancel_pending_challenge` RPC) before starting a new draft. "Continue setup" only opens a
-  truthful placeholder for the still-unbuilt payment step — it never fakes payment or activation
-  (see `docs/BACKEND_IMPLEMENTATION_PLAN.md` phase 3a-ii).
+  `cancel_pending_challenge` RPC) before starting a new draft. "Continue setup" opens
+  `app/account/payment-setup.tsx` — a real, native-device Stripe test-mode payment-method setup
+  flow (consent → PaymentSheet → server-verified authorization) — which never fakes payment or
+  activation and never treats a PaymentSheet result alone as authorization (see
+  `docs/BACKEND_IMPLEMENTATION_PLAN.md` phases 3a-ii and 8, `docs/PAYMENT_SETUP.md`).
 * No Stripe charging, Tremendous fulfillment, analytics, or push notifications are connected yet.
   Real challenge activation (timezone, start/end timestamps, the immutable activation snapshot)
   remains unimplemented. The trusted, deterministic period generator
   (`private.generate_challenge_periods`, see the "Timezone, start, and DST rules" section above) is
   implemented and tested but not yet called from anywhere, since it is designed to run from within
   full activation, which does not exist yet; check-in evaluation also remains unimplemented. A
-  trusted, test-mode Stripe payment-method-setup foundation (saving a card for later off-session
-  use, never charging it) is implemented server-side — see the "Consequence payment setup (Stripe
-  test mode)" section above — but is likewise not yet wired to the client, since PaymentSheet itself
-  is a separate future package. None of this is wired to the client.
+  trusted, test-mode Stripe payment-method-setup flow (saving a card for later off-session use,
+  never charging it) is implemented end to end — see the "Consequence payment setup (Stripe test
+  mode)" section above and `docs/PAYMENT_SETUP.md` — including the client consent screen and native
+  PaymentSheet at `app/account/payment-setup.tsx`. It remains its own scoped step: it never
+  activates a challenge or grants membership, both of which stay separate, still-future work.
 * A production-oriented domain model (`domain/`) and an initial Supabase migration
   (`supabase/migrations/`, documented in `docs/SUPABASE_SCHEMA.md` and
   `docs/PRODUCTION_DATA_MODEL.md`) exist as version-controlled groundwork. The migration has not
