@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { StripeSetupIntent } from './types';
-import { planWebhookApplication } from './webhook-flow';
+import { StripeSetupIntent } from './types.ts';
+import { planWebhookApplication } from './webhook-flow.ts';
 
 function setupIntent(overrides: Partial<StripeSetupIntent> = {}): StripeSetupIntent {
   return {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { FakeStripeAdapter } from './fake-stripe-adapter';
-import { runCreateSetupIntent } from './setup-intent-flow';
-import { SetupPreparation, StripeAdapter } from './types';
+import { FakeStripeAdapter } from './fake-stripe-adapter.ts';
+import { runCreateSetupIntent } from './setup-intent-flow.ts';
+import { SetupPreparation, StripeAdapter } from './types.ts';
 
 function freshPreparation(overrides: Partial<SetupPreparation> = {}): SetupPreparation {
   return {

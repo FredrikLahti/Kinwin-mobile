@@ -1,4 +1,4 @@
-import { StripeAdapter, StripeCustomer, StripeSetupIntent } from './types';
+import { StripeAdapter, StripeCustomer, StripeSetupIntent } from './types.ts';
 
 /**
  * Deterministic, in-memory stand-in for Stripe. Used by unit tests here and

@@ -1,4 +1,4 @@
-import { StripeSetupIntent, WebhookApplication, WebhookStatus } from './types';
+import { StripeSetupIntent, WebhookApplication, WebhookStatus } from './types.ts';
 
 /**
  * Maps a verified Stripe event (signature already checked by the caller)

@@ -1,4 +1,3 @@
 {
-  "nodeModulesDir": "auto",
-  "unstable": ["sloppy-imports"]
+  "nodeModulesDir": "auto"
 }

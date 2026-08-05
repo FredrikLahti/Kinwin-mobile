@@ -57,13 +57,17 @@ which idempotency keys and metadata; how to map a webhook event to RPC arguments
 in `supabase/functions/_shared/consequence-setup/*.ts` — plain TypeScript with no Deno
 dependency, unit tested with `node --test` against an in-memory `FakeStripeAdapter`
 (`supabase/functions/_shared/consequence-setup/fake-stripe-adapter.ts`). This lives
-inside `supabase/functions/` (not `domain/`, despite being plain, Deno-independent
-TypeScript) because the Supabase CLI's Edge Runtime — both `supabase start` locally and
-real deployment — only bundles files reachable from within `supabase/functions/`; a
-relative import reaching outside that tree fails at serve time even though `deno check`
-alone doesn't catch it (found out the hard way — see git history). `tsconfig.test.json`
-still compiles and runs its tests with plain `node --test`, independent of Deno. The
-Edge Function entrypoints (`supabase/functions/create-consequence-setup-intent/index.ts`,
+inside `supabase/functions/_shared/` (Supabase's own documented convention for code
+shared across functions), not `domain/`, and every relative import there — including
+between these files themselves — uses an explicit `.ts` extension. That's not optional
+style: the Supabase Edge Runtime's own module resolution (both `supabase start` locally
+and real deployment) requires it and does not tolerate an extensionless import the way
+Node or a raw `deno check` with sloppy-imports would (found out the hard way — see git
+history). To keep the exact same files runnable with plain `node --test`,
+`tsconfig.test.json` sets `allowImportingTsExtensions` and
+`rewriteRelativeImportExtensions`, which rewrite each `.ts` import to `.js` in the
+compiled output — the source files never need two different versions. The Edge
+Function entrypoints (`supabase/functions/create-consequence-setup-intent/index.ts`,
 `supabase/functions/stripe-consequence-webhook/index.ts`) only wire real Supabase/Stripe
 clients into that same logic.
 

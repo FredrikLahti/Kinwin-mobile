@@ -1,5 +1,5 @@
-import { buildCustomerMetadata, buildSetupIntentMetadata } from './metadata';
-import { SetupIntentResult, SetupPreparation, StripeAdapter } from './types';
+import { buildCustomerMetadata, buildSetupIntentMetadata } from './metadata.ts';
+import { SetupIntentResult, SetupPreparation, StripeAdapter } from './types.ts';
 
 /**
  * Decides what, if anything, to call Stripe for, given the result of
