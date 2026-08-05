@@ -120,10 +120,17 @@ web — the standard React Native platform-extension convention. This is what le
 `app/account/payment-setup.tsx`'s consent and status screens still render on Expo Web
 for visual review without ever risking a crash or a fake payment form.
 
-**Native redirect handling.** `StripeProvider` is configured with `urlScheme="kinwin"`
-(the app's existing `app.json` scheme), and `initPaymentSheet` is called with a
-`returnURL` built from `expo-linking`'s `Linking.createURL('account/payment-setup')`.
-The screen also registers a `Linking.addEventListener('url', ...)` that calls Stripe's
+**Native redirect handling.** `StripeProvider`'s `urlScheme` is computed by
+`lib/stripe/stripe-url-scheme.ts`'s `resolveStripeUrlScheme`, matching Expo's
+documented pattern for `@stripe/stripe-react-native`: in Expo Go
+(`Constants.appOwnership === 'expo'`) it resolves to
+`Linking.createURL('/--/')`, since Expo Go runs every project under its own
+`exp://` scheme rather than the app's own `kinwin` scheme from `app.json`; in a
+standalone/custom-dev-client build it resolves to `Linking.createURL('')`,
+the app's real `kinwin://` scheme. `initPaymentSheet` is called with a
+`returnURL` built from `expo-linking`'s `Linking.createURL('account/payment-setup')`,
+which already resolves correctly in both environments. The screen also
+registers a `Linking.addEventListener('url', ...)` that calls Stripe's
 `handleURLCallback(url)` for any authentication/redirect return flow the card step
 might need (e.g. a 3D Secure challenge that leaves the app) — a no-op on web, where
 `useStripe()` resolves to the `native-stripe.web.tsx` stub.
