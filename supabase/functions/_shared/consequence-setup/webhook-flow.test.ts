@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { StripeSetupIntent } from './types.ts';
-import { planWebhookApplication } from './webhook-flow.ts';
+import { isHandledSetupIntentEventType, planWebhookApplication } from './webhook-flow.ts';
 
 function setupIntent(overrides: Partial<StripeSetupIntent> = {}): StripeSetupIntent {
   return {
@@ -51,4 +51,18 @@ test('planWebhookApplication: uses the retrieved SetupIntent object, not just th
   assert.equal(plan?.stripeSetupIntentId, 'seti_retrieved');
   assert.equal(plan?.stripeCustomerId, 'cus_retrieved');
   assert.equal(plan?.stripePaymentMethodId, 'pm_retrieved');
+});
+
+// Regression: the webhook entrypoint must check this *before* ever calling
+// Stripe to retrieve anything — an unrelated event's object id (e.g. a
+// PaymentIntent id on a payment_intent.succeeded event) is not a
+// SetupIntent id, so attempting retrieval for it is never correct. A real
+// end-to-end run first caught this as a wrongly-502ing response instead of
+// the expected 200 no-op.
+test('isHandledSetupIntentEventType: true only for the three SetupIntent event types this system acts on', () => {
+  assert.equal(isHandledSetupIntentEventType('setup_intent.succeeded'), true);
+  assert.equal(isHandledSetupIntentEventType('setup_intent.setup_failed'), true);
+  assert.equal(isHandledSetupIntentEventType('setup_intent.canceled'), true);
+  assert.equal(isHandledSetupIntentEventType('payment_intent.succeeded'), false);
+  assert.equal(isHandledSetupIntentEventType('customer.created'), false);
 });

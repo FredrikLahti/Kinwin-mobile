@@ -15,7 +15,7 @@
 import Stripe from 'npm:stripe@^22';
 import { withSupabase } from 'npm:@supabase/server@^1';
 
-import { planWebhookApplication } from '../_shared/consequence-setup/webhook-flow.ts';
+import { isHandledSetupIntentEventType, planWebhookApplication } from '../_shared/consequence-setup/webhook-flow.ts';
 import { StripeSetupIntent } from '../_shared/consequence-setup/types.ts';
 import { createRealStripeAdapter } from '../_shared/real-stripe-adapter.ts';
 
@@ -57,6 +57,15 @@ export default {
       return new Response('invalid signature', { status: 400 });
     }
 
+    if (!isHandledSetupIntentEventType(event.type)) {
+      // Checked before anything Stripe-related below: an unrelated event
+      // type's object id is not a SetupIntent id at all (e.g. a
+      // `payment_intent.succeeded` event's id is a PaymentIntent id), so
+      // retrieving it as one would be meaningless at best. Acknowledge and
+      // do nothing else.
+      return Response.json({ received: true });
+    }
+
     const objectId = (event.data.object as { readonly id?: unknown }).id;
     if (typeof objectId !== 'string') {
       // Acknowledge and drop: not a shape this endpoint can act on.
@@ -79,7 +88,8 @@ export default {
 
     const application = planWebhookApplication(event, setupIntent);
     if (!application) {
-      // An event type this system does not act on: acknowledged, not retried.
+      // Unreachable given the isHandledSetupIntentEventType check above,
+      // kept as a defensive fallback rather than a non-null assertion.
       return Response.json({ received: true });
     }
 
