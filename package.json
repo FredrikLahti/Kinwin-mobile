@@ -8,7 +8,7 @@
     "ios": "expo start --ios",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/lib/challenge-preview-view-model.test.js .test-dist/domain/challenge/onboarding-draft-mapping.test.js .test-dist/lib/supabase/draft-mutation.test.js .test-dist/contexts/onboarding-context.test.js .test-dist/supabase/functions/_shared/consequence-setup/setup-intent-flow.test.js .test-dist/supabase/functions/_shared/consequence-setup/webhook-flow.test.js .test-dist/lib/social/projection.test.js .test-dist/lib/social/add-kin.test.js && rm -rf .test-dist",
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/lib/challenge-preview-view-model.test.js .test-dist/domain/challenge/onboarding-draft-mapping.test.js .test-dist/lib/supabase/draft-mutation.test.js .test-dist/contexts/onboarding-context.test.js .test-dist/supabase/functions/_shared/consequence-setup/setup-intent-flow.test.js .test-dist/supabase/functions/_shared/consequence-setup/webhook-flow.test.js .test-dist/lib/social/projection.test.js .test-dist/lib/social/add-kin.test.js .test-dist/lib/social/username.test.js .test-dist/lib/social/kinship-requests.test.js .test-dist/lib/social/challenge-audience.test.js && rm -rf .test-dist",
     "test:e2e": "rm -rf .test-e2e-dist && tsc -p tsconfig.e2e.json && node --test .test-e2e-dist/supabase/tests/e2e/auth-and-draft.e2e.js .test-e2e-dist/supabase/tests/e2e/prepare-challenge.e2e.js .test-e2e-dist/supabase/tests/e2e/pending-commitment.e2e.js .test-e2e-dist/supabase/tests/e2e/server-generated-periods.e2e.js .test-e2e-dist/supabase/tests/e2e/consequence-setup-stripe.e2e.js && rm -rf .test-e2e-dist"
   },
   "dependencies": {
