@@ -53,7 +53,7 @@ export default function MyKinScreen() {
         </View>
 
         {incoming.length > 0 && (
-          <Section label={`KINSHIP REQUESTS (${incoming.length})`}>
+          <Section label={`INCOMING REQUESTS (${incoming.length})`}>
             {incoming.map((profile) => (
               <View key={profile.id} style={styles.row}>
                 <KinAvatar initials={profile.initials} />

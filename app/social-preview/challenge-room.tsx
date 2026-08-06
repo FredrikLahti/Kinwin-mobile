@@ -54,6 +54,7 @@ function ChallengeRoomBody({
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [comments, setComments] = useState<readonly SocialComment[]>(SEED_COMMENTS[projection.challengeId] ?? []);
   const [draft, setDraft] = useState('');
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const postComment = () => {
     const body = draft.trim();
@@ -189,22 +190,6 @@ function ChallengeRoomBody({
           </View>
         )}
 
-        <View style={styles.timeline}>
-          <Text style={styles.sectionLabel}>WHAT&apos;S HAPPENED</Text>
-          {projection.lifecycle.map((event, index) => (
-            <View key={event.id} style={styles.timelineRow}>
-              <View style={styles.timelineMarkerColumn}>
-                <View style={styles.timelineDot} />
-                {index < projection.lifecycle.length - 1 && <View style={styles.timelineLine} />}
-              </View>
-              <View style={styles.timelineTextColumn}>
-                <Text style={styles.timelineDay}>{event.dayLabel}</Text>
-                <Text style={styles.timelineHeadline}>{event.headline}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-
         <View style={styles.commentsSection}>
           <Text style={styles.sectionLabel}>COMMENTS ({comments.length})</Text>
           {comments.length === 0 && (
@@ -214,6 +199,12 @@ function ChallengeRoomBody({
             <CommentRow comment={comment} key={comment.id} onReply={(body) => addReply(comment.id, body)} />
           ))}
         </View>
+
+        <HistorySection
+          expanded={historyExpanded}
+          lifecycle={projection.lifecycle}
+          onToggle={() => { void playSelectionHaptic(); setHistoryExpanded((current) => !current); }}
+        />
       </ScrollView>
 
       <View style={styles.composer}>
@@ -242,6 +233,51 @@ function ChallengeRoomBody({
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+const COLLAPSED_HISTORY_COUNT = 2;
+
+function HistorySection({
+  expanded,
+  lifecycle,
+  onToggle,
+}: {
+  expanded: boolean;
+  lifecycle: SocialChallengeProjection['lifecycle'];
+  onToggle: () => void;
+}) {
+  const hiddenCount = Math.max(0, lifecycle.length - COLLAPSED_HISTORY_COUNT);
+  const visible = expanded || hiddenCount === 0 ? lifecycle : lifecycle.slice(-COLLAPSED_HISTORY_COUNT);
+
+  return (
+    <View style={styles.timeline}>
+      <Text style={styles.sectionLabel}>WHAT&apos;S HAPPENED</Text>
+      {visible.map((event, index) => (
+        <View key={event.id} style={styles.timelineRow}>
+          <View style={styles.timelineMarkerColumn}>
+            <View style={styles.timelineDot} />
+            {index < visible.length - 1 && <View style={styles.timelineLine} />}
+          </View>
+          <View style={styles.timelineTextColumn}>
+            <Text style={styles.timelineDay}>{event.dayLabel}</Text>
+            <Text style={styles.timelineHeadline}>{event.headline}</Text>
+          </View>
+        </View>
+      ))}
+      {hiddenCount > 0 && (
+        <Pressable
+          accessibilityHint={expanded ? 'Shows only the most recent history' : 'Shows the full history for this challenge'}
+          accessibilityRole="button"
+          onPress={onToggle}
+          style={styles.historyToggle}
+        >
+          <Text style={styles.historyToggleText}>
+            {expanded ? 'Show less' : `View full history (${hiddenCount} more)`}
+          </Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -367,7 +403,8 @@ const styles = StyleSheet.create({
   recipientText: { color: theme.colors.boneMuted, fontSize: 12, fontWeight: '600' },
   timeline: {
     width: '100%', maxWidth: 560, alignSelf: 'center',
-    gap: 4, paddingHorizontal: 22, paddingTop: 26,
+    gap: 4, borderTopWidth: 1, borderColor: theme.colors.structureLine,
+    paddingHorizontal: 22, paddingTop: 20, marginTop: 20,
   },
   sectionLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35, marginBottom: 10 },
   timelineRow: { flexDirection: 'row', gap: 12 },
@@ -377,6 +414,8 @@ const styles = StyleSheet.create({
   timelineTextColumn: { flex: 1, paddingBottom: 16 },
   timelineDay: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
   timelineHeadline: { color: theme.colors.bone, fontSize: 13.5, lineHeight: 20, marginTop: 2 },
+  historyToggle: { minHeight: 40, justifyContent: 'center' },
+  historyToggleText: { color: theme.colors.copperBright, fontSize: 12.5, fontWeight: '700' },
   commentsSection: {
     width: '100%', maxWidth: 560, alignSelf: 'center',
     gap: 16, borderTopWidth: 1, borderColor: theme.colors.structureLine,

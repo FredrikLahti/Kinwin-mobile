@@ -7,8 +7,8 @@ import { KinAvatar } from '@/components/social/kin-avatar';
 import { PrototypeTag } from '@/components/social/prototype-tag';
 import { ReactionBar } from '@/components/social/reaction-bar';
 import { kinwinTheme as theme } from '@/constants/theme';
-import { SocialEvent, SocialEventKind } from '@/domain/social/types';
-import { SOCIAL_EVENTS } from '@/fixtures/social/events';
+import { SocialChallengeId, SocialEvent, SocialEventKind, SocialFeedStory } from '@/domain/social/types';
+import { SOCIAL_FEED_ITEMS } from '@/fixtures/social/events';
 import { playSelectionHaptic } from '@/lib/haptics';
 
 const EVENT_LABELS: Record<SocialEventKind, string> = {
@@ -17,16 +17,17 @@ const EVENT_LABELS: Record<SocialEventKind, string> = {
   missed_commitment: 'MISSED A COMMITMENT',
   consequence_activated: 'CONSEQUENCE ACTIVATED',
   consequence_completed: 'CONSEQUENCE DELIVERED',
+  challenge_succeeded: 'COMPLETED THE CHALLENGE',
 };
 
 export default function KinFeedScreen() {
   const router = useRouter();
 
-  const openRoom = (event: SocialEvent) => {
+  const openRoom = (challengeId: SocialChallengeId) => {
     void playSelectionHaptic();
     router.push({
       pathname: '/social-preview/challenge-room',
-      params: { challengeId: event.challengeId },
+      params: { challengeId },
     } as Href);
   };
 
@@ -40,35 +41,78 @@ export default function KinFeedScreen() {
           <Text style={styles.subtitle}>What your Kin are actually going through — not daily check-ins.</Text>
         </View>
 
-        {SOCIAL_EVENTS.map((event) => (
-          <View key={event.id} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <KinAvatar initials={event.actorInitials} />
-              <View style={styles.cardHeaderText}>
-                <Text style={styles.actor}>{event.actorDisplayName}</Text>
-                <Text style={styles.eventLabel}>{EVENT_LABELS[event.kind]} · {event.timeLabel}</Text>
-              </View>
-            </View>
-
-            <Text style={styles.headline}>{event.headline}</Text>
-
-            <Pressable
-              accessibilityHint={`Opens the Challenge Room for ${event.detail}`}
-              accessibilityRole="button"
-              onPress={() => openRoom(event)}
-              style={({ pressed }) => [styles.roomLink, pressed && styles.roomLinkPressed]}
-            >
-              <Text style={styles.roomLinkText}>{event.detail}</Text>
-              <Text aria-hidden style={styles.roomLinkArrow}>→</Text>
-            </Pressable>
-
-            <ReactionBar contextLabel={`${event.actorDisplayName}'s update`} initialReactions={event.reactions} />
-          </View>
-        ))}
+        {SOCIAL_FEED_ITEMS.map((item) =>
+          item.kind === 'story' ? (
+            <StoryCard item={item} key={item.id} onOpenRoom={() => openRoom(item.challengeId)} />
+          ) : (
+            <EventCard item={item} key={item.id} onOpenRoom={() => openRoom(item.challengeId)} />
+          ),
+        )}
 
         <Text style={styles.endOfFeed}>That&apos;s everything from your Kin right now.</Text>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function EventCard({ item, onOpenRoom }: { item: SocialEvent; onOpenRoom: () => void }) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <KinAvatar initials={item.actorInitials} />
+        <View style={styles.cardHeaderText}>
+          <Text style={styles.actor}>{item.actorDisplayName}</Text>
+          <Text style={styles.eventLabel}>{EVENT_LABELS[item.kind]} · {item.timeLabel}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.headline}>{item.headline}</Text>
+
+      <RoomLink detail={item.detail} onPress={onOpenRoom} />
+      <ReactionBar contextLabel={`${item.actorDisplayName}'s update`} initialReactions={item.reactions} />
+    </View>
+  );
+}
+
+function StoryCard({ item, onOpenRoom }: { item: SocialFeedStory; onOpenRoom: () => void }) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <KinAvatar initials={item.actorInitials} />
+        <View style={styles.cardHeaderText}>
+          <Text style={styles.actor}>{item.actorDisplayName}</Text>
+          <Text style={styles.eventLabel}>STORY · {item.timeLabel}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.headline}>{item.headline}</Text>
+
+      <View style={styles.storyMoments}>
+        {item.moments.map((moment, index) => (
+          <View key={moment.label + index} style={styles.storyMomentRow}>
+            <Text style={styles.storyMomentLabel}>{moment.label}</Text>
+            <Text style={styles.storyMomentText}>{moment.text}</Text>
+          </View>
+        ))}
+      </View>
+
+      <RoomLink detail={item.detail} onPress={onOpenRoom} />
+      <ReactionBar contextLabel={`${item.actorDisplayName}'s story`} initialReactions={item.reactions} />
+    </View>
+  );
+}
+
+function RoomLink({ detail, onPress }: { detail: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityHint={`Opens the Challenge Room for ${detail}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.roomLink, pressed && styles.roomLinkPressed]}
+    >
+      <Text style={styles.roomLinkText}>{detail}</Text>
+      <Text aria-hidden style={styles.roomLinkArrow}>→</Text>
+    </Pressable>
   );
 }
 
@@ -96,6 +140,14 @@ const styles = StyleSheet.create({
   actor: { color: theme.colors.bone, fontSize: 14, fontWeight: '700' },
   eventLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginTop: 2 },
   headline: { color: theme.colors.bone, fontSize: 15, lineHeight: 21 },
+  storyMoments: {
+    gap: 6,
+    borderLeftWidth: 2, borderLeftColor: theme.colors.structureLineStrong,
+    paddingLeft: 12,
+  },
+  storyMomentRow: { flexDirection: 'row', gap: 8 },
+  storyMomentLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '700', width: 44 },
+  storyMomentText: { flex: 1, color: theme.colors.boneMuted, fontSize: 12.5, lineHeight: 18 },
   roomLink: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     minHeight: 44,
