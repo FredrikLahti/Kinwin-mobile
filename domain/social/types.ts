@@ -38,14 +38,15 @@ export type ChallengeLifecycleEventKind =
   | 'milestone_reached'
   | 'missed_commitment'
   | 'consequence_activated'
-  | 'consequence_completed';
+  | 'consequence_completed'
+  | 'challenge_succeeded';
 
 /**
- * A single lifecycle moment, already written the way it may be shown to an
- * exact-detail Kin. General/progress-only viewers get a separately-authored,
- * less specific line (see `projectLifecycleEvent` in lib/social/projection.ts)
- * rather than a redacted version of this one, so masking is never visible as
- * missing words or placeholders.
+ * A single lifecycle moment, independently authored for each detail level —
+ * exact, general, AND progress-only all get their own wording (not a
+ * redacted version of a richer one), so masking is never visible as missing
+ * words, placeholders, or a giveaway category (e.g. "fitness") that a
+ * progress-only viewer was never meant to learn.
  */
 export type ChallengeLifecycleEvent = {
   readonly id: string;
@@ -53,6 +54,7 @@ export type ChallengeLifecycleEvent = {
   readonly dayLabel: string;
   readonly exactHeadline: string;
   readonly generalHeadline: string;
+  readonly progressOnlyHeadline: string;
 };
 
 /**
@@ -75,8 +77,18 @@ export type PrivateChallengeFixture = {
   readonly behaviorProgress: { readonly current: number; readonly target: number; readonly unit: string };
   /** Generic day-based progress — safe to show even at progress-only detail. */
   readonly dayProgress: { readonly daysElapsed: number; readonly totalDays: number };
-  readonly consequenceSummary: string;
+  /**
+   * Truthful but MUST NOT contain the private behavior, measurement, success
+   * threshold, or failure rule — general Kin still see recipients and the
+   * consequence itself, just not what triggers it. E.g. exact: "misses more
+   * than 2 days total"; general: "doesn't complete the challenge".
+   */
+  readonly exactConsequenceSummary: string;
+  readonly generalConsequenceSummary: string;
+  /** Full form — e.g. "Jonas (little brother)" — shown only at exact detail. */
   readonly recipientNames: readonly string[];
+  /** Safe first-name-only form — e.g. "Jonas" — shown at general detail too. */
+  readonly recipientFirstNames: readonly string[];
   readonly audience: ChallengeAudience;
   readonly detailLevel: ChallengeDetailLevel;
   /** Only meaningful when `audience === 'selected_kin'`. */
@@ -112,7 +124,8 @@ export type SocialEventKind =
   | 'milestone_reached'
   | 'missed_commitment'
   | 'consequence_activated'
-  | 'consequence_completed';
+  | 'consequence_completed'
+  | 'challenge_succeeded';
 
 /**
  * A single Kin-feed card. Built only from a `SocialChallengeProjection`
@@ -129,6 +142,34 @@ export type SocialEvent = {
   readonly detail: string;
   readonly reactions: ReactionCounts;
 };
+
+/** One compact moment inside a grouped feed story — see `SocialFeedStory`. */
+export type SocialStoryMoment = {
+  readonly label: string;
+  readonly text: string;
+};
+
+/**
+ * Several closely-related lifecycle moments from ONE challenge (e.g. missed
+ * commitment → consequence activated → consequence completed), presented as
+ * one coherent story card instead of near-identical consecutive feed cards.
+ * This is a fixture/display-level grouping only — not an algorithmic feed or
+ * a production event-grouping system.
+ */
+export type SocialFeedStory = {
+  readonly id: SocialEventId;
+  readonly kind: 'story';
+  readonly challengeId: SocialChallengeId;
+  readonly actorDisplayName: string;
+  readonly actorInitials: string;
+  readonly timeLabel: string;
+  readonly headline: string;
+  readonly detail: string;
+  readonly moments: readonly SocialStoryMoment[];
+  readonly reactions: ReactionCounts;
+};
+
+export type SocialFeedItem = SocialEvent | SocialFeedStory;
 
 export type SocialComment = {
   readonly id: SocialCommentId;

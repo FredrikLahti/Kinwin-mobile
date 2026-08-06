@@ -46,6 +46,8 @@ export function projectSocialChallenge(
       plannedEndLabel: challenge.plannedEndLabel,
       progressLabel: `Day ${challenge.dayProgress.daysElapsed} of ${challenge.dayProgress.totalDays}`,
       progressRatio,
+      // Recipients and the consequence are withheld entirely — unlike
+      // general detail, progress-only reveals nothing beyond bare progress.
       recipientNames: null,
       consequenceSummary: null,
       lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, 'progress_only')),
@@ -67,8 +69,13 @@ export function projectSocialChallenge(
       // behavior the title/description just generalized away.
       progressLabel: `Day ${challenge.dayProgress.daysElapsed} of ${challenge.dayProgress.totalDays}`,
       progressRatio,
-      recipientNames: challenge.recipientNames,
-      consequenceSummary: challenge.consequenceSummary,
+      // Recipients and the consequence itself are central to Kinwin's
+      // social meaning and stay visible at general detail — only the
+      // private behavior/measurement/success-rule that triggers the
+      // consequence is generalized away (see `generalConsequenceSummary`
+      // and `recipientFirstNames` on the private fixture).
+      recipientNames: challenge.recipientFirstNames,
+      consequenceSummary: challenge.generalConsequenceSummary,
       lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, 'general')),
     };
   }
@@ -87,7 +94,7 @@ export function projectSocialChallenge(
       ? Math.min(1, challenge.behaviorProgress.current / challenge.behaviorProgress.target)
       : 0,
     recipientNames: challenge.recipientNames,
-    consequenceSummary: challenge.consequenceSummary,
+    consequenceSummary: challenge.exactConsequenceSummary,
     lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, 'exact')),
   };
 }
@@ -96,9 +103,10 @@ function projectLifecycleEvent(
   event: ChallengeLifecycleEvent,
   detailLevel: PrivateChallengeFixture['detailLevel'],
 ): { readonly id: string; readonly dayLabel: string; readonly headline: string } {
-  return {
-    id: event.id,
-    dayLabel: event.dayLabel,
-    headline: detailLevel === 'exact' ? event.exactHeadline : event.generalHeadline,
-  };
+  const headline = detailLevel === 'exact'
+    ? event.exactHeadline
+    : detailLevel === 'general'
+      ? event.generalHeadline
+      : event.progressOnlyHeadline;
+  return { id: event.id, dayLabel: event.dayLabel, headline };
 }
