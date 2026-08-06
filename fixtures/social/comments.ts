@@ -55,4 +55,33 @@ export const SEED_COMMENTS: Readonly<Record<SocialChallengeId, readonly SocialCo
     },
   ],
   ['challenge-priya-running' as SocialChallengeId]: [],
+  ['challenge-mia-journaling' as SocialChallengeId]: [
+    {
+      id: 'comment-mia-1' as SocialCommentId,
+      authorDisplayName: 'Priya',
+      authorInitials: 'PK',
+      timeLabel: '1h ago',
+      body: 'Iconic. Genuinely proud of you. Also 😭 no dinner pick for me this month?',
+      reactions: { crown: 3, laugh: 2 },
+      replies: [
+        {
+          id: 'comment-mia-1-reply-1' as SocialCommentId,
+          authorDisplayName: 'Mia',
+          authorInitials: 'MR',
+          timeLabel: '1h ago',
+          body: "Sorry not sorry. Elin's choosing the restaurant tonight and I'm eating well.",
+          reactions: { laugh: 3 },
+        },
+      ],
+    },
+    {
+      id: 'comment-mia-2' as SocialCommentId,
+      authorDisplayName: 'Jonas',
+      authorInitials: 'JB',
+      timeLabel: '45m ago',
+      body: '21/21 is actually unreal. Kind of annoyed there was no drama for us to enjoy though 😂',
+      reactions: { crown: 4, laugh: 5 },
+      replies: [],
+    },
+  ],
 };
