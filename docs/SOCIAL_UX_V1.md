@@ -189,13 +189,16 @@ that boundary visible in code, ahead of any real backend:
   lookup directory — with no coupling to challenge data.
 
 Concretely, this means: **general detail** shows a truthful but generalized title/description
-(e.g. "A month of cutting something out" instead of "No added sugar for 30 days") while still
-showing named recipients and the consequence summary; **progress-only detail** goes further —
-title becomes `"{name}'s challenge"`, description becomes a generic "working toward something
-meaningful" line, progress is shown only as `Day X of Y` (never the private measurement's unit,
-e.g. never "sugar-free days"), and both recipients and the consequence summary are withheld
-entirely (`null`). This is unit-tested in `lib/social/projection.test.ts`, including a test that
-progress-only output never contains the word "sugar" (the private measurement's telltale unit).
+(e.g. "A month of cutting something out" instead of "No added sugar for 30 days") and still shows
+named recipients and the consequence summary, but progress is already shown only as `Day X of Y`
+— the same generic, day-based form as progress-only — because the private measurement's unit
+(e.g. "days sugar-free", "runs completed") would immediately re-name the exact behavior the
+title/description just generalized away. **Progress-only detail** goes further still: title
+becomes `"{name}'s challenge"`, description becomes a generic "working toward something
+meaningful" line, and both recipients and the consequence summary are withheld entirely (`null`).
+This is unit-tested in `lib/social/projection.test.ts`, including tests that both general and
+progress-only output never contain the word "sugar" (the private measurement's telltale unit) and
+that `progressLabel` at general detail is exactly `"Day 22 of 30"`, never the exact behavior count.
 
 ## 5. Interaction behavior notes
 

@@ -52,14 +52,34 @@ export function projectSocialChallenge(
     };
   }
 
-  const exact = challenge.detailLevel === 'exact';
+  if (challenge.detailLevel === 'general') {
+    return {
+      challengeId: challenge.id,
+      ownerId: challenge.ownerId,
+      ownerDisplayName: challenge.ownerDisplayName,
+      detailLevel: 'general',
+      title: challenge.generalTitle,
+      description: challenge.generalDescription,
+      startedLabel: challenge.startedLabel,
+      plannedEndLabel: challenge.plannedEndLabel,
+      // Generic day-based progress only — the private measurement's unit
+      // (e.g. "days sugar-free", "runs completed") would name the exact
+      // behavior the title/description just generalized away.
+      progressLabel: `Day ${challenge.dayProgress.daysElapsed} of ${challenge.dayProgress.totalDays}`,
+      progressRatio,
+      recipientNames: challenge.recipientNames,
+      consequenceSummary: challenge.consequenceSummary,
+      lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, 'general')),
+    };
+  }
+
   return {
     challengeId: challenge.id,
     ownerId: challenge.ownerId,
     ownerDisplayName: challenge.ownerDisplayName,
-    detailLevel: challenge.detailLevel,
-    title: exact ? challenge.exactTitle : challenge.generalTitle,
-    description: exact ? challenge.exactDescription : challenge.generalDescription,
+    detailLevel: 'exact',
+    title: challenge.exactTitle,
+    description: challenge.exactDescription,
     startedLabel: challenge.startedLabel,
     plannedEndLabel: challenge.plannedEndLabel,
     progressLabel: `${challenge.behaviorProgress.current} of ${challenge.behaviorProgress.target} ${challenge.behaviorProgress.unit}`,
@@ -68,7 +88,7 @@ export function projectSocialChallenge(
       : 0,
     recipientNames: challenge.recipientNames,
     consequenceSummary: challenge.consequenceSummary,
-    lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, challenge.detailLevel)),
+    lifecycle: challenge.lifecycle.map((event) => projectLifecycleEvent(event, 'exact')),
   };
 }
 

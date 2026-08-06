@@ -9,7 +9,7 @@ import { OverflowMenu } from '@/components/social/overflow-menu';
 import { PrototypeTag } from '@/components/social/prototype-tag';
 import { ReactionBar } from '@/components/social/reaction-bar';
 import { kinwinTheme as theme } from '@/constants/theme';
-import { SocialChallengeId, SocialComment, SocialCommentId } from '@/domain/social/types';
+import { SocialChallengeId, SocialChallengeProjection, SocialComment, SocialCommentId } from '@/domain/social/types';
 import { CHALLENGE_PROJECTIONS, findChallengeProjection } from '@/fixtures/social/challenge-projections';
 import { SEED_COMMENTS } from '@/fixtures/social/comments';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
@@ -21,11 +21,6 @@ export default function ChallengeRoomScreen() {
   const params = useLocalSearchParams<{ challengeId?: string }>();
   const challengeId = (params.challengeId ?? FALLBACK_CHALLENGE_ID) as SocialChallengeId;
   const projection = findChallengeProjection(challengeId);
-
-  const [muted, setMuted] = useState(false);
-  const [statusNote, setStatusNote] = useState<string | null>(null);
-  const [comments, setComments] = useState<readonly SocialComment[]>(SEED_COMMENTS[challengeId] ?? []);
-  const [draft, setDraft] = useState('');
 
   if (!projection) {
     return (
@@ -40,6 +35,25 @@ export default function ChallengeRoomScreen() {
       </SafeAreaView>
     );
   }
+
+  // Keyed by challengeId so this screen's local state (comments, mute,
+  // draft) always re-derives for a different challenge, even if a future
+  // in-app navigation path were to change the param on an already-mounted
+  // instance instead of pushing a fresh one.
+  return <ChallengeRoomBody key={projection.challengeId} onBack={() => router.back()} projection={projection} />;
+}
+
+function ChallengeRoomBody({
+  onBack,
+  projection,
+}: {
+  onBack: () => void;
+  projection: SocialChallengeProjection;
+}) {
+  const [muted, setMuted] = useState(false);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
+  const [comments, setComments] = useState<readonly SocialComment[]>(SEED_COMMENTS[projection.challengeId] ?? []);
+  const [draft, setDraft] = useState('');
 
   const postComment = () => {
     const body = draft.trim();
@@ -129,7 +143,7 @@ export default function ChallengeRoomScreen() {
             accessibilityLabel="Go back"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={() => router.back()}
+            onPress={onBack}
             style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
           >
             <Text aria-hidden style={styles.backIcon}>‹</Text>

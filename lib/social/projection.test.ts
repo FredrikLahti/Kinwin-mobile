@@ -75,6 +75,10 @@ test('general detail generalizes the title and description but still shows recip
   assert.equal(projection?.description, challenge.generalDescription);
   assert.notEqual(projection?.title, challenge.exactTitle);
   assert.deepEqual(projection?.recipientNames, challenge.recipientNames);
+  // The private measurement's unit (e.g. "days sugar-free") would name the
+  // exact behavior the title/description just generalized away.
+  assert.doesNotMatch(projection?.progressLabel ?? '', /sugar/i);
+  assert.equal(projection?.progressLabel, 'Day 22 of 30');
 });
 
 test('progress-only output contains no exact goal or behavior, and hides recipients', () => {
