@@ -13,7 +13,8 @@ import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 export default function SocialOnboardingPreviewEntry() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { markContinuedSolo, resetToColdStart, seedApprovedKinForReview, seedIdentityForReview } = useSocialOnboarding();
+  const { markContinuedSolo, receiveIncomingRequest, resetToColdStart, seedApprovedKinForReview, seedIdentityForReview } =
+    useSocialOnboarding();
 
   const startJourney = () => {
     void playImportantHaptic();
@@ -118,6 +119,7 @@ export default function SocialOnboardingPreviewEntry() {
               jumpTo('/social-onboarding-preview/incoming-request', () => {
                 seedIdentityForReview('you_preview');
                 seedApprovedKinForReview([]);
+                receiveIncomingRequest(THEO);
               })
             }
           />
