@@ -89,8 +89,9 @@ export default function UsernameScreen() {
         <View style={styles.intro}>
           <Text accessibilityRole="header" style={styles.title}>Choose a Kinwin username</Text>
           <Text style={styles.subtitle}>
-            People you already know can find you by this exact username — it&apos;s not a public
-            profile or a discovery handle, and no one can browse or search for it by guessing.
+            People who know your exact username can find you with it. There is no public
+            directory, browsing, or suggestions — but a username is not a secret: someone who
+            knows or correctly guesses your exact username could still look you up this way.
           </Text>
         </View>
 
@@ -149,8 +150,14 @@ export default function UsernameScreen() {
           <Text style={styles.explainerLabel}>DISPLAY NAME VS. USERNAME</Text>
           <Text style={styles.explainerBody}>
             Your display name is what shows on cards and in Challenge Rooms — it can be anything.
-            Your username is only for exact lookup in Add Kin, and only people who already know it
-            can use it to find you.
+            Your username is only for exact-match lookup in Add Kin: no public directory, no
+            browsing, no suggestions, no fuzzy or partial-name search. That is not the same as
+            being unguessable — anyone who knows or correctly guesses it can still look you up.
+          </Text>
+          <Text style={styles.explainerBody}>
+            A real backend will also need rate limiting and username-enumeration protection on
+            this lookup, so it can&apos;t be used to mass-guess who has a Kinwin account — not
+            modeled in this prototype.
           </Text>
         </View>
       </ScrollView>

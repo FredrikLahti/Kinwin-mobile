@@ -100,14 +100,20 @@ export default function RemoveKinScreen() {
             <Distinction
               body="This ends your Kinship — you won't be able to add each other back without sending a new request."
               label="THE KINSHIP ITSELF"
+              resolved
             />
             <Distinction
-              body={`${selected.displayName} loses access to any challenge you add them to going forward, immediately.`}
-              label="FUTURE CHALLENGE ACCESS"
+              body={`${selected.displayName} is no longer eligible for any challenge you haven't already included them in — this is immediate for anything new.`}
+              label="FUTURE, NOT-YET-AUTHORIZED CHALLENGES"
+              resolved
             />
             <Distinction
-              body="Kinwin does not yet define what happens to challenges they were already authorized to see — that's an unresolved product decision, not something this prototype decides for you."
-              label="ALREADY-AUTHORIZED HISTORY"
+              body={`Whether removing ${selected.displayName} immediately revokes their access to a challenge they can currently see is not decided. This prototype does not claim they're instantly removed from an already-active Challenge Room.`}
+              label="AN ALREADY-ACTIVE CHALLENGE THEY CAN SEE"
+            />
+            <Distinction
+              body="What happens to completed challenges they were already authorized to see is also undecided — nothing is erased by this action, but nothing is guaranteed to stay visible either."
+              label="COMPLETED CHALLENGE HISTORY"
             />
             <Distinction
               body="Comments and reactions they already left are not automatically deleted by this action — same open decision as above."
@@ -138,10 +144,15 @@ export default function RemoveKinScreen() {
   );
 }
 
-function Distinction({ body, label }: { body: string; label: string }) {
+function Distinction({ body, label, resolved = false }: { body: string; label: string; resolved?: boolean }) {
   return (
     <View style={styles.distinction}>
-      <Text style={styles.distinctionLabel}>{label}</Text>
+      <View style={styles.distinctionHeader}>
+        <Text style={styles.distinctionLabel}>{label}</Text>
+        <Text style={[styles.distinctionTag, resolved ? styles.distinctionTagResolved : styles.distinctionTagUnresolved]}>
+          {resolved ? 'DECIDED' : 'UNRESOLVED'}
+        </Text>
+      </View>
       <Text style={styles.distinctionBody}>{body}</Text>
     </View>
   );
@@ -206,7 +217,11 @@ const styles = StyleSheet.create({
   },
   confirmTitle: { color: theme.colors.bone, fontSize: 16, fontWeight: '700', lineHeight: 22 },
   distinction: { gap: 4 },
-  distinctionLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  distinctionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  distinctionLabel: { flex: 1, color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  distinctionTag: { fontSize: 8.5, fontWeight: '800', letterSpacing: 0.8 },
+  distinctionTagResolved: { color: theme.colors.boneMuted },
+  distinctionTagUnresolved: { color: '#E37D6A' },
   distinctionBody: { color: theme.colors.boneMuted, fontSize: 12.5, lineHeight: 18 },
   confirmActions: { gap: 10, marginTop: 4 },
   removeButton: {
