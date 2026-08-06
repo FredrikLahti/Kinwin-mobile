@@ -150,7 +150,17 @@ Rules:
 
 - a participant cannot simultaneously be an economic recipient in the same Kin Challenge
 - a recipient who joins must give up their recipient role before participation is activated
-- replacement recipients may be added through participant approval
+- recipients are immutable once a commitment is created — they are never replaced by the
+  user, by other participants, or through any participant-approval or voting mechanism
+- correcting a recipient's contact details (for example a mistyped email) is not the same
+  thing as replacing a recipient, and may be supported separately from the immutability rule
+  above
+- a future exception for a genuinely invalid or unreachable recipient contact may only be
+  made through a support-mediated, explicitly authorized, and logged process — never a
+  self-service action or a participant vote; no replacement-recipient voting mechanism is
+  defined by this spec
+- whether an economic recipient may later become a participant in a Kin Challenge is an open
+  product question, not yet resolved (see docs/SOCIAL_UX_V1.md)
 - participant and recipient changes must be visible in the Challenge Room history
 - recipient structure is locked once late joining is closed
 

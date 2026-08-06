@@ -61,19 +61,34 @@ or fail. (Section 6 states where a real backend would introduce both.)
 
 ### 3.2 Kin feed (`(tabs)/index`)
 
-- Reverse-chronological list of `SocialEvent` fixtures (`fixtures/social/events.ts`), each
-  showing: actor avatar + name, an event-kind eyebrow (e.g. `MISSED A COMMITMENT`), a headline,
-  a tappable row linking into that event's Challenge Room, and a `ReactionBar`.
+- Reverse-chronological list of `SocialFeedItem` fixtures (`fixtures/social/events.ts`): either a
+  single-moment card (`SocialEvent`) or a compact **story card** (`SocialFeedStory`) grouping
+  several closely-related moments from one challenge. Every card shows an actor avatar + name, an
+  eyebrow (event kind, or `STORY` for a grouped card), a headline, a tappable row linking into
+  that challenge's Challenge Room, and a `ReactionBar`.
 - Event types shown: challenge started, milestone reached, missed commitment, consequence
-  activated, consequence completed — a realistic subset of `docs/SOCIAL_V1_SPEC.md` section 12's
-  full list. Deliberately excluded: routine check-ins (per spec, never individually posted).
-- Two showcase challenges give the feed real variety: Alex's exact-detail "No added sugar for 30
-  days" (the full lifecycle — started → milestone → missed → consequence activated → consequence
-  completed) and Priya's general-detail "8-week fitness challenge" (shown only as "An 8-week
-  fitness challenge", never the exact training plan) — so the feed itself demonstrates the
-  general-detail redaction, not just the audience/detail preview screen.
-- **Empty state:** not built. With only two fixture challenges there was no natural way to also
-  demonstrate an empty feed without contriving a second fixture identity; a real implementation
+  activated, consequence completed, and challenge succeeded — a realistic subset of
+  `docs/SOCIAL_V1_SPEC.md` section 12's full list. Deliberately excluded: routine check-ins (per
+  spec, never individually posted).
+- **Story grouping:** the first viewport used to show three near-identical consecutive cards for
+  Alex's missed commitment → consequence activated → consequence completed. These are one
+  closely-connected story from a single challenge, so they now render as one compact story card
+  ("Alex's consequence played out") with a short, ordered list of moments (day label + line per
+  moment) inside a single link+reaction unit — the sequence and every fact stay visible, just not
+  as three separate cards. This is a fixture/display-level decision (`kind: 'story'` on the feed
+  item), not an algorithmic feed or a production grouping system.
+- **Success has social value too:** Mia's completed "21-day nightly habit" challenge is a
+  first-class feed item (`challenge_succeeded`), not just narrative texture — the seed comments on
+  her Challenge Room show genuine praise mixed with joking disappointment about losing out on the
+  consequence (see 3.5). This demonstrates that succeeding is also worth talking about, not just
+  entertaining failure.
+- Three showcase challenges give the feed real variety: Alex's exact-detail "No added sugar for 30
+  days" (full lifecycle, told as a story card for its dramatic middle), Priya's general-detail
+  "8-week fitness challenge" (shown only as "An 8-week fitness challenge", never the exact
+  training plan — demonstrating general-detail redaction directly in the feed), and Mia's
+  exact-detail success story.
+- **Empty state:** not built. With three fixture challenges there was no natural way to also
+  demonstrate an empty feed without contriving another fixture identity; a real implementation
   needs "No Kin activity yet — once your Kin start challenges, you'll see it here."
 - **Loading/error:** none in the prototype (synchronous fixtures). A real feed needs pagination,
   a loading skeleton, and a retry-on-failure state — see section 6.
@@ -109,20 +124,34 @@ or fail. (Section 6 states where a real backend would introduce both.)
 - The no-match state explicitly states Kinwin only matches exact usernames (no suggestions, no
   public search) and shows a **disabled** "Invite by link (coming soon)" affordance — labeled and
   visibly inert, so it cannot be mistaken for working share/deep-link infrastructure, per the
-  task's explicit instruction not to build that here.
+  task's explicit instruction not to build that here. Its placement — inside Add Kin, next to the
+  no-match result, rather than a separate top-level invite flow — is now a locked decision (see
+  section 8).
 - **Loading/error:** none (synchronous). A real Add Kin needs a debounced/rate-limited server
   lookup, a network-error state, and abuse protection against username enumeration.
 
 ### 3.5 Challenge Room (`/challenge-room?challengeId=...`)
 
 The one fully compelling room, built from Alex's "No added sugar for 30 days" challenge (and
-reachable in a lighter form for Priya's challenge, which has an empty comment section):
+reachable in a lighter form for Priya's challenge, which has an empty comment section, and Mia's
+success room). Kinwin's social experience is meant to feel like **"the group chat where promises
+actually have consequences"** (a locked decision, section 8) — so the room now leads with
+conversation, not a full history log. Top-to-bottom order:
 
-- Header: back, quiet prototype tag, and an overflow (`⋯`) menu.
-- Title, truthful description, owner, start/planned-end labels, a progress bar + label, a
-  consequence card (summary + named recipients), and a full lifecycle timeline (challenge
-  started → milestone → missed commitment → consequence activated → consequence completed).
-- **Comments:** seeded from `fixtures/social/comments.ts`, with one threaded reply. Local text
+1. Header: back, quiet prototype tag, and an overflow (`⋯`) menu.
+2. Concise challenge header: title, truthful description, start/planned-end labels, a progress
+   bar + label.
+3. Consequence card: summary + named recipients.
+4. **Comments**, promoted to appear right after the consequence — this is the part that should
+   read like a real group chat.
+5. Compressed history: only the most recent two lifecycle moments by default, with a **"View full
+   history (N more)"** toggle that expands the complete, untruncated timeline. Nothing is removed
+   or made less truthful — only how much is shown before an explicit tap. When a challenge has two
+   or fewer lifecycle moments (e.g. Priya's), there is nothing to hide, so the toggle doesn't
+   appear and every moment is already visible.
+
+Interaction details:
+- **Comments:** seeded from `fixtures/social/comments.ts`, with threaded replies. Local text
   composer at the bottom posts a new top-level comment; each comment has its own inline reply
   composer. Both are session-only React state — reloading the app returns to the seed, honestly,
   per the task's explicit requirement.
@@ -130,13 +159,15 @@ reachable in a lighter form for Priya's challenge, which has an empty comment se
   (fire, you-got-this, lol, oof, icon, respect) rather than a single "like" or purely encouraging
   set — see section 5.
 - **Mute:** a toggle inside the overflow menu; state reflected in the room's own header
-  ("… · muted") so it's visibly real, not just a silent flag.
+  ("… · muted") so it's visibly real, not just a silent flag. Muting only affects notifications —
+  it does not dim or otherwise change how the challenge's cards look in the Kin feed (locked
+  decision, section 8).
 - **Report / Block:** in the same overflow menu, each producing an honest inline confirmation
   that nothing was actually sent/changed (this is a prototype) rather than silently doing nothing
   or pretending to hit a server.
 - **Empty state:** Priya's room (`challengeId=challenge-priya-running`) has zero seed comments,
   showing "No comments yet. Be the first to say something." — a real empty state, not a
-  contrived one.
+  contrived one, and unchanged by this reordering.
 - **Not-found state:** an unrecognized `challengeId` shows "This Challenge Room isn't part of the
   prototype." with a way back, rather than crashing — this is the prototype's stand-in for a real
   404/permission-denied state (see section 6).
@@ -189,16 +220,30 @@ that boundary visible in code, ahead of any real backend:
   lookup directory — with no coupling to challenge data.
 
 Concretely, this means: **general detail** shows a truthful but generalized title/description
-(e.g. "A month of cutting something out" instead of "No added sugar for 30 days") and still shows
-named recipients and the consequence summary, but progress is already shown only as `Day X of Y`
-— the same generic, day-based form as progress-only — because the private measurement's unit
-(e.g. "days sugar-free", "runs completed") would immediately re-name the exact behavior the
-title/description just generalized away. **Progress-only detail** goes further still: title
-becomes `"{name}'s challenge"`, description becomes a generic "working toward something
-meaningful" line, and both recipients and the consequence summary are withheld entirely (`null`).
-This is unit-tested in `lib/social/projection.test.ts`, including tests that both general and
-progress-only output never contain the word "sugar" (the private measurement's telltale unit) and
-that `progressLabel` at general detail is exactly `"Day 22 of 30"`, never the exact behavior count.
+(e.g. "A month of cutting something out" instead of "No added sugar for 30 days"), progress shown
+only as `Day X of Y` (the same generic, day-based form as progress-only, since the private
+measurement's unit — e.g. "days sugar-free", "runs completed" — would immediately re-name the
+exact behavior the title/description just generalized away) — but recipients and the consequence
+itself stay visible, because they're central to Kinwin's social meaning, not part of the private
+behavior being generalized. Concretely: `recipientNames` becomes the safe first-name form
+(`recipientFirstNames` on the private fixture — "Jonas" instead of "Jonas (little brother)"), and
+`consequenceSummary` becomes an independently-authored `generalConsequenceSummary` that keeps the
+recipients, the consequence type, and its value, but never the private behavior, measurement,
+success threshold, or failure rule (e.g. exact: "If Alex misses more than 2 days total, Mom and
+Jonas split a $150 spa afternoon"; general: "If Alex doesn't complete the challenge, Mom and Jonas
+split a $150 spa afternoon"). **Progress-only detail** goes further still: title becomes
+`"{name}'s challenge"`, description becomes a generic "working toward something meaningful" line,
+and both recipients and the consequence summary are withheld entirely (`null`). Lifecycle
+headlines follow the same three-way split — each `ChallengeLifecycleEvent` carries independently
+authored `exactHeadline`/`generalHeadline`/`progressOnlyHeadline` fields (progress-only never
+reuses the general wording), so a progress-only viewer sees only safe, generic lines like "Alex
+had a setback" or "The challenge consequence was activated" — never an exact detail, and never a
+generalized *category* either (e.g. never anything that would let "fitness" leak through). All of
+this is unit-tested in `lib/social/projection.test.ts`: general keeps recipients/consequence but
+never the private measurement or its threshold; progress-only output never contains the word
+"sugar" (the private measurement's telltale unit) in title, description, progress label, or any
+lifecycle headline; and general's `progressLabel` is exactly `"Day 22 of 30"`, never the exact
+behavior count.
 
 ## 5. Interaction behavior notes
 
@@ -243,46 +288,80 @@ section 18):
       `app/_layout.tsx` was not modified.
 - [x] Kin feed shows a realistic, non-generic set of fixture events and excludes routine
       check-ins.
+- [x] Closely-connected events from one challenge (Alex's missed commitment → consequence
+      activated → consequence completed) render as one compact story card, not near-identical
+      consecutive cards, while keeping the full sequence and every fact visible and linking to
+      the Challenge Room.
+- [x] The feed includes at least one meaningful success event (Mia) with genuine social value —
+      praise and playful disappointment in the room's comments — not only failure/consequence
+      drama.
 - [x] My Kin distinguishes approved Kin, pending incoming, and pending outgoing, with a working
-      Add Kin entry point.
+      Add Kin entry point, using natural compact headings ("Incoming requests", "Sent requests")
+      rather than requiring "Kinship requests" in every heading.
 - [x] Add Kin demonstrates all four required deterministic outcomes and is clearly not real
       networking (no fetch, no async, an explicit disabled "coming soon" affordance for invite
       links).
 - [x] The Challenge Room shows title, owner, dates, progress, consequence summary, named
-      recipients, a lifecycle timeline, comments, replies, reactions, local comment composition,
-      a mute affordance, and report/block in an overflow menu.
+      recipients, comments, replies, reactions, local comment composition, a mute affordance,
+      report/block in an overflow menu, and a lifecycle history — with comments promoted ahead of
+      a compressed history (most recent two moments, expandable to the full timeline via "View
+      full history").
 - [x] The audience/detail preview shows an accurate, meta-language-free preview per detail level,
-      including the "no access at all" case for excluded audiences.
+      including the "no access at all" case for excluded audiences, and confirms that general
+      detail keeps recipient first names and a safely generalized consequence while progress-only
+      hides both entirely.
 - [x] Private challenge data and social projection data are architecturally separate modules, and
       Kin-facing components consume only the projection.
-- [x] Unit tests cover the audience/detail → projection conversion, progress-only redaction,
-      unauthorized-recipient exclusion, and Add Kin's deterministic outcomes.
+- [x] `docs/SOCIAL_V1_SPEC.md` does not permit participant-approved or user-controlled recipient
+      replacement after commitment creation; recipient immutability, contact-detail correction,
+      and the support-mediated exception process are stated explicitly.
+- [x] Unit tests cover the audience/detail → projection conversion, general detail keeping
+      recipient first names and a safe consequence summary, progress-only redaction of both
+      recipients and the consequence, progress-only lifecycle wording never matching the exact or
+      general wording (and never leaking a generalized category), unauthorized-recipient
+      exclusion, and Add Kin's deterministic outcomes.
 - [x] `npm run typecheck`, `npm run lint`, `npm test`, `npx expo export --platform web`, and
       `git diff --check` all pass.
 
-## 8. Unresolved product decisions
+## 8. Locked decisions for Social v1 planning
 
-These are prototype-level judgment calls made to ship something coherent, not confirmed product
-decisions — flagging them for founder/ChatGPT review before any real implementation package:
+Approved by the founder for this UX package and carried forward into future implementation
+packages:
 
-1. **Are recipients part of "exact" detail only, or also "general"?** This prototype shows named
-   recipients and the consequence summary at both exact and general detail, withholding them only
-   at progress-only. The reasoning: recipients are largely the social hook ("if I fail, my mom
-   gets a spa day") rather than the private behavior itself, so generalizing the challenge
-   shouldn't require anonymizing loved ones too. But this is an assumption, not something the
-   spec states explicitly, and a founder could reasonably want recipients hidden at general
-   detail as well.
-2. **Should "general" and "progress-only" lifecycle events share one generalized wording, or does
-   progress-only need its own, even-vaguer copy?** The prototype reuses each lifecycle event's
-   `generalHeadline` for both general and progress-only viewers (e.g. "Alex started a 30-day
-   challenge."). This already satisfies "no exact goal or behavior leaks" (unit-tested), but a
-   product review may want progress-only lifecycle events to be vaguer still (e.g. no day counts
-   at specific milestones).
-3. **Does "Selected Kin" need per-recipient stake/visibility variation**, or is a single
-   audience-wide detail level always correct? Not explored here — out of scope until Package 3.
-4. **Where does Add Kin's "Invite by link" actually belong** in the real IA — inside Add Kin, or
-   a separate top-level invite flow? Only represented here as a disabled affordance, per the
-   task's explicit instruction not to build sharing/deep-link infrastructure yet.
-5. **Should a muted Challenge Room visually de-emphasize itself in the Kin feed** (e.g. dimmed
-   cards), or does muting only affect notifications? The prototype only demonstrates the toggle
-   itself; feed-level effects are unbuilt since there is no real feed subscription yet.
+- Kinwin's social experience should feel like **"the group chat where promises actually have
+  consequences"** — not a habit tracker with a feed bolted on. The Challenge Room's comments-
+  before-history ordering (section 3.5) is a direct expression of this.
+- Social value exists for both success and failure — a completed challenge is worth genuine
+  praise and playful disappointment (about a lost consequence), not just narrative filler around
+  failure/consequence drama.
+- Related lifecycle events from one challenge may be presented as one coherent social story
+  (a story card), rather than one card per event, when they're closely connected in time and
+  narrative.
+- **General** detail shows recipient first names and a safely generalized consequence summary
+  (recipients, consequence type, and value — never the private behavior, measurement, success
+  threshold, or failure rule).
+- **Progress-only** detail hides recipient and consequence details entirely.
+- **Selected Kin** uses one challenge-wide detail level in v1 — not per-Kin detail-level
+  variation.
+- **Invite by link** belongs inside the Add Kin flow (next to the no-match result), not a
+  separate top-level invite flow.
+- **Muting** a Challenge Room affects notifications only — it does not dim or otherwise change
+  that challenge's cards in the Kin feed.
+- Consequence delivery, recipient updates, and revenge challenges are part of a challenge's
+  **social afterlife** — the story doesn't end at "consequence activated."
+- The next UX package should focus on **social onboarding and Kinship flows for a user with no
+  existing Kin** (the "cold start" experience Add Kin and My Kin don't yet address).
+
+## 9. Unresolved product decisions
+
+These remain open — flagging them for founder/ChatGPT review before any real implementation
+package touches them:
+
+1. Exact late-join voting rules.
+2. Who may apply to join a Kin Challenge.
+3. Visibility of individual participant stakes.
+4. How consequence fulfillment is confirmed and disputed.
+5. Moderation and historical-comment behavior after removing or blocking a Kin.
+6. Recipient-to-participant transitions in group challenges (i.e. whether an economic recipient
+   may later become a participant in a Kin Challenge) — see the corresponding open item in
+   `docs/SOCIAL_V1_SPEC.md` section 9.
