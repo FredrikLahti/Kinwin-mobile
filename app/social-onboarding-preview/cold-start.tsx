@@ -127,9 +127,9 @@ export default function ColdStartScreen() {
               accessibilityHint="Confirms you'd rather keep using Kinwin without any Kin for now"
               accessibilityRole="button"
               onPress={continueSolo}
-              style={({ pressed }) => [styles.tertiaryButton, pressed && styles.tertiaryButtonPressed]}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
             >
-              <Text style={styles.tertiaryButtonText}>Continue solo</Text>
+              <Text style={styles.secondaryButtonText}>Continue solo</Text>
             </Pressable>
           </View>
         )}
@@ -183,9 +183,6 @@ const styles = StyleSheet.create({
   },
   secondaryButtonPressed: { backgroundColor: theme.colors.surfaceFocused },
   secondaryButtonText: { color: theme.colors.bone, fontSize: 15, fontWeight: '700' },
-  tertiaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  tertiaryButtonPressed: { opacity: 0.7 },
-  tertiaryButtonText: { color: theme.colors.boneMuted, fontSize: 14, fontWeight: '700' },
   soloConfirmedCard: {
     width: '100%', maxWidth: 480, alignSelf: 'center',
     gap: 10, marginHorizontal: 26, marginTop: 28,
