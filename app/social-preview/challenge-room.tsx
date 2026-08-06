@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,12 +53,11 @@ function ChallengeRoomBody({
   const [muted, setMuted] = useState(false);
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [comments, setComments] = useState<readonly SocialComment[]>(SEED_COMMENTS[projection.challengeId] ?? []);
-  const [draft, setDraft] = useState('');
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
-  const postComment = () => {
-    const body = draft.trim();
-    if (!body) return;
+  const postComment = (body: string) => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
     void playImportantHaptic();
     setComments((current) => [
       ...current,
@@ -67,12 +66,11 @@ function ChallengeRoomBody({
         authorDisplayName: 'You',
         authorInitials: 'Y',
         timeLabel: 'Just now',
-        body,
+        body: trimmed,
         reactions: {},
         replies: [],
       },
     ]);
-    setDraft('');
   };
 
   const addReply = (commentId: SocialCommentId, body: string) => {
@@ -198,6 +196,7 @@ function ChallengeRoomBody({
           {comments.map((comment) => (
             <CommentRow comment={comment} key={comment.id} onReply={(body) => addReply(comment.id, body)} />
           ))}
+          <AddCommentAction onPost={postComment} />
         </View>
 
         <HistorySection
@@ -206,33 +205,87 @@ function ChallengeRoomBody({
           onToggle={() => { void playSelectionHaptic(); setHistoryExpanded((current) => !current); }}
         />
       </ScrollView>
+    </SafeAreaView>
+  );
+}
 
-      <View style={styles.composer}>
-        <TextInput
-          accessibilityLabel="Write a comment"
-          multiline
-          onChangeText={setDraft}
-          placeholder="Say something…"
-          placeholderTextColor={theme.colors.warmGrey}
-          style={styles.composerInput}
-          value={draft}
-        />
+/**
+ * Collapsed by default: a low-emphasis "Add a comment" action rather than a
+ * permanently fixed composer, so the room doesn't visually read as a
+ * messaging app (docs/SOCIAL_UX_V1.md section 2). Tapping it reveals and
+ * focuses a text field; Cancel collapses it again without posting.
+ */
+function AddCommentAction({ onPost }: { onPost: (body: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  if (!open) {
+    return (
+      <Pressable
+        accessibilityHint="Reveals a text field to add a comment"
+        accessibilityRole="button"
+        onPress={() => { void playSelectionHaptic(); setOpen(true); }}
+        style={({ pressed }) => [styles.addCommentAction, pressed && styles.addCommentActionPressed]}
+      >
+        <Text style={styles.addCommentActionText}>+ Add a comment</Text>
+      </Pressable>
+    );
+  }
+
+  const cancel = () => {
+    setText('');
+    setOpen(false);
+  };
+
+  const submit = () => {
+    if (!text.trim()) return;
+    onPost(text);
+    setText('');
+    setOpen(false);
+  };
+
+  return (
+    <View style={styles.addCommentComposer}>
+      <TextInput
+        accessibilityLabel="Write a comment"
+        multiline
+        onChangeText={setText}
+        placeholder="Say something…"
+        placeholderTextColor={theme.colors.warmGrey}
+        ref={inputRef}
+        style={styles.composerInput}
+        value={text}
+      />
+      <View style={styles.addCommentActions}>
+        <Pressable
+          accessibilityHint="Closes the comment field without posting"
+          accessibilityRole="button"
+          onPress={cancel}
+          style={styles.cancelButton}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </Pressable>
         <Pressable
           accessibilityHint="Posts your comment to this session only"
           accessibilityLabel="Post comment"
           accessibilityRole="button"
-          disabled={draft.trim().length === 0}
-          onPress={postComment}
+          disabled={text.trim().length === 0}
+          onPress={submit}
           style={({ pressed }) => [
             styles.postButton,
-            draft.trim().length === 0 && styles.postButtonDisabled,
+            text.trim().length === 0 && styles.postButtonDisabled,
             pressed && styles.postButtonPressed,
           ]}
         >
           <Text style={styles.postButtonText}>Post</Text>
         </Pressable>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -440,13 +493,15 @@ const styles = StyleSheet.create({
   },
   replyPostButton: { minHeight: 38, justifyContent: 'center', paddingHorizontal: 12 },
   replyPostButtonText: { color: theme.colors.copperBright, fontSize: 12.5, fontWeight: '700' },
-  composer: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
-    borderTopWidth: 1, borderColor: theme.colors.structureLineStrong,
-    backgroundColor: theme.colors.deepInk, paddingHorizontal: 16, paddingVertical: 10,
-  },
+  addCommentAction: { minHeight: 40, justifyContent: 'center', marginTop: 4 },
+  addCommentActionPressed: { opacity: 0.7 },
+  addCommentActionText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '700' },
+  addCommentComposer: { gap: 10, marginTop: 4 },
+  addCommentActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  cancelButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 8 },
+  cancelButtonText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '700' },
   composerInput: {
-    flex: 1, minHeight: 40, maxHeight: 90,
+    minHeight: 40, maxHeight: 90,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,
     backgroundColor: theme.colors.surface, paddingHorizontal: 12, paddingVertical: 8,
     color: theme.colors.bone, fontSize: 14,

@@ -17,7 +17,63 @@ evaluated before any database, RLS, or authorization architecture is built. See
 `docs/SOCIAL_V1_SPEC.md` section 19 — this prototype exists to produce the "approved UX flow" that
 section requires before a future implementation package can begin.
 
-## 2. Routes and navigation
+## 2. Social product model
+
+**"Kinwin is the private social layer where commitments become shared stories."**
+
+An earlier version of this document described the Challenge Room as "the group chat where
+promises actually have consequences." That was useful as a tone metaphor for one specific
+decision (put comments ahead of history), but it must not be read as defining the literal
+product — Kinwin is not building a chat app. This section locks the actual product model.
+
+**My Kin is a relationship layer, not one group.** Approved Kin are a private, mutual set of
+people — not a single combined social group or group chat roster. Family, friends, partners, and
+other Kin may belong to entirely different real-world contexts (a partner, a sibling, a gym
+friend, a coworker) and must not be automatically mixed together just because they're all
+approved Kin. Each challenge has its own explicitly authorized audience (spec section 4);
+**Selected Kin** is the natural, intended way to keep different social contexts separate —
+sharing a challenge with family without also sharing it with coworkers, for example.
+
+**Kin feed is driven by meaningful challenge events**, not by activity volume or a chat-style
+timeline. **Challenge Room is a challenge-scoped shared story and lightweight discussion
+surface** — a place to react to and comment on one specific challenge's real moments, not a
+general conversation space.
+
+Kinwin explicitly does **not** aim to:
+- replace WhatsApp, Messenger, or any existing group chat;
+- create continuous back-and-forth conversation;
+- maximize messages sent or time spent talking.
+
+The expected interaction shape is primarily **reactions**, **occasional event-related comments**,
+and **rare replies** — not a message thread. A Challenge Room can be entirely successful with
+only a handful of meaningful interactions across an entire challenge; a quiet room is not a
+failed one. Retention is expected to come from **meaningful lifecycle events** (a milestone, a
+setback, a consequence, a success), not from message volume or engagement mechanics.
+
+Consequently, this package does not include, and no future package should add without a
+separate, explicit product decision: direct messages, a general (non-challenge-scoped) Kin chat,
+presence indicators, typing indicators, read receipts, or other chat-engagement mechanics.
+
+### Social suitability of challenges
+
+- Every challenge may be shared socially if its owner chooses to — audience selection is always
+  the owner's call.
+- Kinwin does not judge, score, or filter whether a given habit or goal is "socially interesting"
+  enough to share. There is no social-suitability gate.
+- The owner controls the audience (spec section 4); Kinwin does not decide who should see a
+  challenge on the challenge's behalf.
+- Not every visible challenge is expected to produce active discussion, and a **quiet Challenge
+  Room is a valid, healthy outcome** — not a sign the feature failed.
+- Routine daily check-ins are not feed events (spec section 12) and never will be, regardless of
+  audience or challenge type.
+- Kinwin should surface genuinely important moments as they happen, not fabricate engagement or
+  urgency around ordinary, uneventful habit progress.
+
+This package does not add a "social score," a challenge recommendation system, or any new
+onboarding setting — those are explicitly out of scope here (section 7 — What is fixture-only vs.
+future backend work — and section 10 — Unresolved product decisions — do not include them either).
+
+## 3. Routes and navigation
 
 ```
 /social-preview                        Entry screen — the one place with the full "this is a
@@ -43,9 +99,9 @@ are reached. The Challenge Room is always reached by tapping a feed card, never 
 guessing of a URL — there is no in-app way to browse challenges outside the feed, matching "no
 global search."
 
-## 3. Screen-by-screen
+## 4. Screen-by-screen
 
-### 3.1 Entry (`/social-preview`)
+### 4.1 Entry (`/social-preview`)
 
 - Static explanation card: illustrative only, nothing saved, no real network requests, reload
   resets everything. This is the **only** place this explanation appears in full.
@@ -57,9 +113,9 @@ global search."
 - Secondary action: **Preview challenge privacy settings** → audience/detail preview.
 
 No loading or error state: fixture data is synchronous and local, so there is nothing to wait for
-or fail. (Section 6 states where a real backend would introduce both.)
+or fail. (Section 7 states where a real backend would introduce both.)
 
-### 3.2 Kin feed (`(tabs)/index`)
+### 4.2 Kin feed (`(tabs)/index`)
 
 - Reverse-chronological list of `SocialFeedItem` fixtures (`fixtures/social/events.ts`): either a
   single-moment card (`SocialEvent`) or a compact **story card** (`SocialFeedStory`) grouping
@@ -91,9 +147,9 @@ or fail. (Section 6 states where a real backend would introduce both.)
   demonstrate an empty feed without contriving another fixture identity; a real implementation
   needs "No Kin activity yet — once your Kin start challenges, you'll see it here."
 - **Loading/error:** none in the prototype (synchronous fixtures). A real feed needs pagination,
-  a loading skeleton, and a retry-on-failure state — see section 6.
+  a loading skeleton, and a retry-on-failure state — see section 7.
 
-### 3.3 My Kin (`(tabs)/my-kin`)
+### 4.3 My Kin (`(tabs)/my-kin`)
 
 - Three sections, all backed by local `useState` seeded from `fixtures/social/kin.ts`: pending
   Kinship requests (incoming, with Accept/Decline), sent requests (outgoing, with Cancel), and
@@ -106,7 +162,7 @@ or fail. (Section 6 states where a real backend would introduce both.)
   request list at zero is not something a user needs explained.
 - No stranger suggestions, popularity counts, or discovery — intentionally absent, per spec.
 
-### 3.4 Add Kin (`/add-kin`, modal)
+### 4.4 Add Kin (`/add-kin`, modal)
 
 - Single exact-username text field + **Find Kin**. Four deterministic outcomes
   (`lib/social/add-kin.ts`, unit-tested):
@@ -126,24 +182,26 @@ or fail. (Section 6 states where a real backend would introduce both.)
   visibly inert, so it cannot be mistaken for working share/deep-link infrastructure, per the
   task's explicit instruction not to build that here. Its placement — inside Add Kin, next to the
   no-match result, rather than a separate top-level invite flow — is now a locked decision (see
-  section 8).
+  section 9).
 - **Loading/error:** none (synchronous). A real Add Kin needs a debounced/rate-limited server
   lookup, a network-error state, and abuse protection against username enumeration.
 
-### 3.5 Challenge Room (`/challenge-room?challengeId=...`)
+### 4.5 Challenge Room (`/challenge-room?challengeId=...`)
 
 The one fully compelling room, built from Alex's "No added sugar for 30 days" challenge (and
 reachable in a lighter form for Priya's challenge, which has an empty comment section, and Mia's
-success room). Kinwin's social experience is meant to feel like **"the group chat where promises
-actually have consequences"** (a locked decision, section 8) — so the room now leads with
-conversation, not a full history log. Top-to-bottom order:
+success room). Per section 2, this is a **challenge-scoped shared story and lightweight
+discussion surface** — not a chat screen — so it leads with the challenge's own story
+(progress, consequence) and keeps discussion present but low-emphasis, ahead of a full history
+log. Top-to-bottom order:
 
 1. Header: back, quiet prototype tag, and an overflow (`⋯`) menu.
 2. Concise challenge header: title, truthful description, start/planned-end labels, a progress
    bar + label.
 3. Consequence card: summary + named recipients.
-4. **Comments**, promoted to appear right after the consequence — this is the part that should
-   read like a real group chat.
+4. **Comments**, promoted to appear right after the consequence, with a collapsed-by-default
+   "Add a comment" action rather than an always-open composer (see below) — present and easy to
+   reach, without visually resembling a messaging app.
 5. Compressed history: only the most recent two lifecycle moments by default, with a **"View full
    history (N more)"** toggle that expands the complete, untruncated timeline. Nothing is removed
    or made less truthful — only how much is shown before an explicit tap. When a challenge has two
@@ -151,28 +209,33 @@ conversation, not a full history log. Top-to-bottom order:
    appear and every moment is already visible.
 
 Interaction details:
-- **Comments:** seeded from `fixtures/social/comments.ts`, with threaded replies. Local text
-  composer at the bottom posts a new top-level comment; each comment has its own inline reply
-  composer. Both are session-only React state — reloading the app returns to the seed, honestly,
-  per the task's explicit requirement.
+- **Comments:** seeded from `fixtures/social/comments.ts`, with threaded replies — existing
+  comments, reactions, and one-level replies are unchanged by this package. The composer to add a
+  new top-level comment is a low-emphasis **"Add a comment"** action inside the comments section,
+  collapsed by default: tapping it reveals and focuses a text field with Post/Cancel; Cancel
+  collapses it again without posting. No composer is ever permanently fixed over the screen —
+  per section 2, Kinwin does not want the room to visually read as a messaging app. Both the
+  composer and any typed draft are session-only React state — reloading the app returns to the
+  seed, honestly, per the task's explicit requirement.
 - **Reactions:** `ReactionBar` on every feed card and every comment/reply, offering six tones
   (fire, you-got-this, lol, oof, icon, respect) rather than a single "like" or purely encouraging
-  set — see section 5.
+  set — see section 6.
 - **Mute:** a toggle inside the overflow menu; state reflected in the room's own header
   ("… · muted") so it's visibly real, not just a silent flag. Muting only affects notifications —
   it does not dim or otherwise change how the challenge's cards look in the Kin feed (locked
-  decision, section 8).
+  decision, section 9).
 - **Report / Block:** in the same overflow menu, each producing an honest inline confirmation
   that nothing was actually sent/changed (this is a prototype) rather than silently doing nothing
   or pretending to hit a server.
 - **Empty state:** Priya's room (`challengeId=challenge-priya-running`) has zero seed comments,
-  showing "No comments yet. Be the first to say something." — a real empty state, not a
-  contrived one, and unchanged by this reordering.
+  showing "No comments yet. Be the first to say something." (with the same collapsed "Add a
+  comment" action) — a real empty state, not a contrived one, and unchanged by this reordering. A
+  quiet room like this is a valid outcome per section 2, not a failure state.
 - **Not-found state:** an unrecognized `challengeId` shows "This Challenge Room isn't part of the
   prototype." with a way back, rather than crashing — this is the prototype's stand-in for a real
-  404/permission-denied state (see section 6).
+  404/permission-denied state (see section 7).
 
-### 3.6 Audience/detail privacy preview (`/audience-preview`)
+### 4.6 Audience/detail privacy preview (`/audience-preview`)
 
 Owner-facing configuration screen, **not** wired into onboarding yet (per task instructions). Lets
 you set:
@@ -183,7 +246,7 @@ you set:
 
 ...against Alex's private challenge record, then shows a live preview of exactly what a fixed
 approved-Kin viewer (Priya) would receive, computed through the real
-`projectSocialChallenge` authorization function (see section 4). If the current audience excludes
+`projectSocialChallenge` authorization function (see section 5). If the current audience excludes
 Priya, the preview honestly says she "would not see this challenge at all," instead of showing an
 empty/broken card.
 
@@ -193,7 +256,7 @@ explicit requirement that masking never be visually detectable by the viewer. Th
 screen chrome ("PREVIEW — WHAT PRIYA WOULD SEE") is owner-only configuration UI, not something a
 real Kin viewer would ever see, so it is allowed to describe what it's doing.
 
-## 4. Privacy behavior and the fixture architecture
+## 5. Privacy behavior and the fixture architecture
 
 `docs/SOCIAL_V1_SPEC.md` section 4 requires private challenge data and social display data to be
 stored and authorized separately, and this prototype's fixture layout exists specifically to make
@@ -245,7 +308,7 @@ never the private measurement or its threshold; progress-only output never conta
 lifecycle headline; and general's `progressLabel` is exactly `"Day 22 of 30"`, never the exact
 behavior count.
 
-## 5. Interaction behavior notes
+## 6. Interaction behavior notes
 
 - Reactions (`lib/social/reactions.ts`): fire 🔥, you-got-this 💪, lol 😂, oof 😬, icon 👑,
   respect 🫡 — chosen so a Kin can tease, hype, or sympathize the way real friends actually would,
@@ -256,7 +319,7 @@ behavior count.
 - All interactive elements carry `accessibilityRole`/`accessibilityHint`/`accessibilityLabel`,
   consistent with the rest of the codebase.
 
-## 6. What is fixture-only vs. future backend work
+## 7. What is fixture-only vs. future backend work
 
 Fixture-only in this package (see `docs/PRODUCT_DECISIONS.md`'s "mock data and local state"
 principle):
@@ -279,7 +342,7 @@ section 18):
 | Real push/neutral-wording notifications, the mute toggle actually suppressing anything | Package 8 — the mute toggle here only changes its own label; there is no notification system yet to suppress. |
 | Membership/authorization interplay (e.g. Completion Mode) | Not modeled at all in this prototype — every fixture challenge is presented as fully active. |
 
-## 7. Acceptance criteria
+## 8. Acceptance criteria
 
 - [x] Runs entirely in the cloud dev environment with local fixture data — no Supabase project,
       Supabase credentials, Stripe configuration, physical device, EAS Build, or other external
@@ -323,14 +386,22 @@ section 18):
 - [x] `npm run typecheck`, `npm run lint`, `npm test`, `npx expo export --platform web`, and
       `git diff --check` all pass.
 
-## 8. Locked decisions for Social v1 planning
+## 9. Locked decisions for Social v1 planning
 
 Approved by the founder for this UX package and carried forward into future implementation
 packages:
 
-- Kinwin's social experience should feel like **"the group chat where promises actually have
-  consequences"** — not a habit tracker with a feed bolted on. The Challenge Room's comments-
-  before-history ordering (section 3.5) is a direct expression of this.
+- **"Kinwin is the private social layer where commitments become shared stories"** (section 2) —
+  not a habit tracker with a feed bolted on, and not a chat app. My Kin is a private relationship
+  layer (not one combined group), Kin feed is driven by meaningful events, and Challenge Room is
+  a challenge-scoped shared story and lightweight discussion surface — reactions, occasional
+  comments, and rare replies, not continuous conversation. The Challenge Room's comments-before-
+  history ordering (section 4.5) keeps discussion present without making the room read as a
+  messaging app; the collapsed-by-default comment composer (section 4.5) is the same principle
+  applied to the composer itself.
+- Every challenge may be shared if its owner chooses; Kinwin does not judge or score whether a
+  habit is "socially interesting" enough, and a quiet Challenge Room with few or no comments is a
+  valid, expected outcome — not a failure (section 2).
 - Social value exists for both success and failure — a completed challenge is worth genuine
   praise and playful disappointment (about a lost consequence), not just narrative filler around
   failure/consequence drama.
@@ -352,7 +423,7 @@ packages:
 - The next UX package should focus on **social onboarding and Kinship flows for a user with no
   existing Kin** (the "cold start" experience Add Kin and My Kin don't yet address).
 
-## 9. Unresolved product decisions
+## 10. Unresolved product decisions
 
 These remain open — flagging them for founder/ChatGPT review before any real implementation
 package touches them:
