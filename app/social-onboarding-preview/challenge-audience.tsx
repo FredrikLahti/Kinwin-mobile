@@ -20,26 +20,40 @@ type StartChoice = 'new' | 'continue';
 
 /**
  * Journey 7 — the first social challenge-audience transition, once a user
- * has their first accepted Kin. Uses this package's own
- * `OnboardingChallengeAudience` snapshot model (see
- * `domain/social/onboarding.ts`) rather than PR #13's
+ * has their first accepted Kin. Uses this package's own audience
+ * intent/lock model (`domain/social/onboarding.ts`) rather than PR #13's
  * `fixtures/social/private-challenges.ts` — no private challenge data is
  * duplicated into this screen, only a generic fixture title/progress.
+ *
+ * Choosing "All my Kin" or picking people for "Selected Kin" is only an
+ * editable INTENT — it previews who would be included, but grants nobody
+ * access. An explicit "Lock audience for this challenge" action is what
+ * actually creates the frozen snapshot; only that snapshot is ever checked
+ * for access. Which real server event performs this lock (commitment
+ * creation vs. final activation) is unresolved — see
+ * docs/SOCIAL_ONBOARDING_UX.md.
  */
 export default function ChallengeAudienceScreen() {
   const router = useRouter();
-  const { acceptIncoming, chooseAllKinAudience, chooseOnlyMeAudience, chooseSelectedKinAudience, receiveIncomingRequest, state } =
-    useSocialOnboarding();
+  const {
+    acceptIncoming,
+    chooseAllKinAudience,
+    chooseOnlyMeAudience,
+    chooseSelectedKinAudience,
+    lockAudienceForChallenge,
+    receiveIncomingRequest,
+    state,
+  } = useSocialOnboarding();
   const [startChoice, setStartChoice] = useState<StartChoice | null>(null);
-  const [selectedKinIds, setSelectedKinIds] = useState<readonly KinId[]>([]);
 
-  const audience = state.audience;
+  const intent = state.audienceIntent;
+  const locked = state.lockedAudience;
   const previewViewer = state.approvedKin[0] ?? null;
 
   const toggleSelected = (id: KinId) => {
     void playSelectionHaptic();
-    const next = selectedKinIds.includes(id) ? selectedKinIds.filter((kinId) => kinId !== id) : [...selectedKinIds, id];
-    setSelectedKinIds(next);
+    const current = intent.kind === 'selected_kin' ? intent.selectedKinIds : [];
+    const next = current.includes(id) ? current.filter((kinId) => kinId !== id) : [...current, id];
     chooseSelectedKinAudience(next);
   };
 
@@ -71,7 +85,7 @@ export default function ChallengeAudienceScreen() {
           <Text accessibilityRole="header" style={styles.title}>Now that you have Kin…</Text>
           <Text style={styles.subtitle}>
             Nothing changes automatically. You still choose, per challenge, who — if anyone — sees
-            it.
+            it, and nothing is actually shared until you lock it in.
           </Text>
         </View>
 
@@ -90,39 +104,39 @@ export default function ChallengeAudienceScreen() {
           </View>
         </Field>
 
-        <Field label="WHO CAN SEE IT">
+        <Field label="WHO CAN SEE IT (EDITABLE UNTIL LOCKED)">
           <View style={styles.segmentGroup}>
             <Segment
-              active={audience.kind === 'only_me'}
+              active={intent.kind === 'only_me'}
               label="Only me"
-              onPress={() => { void playSelectionHaptic(); chooseOnlyMeAudience(); setSelectedKinIds([]); }}
+              onPress={() => { void playSelectionHaptic(); chooseOnlyMeAudience(); }}
             />
             <Segment
-              active={audience.kind === 'selected_kin'}
+              active={intent.kind === 'selected_kin'}
               label="Selected Kin"
-              onPress={() => { void playSelectionHaptic(); chooseSelectedKinAudience(selectedKinIds); }}
+              onPress={() => { void playSelectionHaptic(); chooseSelectedKinAudience([]); }}
             />
             <Segment
-              active={audience.kind === 'all_kin_snapshot'}
+              active={intent.kind === 'all_kin'}
               label="All my Kin"
-              onPress={() => { void playImportantHaptic(); chooseAllKinAudience(); }}
+              onPress={() => { void playSelectionHaptic(); chooseAllKinAudience(); }}
             />
           </View>
           <Text style={styles.helperText}>
-            {audience.kind === 'only_me' && 'The safe default — no one sees this challenge.'}
-            {audience.kind === 'selected_kin' && "Pick who's in. Nobody is preselected, and it stays private until you pick at least one person."}
-            {audience.kind === 'all_kin_snapshot' && 'Everyone currently approved gets access — but not automatically anyone you add later.'}
+            {intent.kind === 'only_me' && 'The safe default — no one sees this challenge.'}
+            {intent.kind === 'selected_kin' && "Pick who's in. Nobody is preselected, and it stays private until you lock it — even with people picked."}
+            {intent.kind === 'all_kin' && 'This only previews who would be included. Nobody has access until you lock it.'}
           </Text>
         </Field>
 
-        {audience.kind === 'selected_kin' && (
+        {intent.kind === 'selected_kin' && (
           <Field label="SELECTED KIN">
             {state.approvedKin.length === 0 ? (
               <Text style={styles.helperText}>You have no approved Kin to select yet.</Text>
             ) : (
               <View style={styles.chipRow}>
                 {state.approvedKin.map((kin) => {
-                  const active = selectedKinIds.includes(kin.id);
+                  const active = intent.selectedKinIds.includes(kin.id);
                   return (
                     <Pressable
                       accessibilityHint={`${active ? 'Removes' : 'Adds'} ${kin.displayName} from this challenge's audience`}
@@ -141,17 +155,64 @@ export default function ChallengeAudienceScreen() {
           </Field>
         )}
 
-        {audience.kind === 'all_kin_snapshot' && state.approvedKin.length > 0 && (
+        {intent.kind === 'all_kin' && (
+          <Field label="PREVIEW — CURRENTLY APPROVED KIN">
+            {state.approvedKin.length === 0 ? (
+              <Text style={styles.helperText}>You have no approved Kin yet.</Text>
+            ) : (
+              <View style={styles.chipRow}>
+                {state.approvedKin.map((kin) => (
+                  <View key={kin.id} style={styles.previewChip}>
+                    <Text style={styles.previewChipText}>{kin.displayName}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={styles.helperText}>
+              If you lock now, these people get access. Anyone approved after locking will not.
+            </Text>
+          </Field>
+        )}
+
+        {intent.kind !== 'only_me' && (
+          <View style={styles.lockField}>
+            <Pressable
+              accessibilityHint="Freezes the current audience choice into a locked snapshot for this challenge"
+              accessibilityRole="button"
+              onPress={() => { void playImportantHaptic(); lockAudienceForChallenge(); }}
+              style={({ pressed }) => [styles.lockButton, pressed && styles.lockButtonPressed]}
+            >
+              <Text style={styles.lockButtonText}>Lock audience for this challenge</Text>
+            </Pressable>
+            <Text style={styles.lockCaption}>
+              Which real moment performs this lock — creating the commitment, or final activation —
+              is not decided yet; this prototype only demonstrates that some explicit moment must.
+            </Text>
+          </View>
+        )}
+
+        {locked && (
+          <View style={styles.lockedBadgeRow}>
+            <Text style={styles.lockedBadge}>🔒 LOCKED</Text>
+            <Text style={styles.lockedBadgeText}>
+              {locked.kind === 'only_me' && 'Only me — locked.'}
+              {locked.kind === 'selected_kin' && `Selected Kin — locked with ${locked.audienceKinIds.length} ${locked.audienceKinIds.length === 1 ? 'person' : 'people'}.`}
+              {locked.kind === 'all_kin' && `All my Kin — locked with ${locked.audienceKinIds.length} ${locked.audienceKinIds.length === 1 ? 'person' : 'people'}.`}
+            </Text>
+          </View>
+        )}
+
+        {locked && locked.kind === 'all_kin' && state.approvedKin.length > 0 && (
           <Field label="WHO CURRENTLY HAS ACCESS">
             {state.approvedKin.map((kin) => (
               <View key={kin.id} style={styles.accessRow}>
-                <Text style={styles.accessMark}>{kinHasAccess(audience, kin.id) ? '✓' : '—'}</Text>
+                <Text style={styles.accessMark}>{kinHasAccess(locked, kin.id) ? '✓' : '—'}</Text>
                 <Text style={styles.accessName}>{kin.displayName}</Text>
-                {!kinHasAccess(audience, kin.id) && <Text style={styles.accessNote}>joined after — no retroactive access</Text>}
+                {!kinHasAccess(locked, kin.id) && <Text style={styles.accessNote}>joined after the lock — no retroactive access</Text>}
               </View>
             ))}
             <Pressable
-              accessibilityHint="Prototype-only: simulates Nora becoming Kin after this audience was chosen"
+              accessibilityHint="Prototype-only: simulates Nora becoming Kin after this audience was locked"
               accessibilityRole="button"
               onPress={simulateLaterKin}
               style={({ pressed }) => [styles.simulateButton, pressed && styles.simulateButtonPressed]}
@@ -167,7 +228,13 @@ export default function ChallengeAudienceScreen() {
           </Text>
         </View>
 
-        {previewViewer && hasSocialVisibility(audience) && kinHasAccess(audience, previewViewer.id) ? (
+        {!locked ? (
+          <View style={styles.previewCard}>
+            <Text style={styles.previewEmpty}>
+              Not shared yet — nothing is visible to anyone until you lock the audience above.
+            </Text>
+          </View>
+        ) : previewViewer && hasSocialVisibility(locked) && kinHasAccess(locked, previewViewer.id) ? (
           <View style={styles.previewCard}>
             <Text style={styles.previewTitle}>{DRAFT_CHALLENGE_TITLE}</Text>
             <Text style={styles.previewProgress}>{DRAFT_PROGRESS_LABEL}</Text>
@@ -177,7 +244,7 @@ export default function ChallengeAudienceScreen() {
             <Text style={styles.previewEmpty}>
               {!previewViewer
                 ? 'You have no Kin yet, so there is no one to preview this for.'
-                : !hasSocialVisibility(audience)
+                : !hasSocialVisibility(locked)
                   ? `${previewViewer.displayName} would not see this challenge at all — it stays private.`
                   : `${previewViewer.displayName} wasn't included, so they would not see this challenge.`}
             </Text>
@@ -258,10 +325,35 @@ const styles = StyleSheet.create({
   kinChipPressed: { opacity: 0.85 },
   kinChipText: { color: theme.colors.boneMuted, fontSize: 12.5, fontWeight: '600' },
   kinChipTextActive: { color: theme.colors.copperBright },
+  previewChip: {
+    minHeight: 36, justifyContent: 'center',
+    borderWidth: 1, borderColor: theme.colors.structureLine, borderRadius: 999,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 12,
+  },
+  previewChipText: { color: theme.colors.boneMuted, fontSize: 12.5, fontWeight: '600' },
   accessRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   accessMark: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '800', width: 16 },
   accessName: { color: theme.colors.bone, fontSize: 13, fontWeight: '700' },
   accessNote: { color: theme.colors.warmGrey, fontSize: 11.5, flexShrink: 1 },
+  lockField: {
+    width: '100%', maxWidth: 560, alignSelf: 'center',
+    gap: 8, paddingHorizontal: 22, paddingTop: 22,
+  },
+  lockButton: {
+    minHeight: 48, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: theme.colors.copperBright, borderRadius: theme.radius.precise,
+    backgroundColor: theme.colors.copperDeep, paddingHorizontal: 16,
+  },
+  lockButtonPressed: { opacity: 0.85 },
+  lockButtonText: { color: theme.colors.copperBright, fontSize: 13.5, fontWeight: '700' },
+  lockCaption: { color: theme.colors.warmGrey, fontSize: 11.5, lineHeight: 17 },
+  lockedBadgeRow: {
+    width: '100%', maxWidth: 560, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 22, paddingTop: 16,
+  },
+  lockedBadge: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '800' },
+  lockedBadgeText: { color: theme.colors.bone, fontSize: 12.5, fontWeight: '600' },
   simulateButton: {
     minHeight: 40, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start',
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.precise,

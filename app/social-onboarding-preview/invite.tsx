@@ -9,6 +9,7 @@ import { KinAvatar } from '@/components/social/kin-avatar';
 import { PrototypeTag } from '@/components/social/prototype-tag';
 import { kinwinTheme as theme } from '@/constants/theme';
 import { useSocialOnboarding } from '@/contexts/social-onboarding-context';
+import { FREDRIK } from '@/fixtures/social/onboarding-directory';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -16,6 +17,11 @@ import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
  * Journey 4 — inviting someone without Kinwin. No real deep link, OS share
  * sheet, SMS, email, or delivery — the link and message are illustrative
  * text, and "Copy link" only flips a local confirmation label for a moment.
+ *
+ * Accepting an invitation creates the mutual Kinship directly (see
+ * `lib/social/invitation.ts`'s `acceptInvitation`) — the sender already
+ * expressed intent by issuing the invite, so no separate Add Kin step is
+ * needed on either side. Challenge access is still never automatic.
  */
 export default function InviteScreen() {
   const router = useRouter();
@@ -122,13 +128,81 @@ export default function InviteScreen() {
 
         <View style={styles.grantsCard}>
           <Text style={styles.grantsLabel}>WHAT THIS INVITE DOES AND DOESN&apos;T DO</Text>
-          <Bullet text="They choose whether to create a Kinwin account — nothing is created for them." />
+          <Bullet text="They see who invited them and choose to create an account — nothing is created for them until they do." />
           <Bullet text="The invitation never reveals any challenge details, even if you have one active." />
-          <Bullet text="Accepting the invite does not automatically create a Kinship — you'd still add each other, e.g. via Add Kin." />
-          <Bullet text="Even once you're Kin, they see no challenge until you explicitly include them in one's audience." />
+          <Bullet text="Accepting creates the mutual Kinship directly — no separate Add Kin step on either side, since sending the invitation already expressed your intent to be Kin." />
+          <Bullet text="Even once you're Kin, they see no old, current, or future challenge until you explicitly include them in that challenge's audience." />
+        </View>
+
+        <RecipientPreview />
+
+        <View style={styles.unresolvedCard}>
+          <Text style={styles.unresolvedLabel}>NOT DECIDED YET</Text>
+          <Text style={styles.unresolvedBody}>
+            Whether this link expires, whether it can be reused by more than one person, and what
+            happens if it&apos;s opened by someone other than the intended recipient are all
+            unresolved — see docs/SOCIAL_ONBOARDING_UX.md.
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * A self-contained demonstration of the *other* side of this flow — what an
+ * invited person sees and does, using a fixed example inviter (Fredrik)
+ * rather than the current session's own identity. Accept/decline here are
+ * real, working transitions against the same `approvedKin` state every
+ * other screen reads, not a cosmetic mockup.
+ */
+function RecipientPreview() {
+  const { acceptInvitationFrom, state } = useSocialOnboarding();
+  const [declined, setDeclined] = useState(false);
+  const isKin = state.approvedKin.some((kin) => kin.id === FREDRIK.id);
+
+  return (
+    <View style={styles.recipientSection}>
+      <Text style={styles.recipientLabel}>PREVIEW — WHAT AN INVITED PERSON SEES</Text>
+      <Text style={styles.recipientCaption}>
+        A worked example with a fixed inviter, so you can see the other side of this same flow.
+      </Text>
+
+      <View style={styles.recipientCard}>
+        <View style={styles.senderRow}>
+          <KinAvatar initials={FREDRIK.initials} />
+          <Text style={styles.recipientHeadline}>{FREDRIK.displayName} invited you to become Kin.</Text>
+        </View>
+
+        {isKin ? (
+          <Text style={styles.recipientResultText}>
+            You and {FREDRIK.displayName} are now Kin. They still can&apos;t see any challenge —
+            old, current, or future — until you explicitly include them in one&apos;s audience.
+          </Text>
+        ) : declined ? (
+          <Text style={styles.recipientResultText}>Declined. No Kinship was created.</Text>
+        ) : (
+          <View style={styles.recipientActions}>
+            <Pressable
+              accessibilityHint={`Accepts ${FREDRIK.displayName}'s invitation and becomes Kin`}
+              accessibilityRole="button"
+              onPress={() => { void playImportantHaptic(); acceptInvitationFrom(FREDRIK); }}
+              style={({ pressed }) => [styles.recipientAcceptButton, pressed && styles.recipientAcceptButtonPressed]}
+            >
+              <Text style={styles.recipientAcceptButtonText}>Accept — become Kin</Text>
+            </Pressable>
+            <Pressable
+              accessibilityHint={`Declines ${FREDRIK.displayName}'s invitation`}
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); setDeclined(true); }}
+              style={({ pressed }) => [styles.recipientDeclineButton, pressed && styles.recipientDeclineButtonPressed]}
+            >
+              <Text style={styles.recipientDeclineButtonText}>Decline</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -208,4 +282,36 @@ const styles = StyleSheet.create({
   bulletRow: { flexDirection: 'row', gap: 8 },
   bulletDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.copperBright, marginTop: 7 },
   bulletText: { flex: 1, color: theme.colors.boneMuted, fontSize: 12.5, lineHeight: 19 },
+  recipientSection: {
+    width: '100%', maxWidth: 480, alignSelf: 'center',
+    gap: 10, marginHorizontal: 22, marginTop: 26,
+    borderTopWidth: 1, borderColor: theme.colors.structureLine, paddingTop: 20,
+  },
+  recipientLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
+  recipientCaption: { color: theme.colors.warmGrey, fontSize: 11.5, lineHeight: 16 },
+  recipientCard: {
+    gap: 14, marginTop: 4,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,
+    backgroundColor: theme.colors.surfaceRaised, padding: 16,
+  },
+  recipientHeadline: { flex: 1, color: theme.colors.bone, fontSize: 14.5, fontWeight: '700', lineHeight: 20 },
+  recipientResultText: { color: theme.colors.boneMuted, fontSize: 13, lineHeight: 19 },
+  recipientActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  recipientAcceptButton: {
+    minHeight: 44, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: theme.colors.copperBright, borderRadius: theme.radius.precise,
+    backgroundColor: theme.colors.copperSurface, paddingHorizontal: 14,
+  },
+  recipientAcceptButtonPressed: { opacity: 0.85 },
+  recipientAcceptButtonText: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  recipientDeclineButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  recipientDeclineButtonPressed: { opacity: 0.7 },
+  recipientDeclineButtonText: { color: theme.colors.boneMuted, fontSize: 13, fontWeight: '700' },
+  unresolvedCard: {
+    width: '100%', maxWidth: 480, alignSelf: 'center',
+    gap: 6, marginHorizontal: 22, marginTop: 24,
+    borderTopWidth: 1, borderColor: theme.colors.structureLine, paddingTop: 16,
+  },
+  unresolvedLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  unresolvedBody: { color: theme.colors.warmGrey, fontSize: 12, lineHeight: 18 },
 });

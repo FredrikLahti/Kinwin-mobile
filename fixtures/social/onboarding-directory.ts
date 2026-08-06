@@ -43,6 +43,22 @@ export const NORA: KinProfile = {
 };
 
 /**
+ * The fixture inviter shown in Journey 4's "what an invited person sees"
+ * preview — a concrete example ("Fredrik invited you to become Kin") of the
+ * *other* side of the invitation flow, distinct from the current session's
+ * own identity (who is always the sender in the rest of Journey 4).
+ * Accepting the preview really adds Fredrik to My Kin, via the same
+ * `acceptInvitation` function a real recipient's acceptance would call.
+ */
+export const FREDRIK: KinProfile = {
+  id: 'onboarding-kin-fredrik' as KinId,
+  username: 'fredrik_l',
+  displayName: 'Fredrik',
+  initials: 'FL',
+  relationshipNote: 'Invited you to Kinwin',
+};
+
+/**
  * Usernames already taken by other Kinwin users, for the Journey 2 username
  * availability check (`lib/social/username.ts`). `sam_k` and `theo_b` are
  * intentionally excluded — they're this package's own fixture people, not

@@ -4,12 +4,13 @@ import {
   IncomingKinshipRequest,
   InvitationRecord,
   KinshipRequestId,
-  OnboardingChallengeAudience,
+  LockedChallengeAudience,
+  OnboardingChallengeAudienceIntent,
   OutgoingKinshipRequest,
   SocialIdentity,
 } from '@/domain/social/onboarding';
 import { KinId, KinProfile } from '@/domain/social/types';
-import { createInvitation } from '@/lib/social/invitation';
+import { acceptInvitation, createInvitation } from '@/lib/social/invitation';
 import {
   acceptIncomingRequest,
   declineIncomingRequest,
@@ -18,14 +19,20 @@ import {
   simulateOutgoingAccepted,
   withdrawOutgoingRequest,
 } from '@/lib/social/kinship-requests';
-import { chooseAllKin, chooseOnlyMe, chooseSelectedKin } from '@/lib/social/challenge-audience';
+import {
+  chooseAllKinIntent,
+  chooseOnlyMeIntent,
+  chooseSelectedKinIntent,
+  lockAudience,
+} from '@/lib/social/challenge-audience';
 
 /**
  * The single typed prototype state model for the social onboarding UX
  * package (docs/SOCIAL_ONBOARDING_UX.md) — social identity, Kin, incoming/
- * outgoing requests, invitation state, and the challenge-audience choice.
- * Everything here is `useState` inside the provider: session-only, and it
- * resets honestly on reload because the provider itself remounts fresh.
+ * outgoing requests, invitation state, and the challenge-audience intent
+ * plus its separate locked snapshot. Everything here is `useState` inside
+ * the provider: session-only, and it resets honestly on reload because the
+ * provider itself remounts fresh.
  */
 export type SocialOnboardingState = {
   readonly identity: SocialIdentity;
@@ -33,7 +40,9 @@ export type SocialOnboardingState = {
   readonly incoming: readonly IncomingKinshipRequest[];
   readonly outgoing: readonly OutgoingKinshipRequest[];
   readonly invitation: InvitationRecord | null;
-  readonly audience: OnboardingChallengeAudience;
+  readonly audienceIntent: OnboardingChallengeAudienceIntent;
+  /** `null` until the explicit "Lock audience for this challenge" action — see Fix 3 in docs/SOCIAL_ONBOARDING_UX.md. */
+  readonly lockedAudience: LockedChallengeAudience | null;
   readonly continuedSolo: boolean;
 };
 
@@ -43,7 +52,8 @@ const INITIAL_STATE: SocialOnboardingState = {
   incoming: [],
   outgoing: [],
   invitation: null,
-  audience: chooseOnlyMe(),
+  audienceIntent: chooseOnlyMeIntent(),
+  lockedAudience: null,
   continuedSolo: false,
 };
 
@@ -58,9 +68,11 @@ type SocialOnboardingContextValue = {
   readonly declineIncoming: (requestId: KinshipRequestId) => void;
   readonly removeKin: (kinId: KinId) => void;
   readonly sendInvitation: () => void;
+  readonly acceptInvitationFrom: (profile: KinProfile) => void;
   readonly chooseOnlyMeAudience: () => void;
   readonly chooseAllKinAudience: () => void;
   readonly chooseSelectedKinAudience: (kinIds: readonly KinId[]) => void;
+  readonly lockAudienceForChallenge: () => void;
   readonly markContinuedSolo: () => void;
   readonly resetToColdStart: () => void;
   /** Hub-only shortcuts for jumping straight to a screen's review state — never used by the real flow screens themselves. */
@@ -128,19 +140,30 @@ export function SocialOnboardingProvider({ children }: { children: ReactNode }) 
     }));
   }, []);
 
+  const acceptInvitationFrom = useCallback((profile: KinProfile) => {
+    setState((current) => ({ ...current, approvedKin: acceptInvitation(current.approvedKin, profile) }));
+  }, []);
+
+  // Editing the audience intent after a lock invalidates that lock — a
+  // stale locked snapshot must never silently keep describing an intent the
+  // owner has since changed. Re-locking is always an explicit, separate step.
   const chooseOnlyMeAudience = useCallback(() => {
-    setState((current) => ({ ...current, audience: chooseOnlyMe() }));
+    setState((current) => ({ ...current, audienceIntent: chooseOnlyMeIntent(), lockedAudience: null }));
   }, []);
 
   const chooseAllKinAudience = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      audience: chooseAllKin(current.approvedKin.map((kin) => kin.id)),
-    }));
+    setState((current) => ({ ...current, audienceIntent: chooseAllKinIntent(), lockedAudience: null }));
   }, []);
 
   const chooseSelectedKinAudience = useCallback((kinIds: readonly KinId[]) => {
-    setState((current) => ({ ...current, audience: chooseSelectedKin(kinIds) }));
+    setState((current) => ({ ...current, audienceIntent: chooseSelectedKinIntent(kinIds), lockedAudience: null }));
+  }, []);
+
+  const lockAudienceForChallenge = useCallback(() => {
+    setState((current) => ({
+      ...current,
+      lockedAudience: lockAudience(current.audienceIntent, current.approvedKin.map((kin) => kin.id)),
+    }));
   }, []);
 
   const markContinuedSolo = useCallback(() => {
@@ -173,9 +196,11 @@ export function SocialOnboardingProvider({ children }: { children: ReactNode }) 
       declineIncoming,
       removeKin,
       sendInvitation,
+      acceptInvitationFrom,
       chooseOnlyMeAudience,
       chooseAllKinAudience,
       chooseSelectedKinAudience,
+      lockAudienceForChallenge,
       markContinuedSolo,
       resetToColdStart,
       seedIdentityForReview,
@@ -192,9 +217,11 @@ export function SocialOnboardingProvider({ children }: { children: ReactNode }) 
       declineIncoming,
       removeKin,
       sendInvitation,
+      acceptInvitationFrom,
       chooseOnlyMeAudience,
       chooseAllKinAudience,
       chooseSelectedKinAudience,
+      lockAudienceForChallenge,
       markContinuedSolo,
       resetToColdStart,
       seedIdentityForReview,

@@ -42,20 +42,40 @@ export type InvitationRecord = {
 };
 
 /**
- * The audience choice for the Journey 7 challenge-audience transition demo.
+ * The audience model for the Journey 7 challenge-audience transition demo.
  * Kept deliberately separate from `fixtures/social/private-challenges.ts`'s
  * `ChallengeAudience` + `selectedKinIds` shape (which PR #13 already owns)
- * so this package never touches that architecture — `audienceKinIds` is
- * this prototype's own explicit snapshot of who currently has access.
+ * so this package never touches that architecture.
  *
- * `all_kin_snapshot` captures the approved-Kin id list at the moment "All my
- * Kin" is chosen. It is intentionally NOT re-derived from the live approved
- * list on every read — that is what encodes "people accepted later do not
- * automatically gain retroactive access to this challenge."
+ * Split into two distinct states on purpose, per founder review: choosing
+ * "All my Kin" (or picking people for "Selected Kin") is only an editable
+ * INTENT — it previews who would be included but grants nobody access yet.
+ * A separate, explicit "Lock audience for this challenge" action is what
+ * actually creates the frozen `LockedChallengeAudience` snapshot. Only a
+ * locked snapshot is ever checked for access — an unlocked intent behaves
+ * exactly like "Only me" for every access purpose, because nothing has
+ * actually been committed to share yet.
+ *
+ * Which real server event performs this lock — commitment creation vs.
+ * final challenge activation — is not decided; see
+ * docs/SOCIAL_ONBOARDING_UX.md's unresolved decisions.
  */
-export type OnboardingChallengeAudienceKind = 'only_me' | 'all_kin_snapshot' | 'selected_kin';
+export type OnboardingChallengeAudienceKind = 'only_me' | 'all_kin' | 'selected_kin';
 
-export type OnboardingChallengeAudience = {
+/** The editable, pre-lock choice. `selectedKinIds` is only meaningful for `kind: 'selected_kin'`. */
+export type OnboardingChallengeAudienceIntent = {
+  readonly kind: OnboardingChallengeAudienceKind;
+  readonly selectedKinIds: readonly KinId[];
+};
+
+/**
+ * The frozen snapshot created by the explicit lock action. For `all_kin`,
+ * `audienceKinIds` is the approved-Kin id list at the moment of locking —
+ * intentionally NOT re-derived from the live approved list afterward, which
+ * is what encodes "people accepted later do not automatically gain
+ * retroactive access to this challenge."
+ */
+export type LockedChallengeAudience = {
   readonly kind: OnboardingChallengeAudienceKind;
   readonly audienceKinIds: readonly KinId[];
 };

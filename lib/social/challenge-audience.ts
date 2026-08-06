@@ -1,35 +1,53 @@
-import { OnboardingChallengeAudience } from '@/domain/social/onboarding';
+import {
+  LockedChallengeAudience,
+  OnboardingChallengeAudienceIntent,
+} from '@/domain/social/onboarding';
 import { KinId } from '@/domain/social/types';
 
 /**
  * Pure audience transitions for the Journey 7 challenge-audience demo. See
- * `domain/social/onboarding.ts` for why `all_kin_snapshot` freezes the
- * approved-Kin id list at selection time instead of re-deriving it live —
- * that snapshot is what makes "newly accepted Kin receive no retroactive
- * access" true by construction rather than by a rule someone could forget.
+ * `domain/social/onboarding.ts` for why the editable intent and the locked
+ * snapshot are two separate types — only a locked snapshot is ever checked
+ * for access, which is what makes "choosing All my Kin only previews;
+ * locking is what commits" true by construction.
  */
 
-export function chooseOnlyMe(): OnboardingChallengeAudience {
-  return { kind: 'only_me', audienceKinIds: [] };
+export function chooseOnlyMeIntent(): OnboardingChallengeAudienceIntent {
+  return { kind: 'only_me', selectedKinIds: [] };
 }
 
-export function chooseAllKin(currentlyApprovedKinIds: readonly KinId[]): OnboardingChallengeAudience {
-  return { kind: 'all_kin_snapshot', audienceKinIds: [...currentlyApprovedKinIds] };
+export function chooseAllKinIntent(): OnboardingChallengeAudienceIntent {
+  return { kind: 'all_kin', selectedKinIds: [] };
 }
 
-export function chooseSelectedKin(selectedKinIds: readonly KinId[]): OnboardingChallengeAudience {
-  return { kind: 'selected_kin', audienceKinIds: [...selectedKinIds] };
+export function chooseSelectedKinIntent(selectedKinIds: readonly KinId[]): OnboardingChallengeAudienceIntent {
+  return { kind: 'selected_kin', selectedKinIds: [...selectedKinIds] };
 }
 
 /**
- * "Selected Kin" with zero people picked is not yet socially visible to
- * anyone — the challenge stays effectively private until at least one
- * person is chosen (Journey 7's explicit requirement).
+ * The one function that creates a `LockedChallengeAudience`. For `all_kin`,
+ * it freezes `currentlyApprovedKinIds` as they are at this exact call —
+ * never re-evaluated later, so a Kin approved after this call is provably
+ * excluded (see `lib/social/challenge-audience.test.ts`).
  */
-export function hasSocialVisibility(audience: OnboardingChallengeAudience): boolean {
-  return audience.kind !== 'only_me' && audience.audienceKinIds.length > 0;
+export function lockAudience(
+  intent: OnboardingChallengeAudienceIntent,
+  currentlyApprovedKinIds: readonly KinId[],
+): LockedChallengeAudience {
+  if (intent.kind === 'only_me') return { kind: 'only_me', audienceKinIds: [] };
+  if (intent.kind === 'all_kin') return { kind: 'all_kin', audienceKinIds: [...currentlyApprovedKinIds] };
+  return { kind: 'selected_kin', audienceKinIds: [...intent.selectedKinIds] };
 }
 
-export function kinHasAccess(audience: OnboardingChallengeAudience, kinId: KinId): boolean {
-  return audience.kind !== 'only_me' && audience.audienceKinIds.includes(kinId);
+/**
+ * An unlocked (`null`) audience behaves exactly like "Only me" for every
+ * access purpose — an editable intent alone never makes a challenge
+ * socially visible, no matter which option is currently selected.
+ */
+export function hasSocialVisibility(locked: LockedChallengeAudience | null): boolean {
+  return locked !== null && locked.kind !== 'only_me' && locked.audienceKinIds.length > 0;
+}
+
+export function kinHasAccess(locked: LockedChallengeAudience | null, kinId: KinId): boolean {
+  return locked !== null && locked.kind !== 'only_me' && locked.audienceKinIds.includes(kinId);
 }
