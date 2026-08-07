@@ -6,7 +6,7 @@ import { ChallengeId, IsoDateTime, UserId } from '../../domain/challenge/types';
 import { evaluateChallenge } from '../../domain/challenge/results';
 import { CHALLENGE_UX_SCENARIOS, findScenario } from '../../fixtures/challenge-ux-preview/scenarios';
 import { buildEvent, buildPeriod } from '../../fixtures/challenge-ux-preview/builders';
-import { buildActiveChallengeViewModel, describeFact, describePeriodTarget, isBinaryDailyTarget, isRoutineEndOfPeriodReport } from './view-model';
+import { buildActiveChallengeViewModel, describeFact, describeFinishedDay, describePeriodTarget, isBinaryDailyTarget, isRoutineEndOfPeriodReport } from './view-model';
 
 // Every one of the 21 named review states resolves to the specific,
 // domain-derived status it is supposed to demonstrate — this both documents
@@ -285,4 +285,61 @@ test('Cut back progress distinguishes closed periods within limit from the requi
   });
   assert.equal(closed.progress.progressSoFarLabel, '1 of 1 closed period stayed within the limit.');
   assert.equal(closed.progress.requirementLabel, 'Need 3 of 4 to pass.');
+});
+
+// --- Fix: a daily Build promise is not "due" before tracking ends — optional, never an owed task ---
+
+test('a daily Build promise still tracking is calm/optional, never framed as an owed daily task', () => {
+  const viewModel = buildActiveChallengeViewModel(findScenario('build-daily-due'));
+  assert.equal(viewModel.currentPeriodStatus.kind, 'check_in_due');
+  assert.equal(viewModel.currentPeriodCopy, "Check in when you've done it.");
+  assert.equal(viewModel.nextAction.detail, '');
+  assert.ok(!viewModel.currentPeriodCopy.toLowerCase().includes('due'));
+});
+
+// --- Fix: past-period daily Build wording is factually correct, never a hardcoded "yesterday" ---
+
+test('describeFinishedDay says "yesterday" only when the finished period genuinely was the day before now', () => {
+  const period = buildPeriod({
+    periodKind: 'day',
+    startsAt: '2026-03-01T00:00:00Z' as IsoDateTime,
+    endsAt: '2026-03-02T00:00:00Z' as IsoDateTime,
+    reportingClosesAt: '2026-03-02T10:00:00Z' as IsoDateTime,
+    target: { type: 'completion_target', target: 1 },
+  });
+  const yesterday = describeFinishedDay(period, '2026-03-02T04:00:00Z' as IsoDateTime);
+  assert.equal(yesterday.bare, 'yesterday');
+  assert.equal(yesterday.withOn, 'yesterday');
+
+  // 2026-03-01 is a Sunday — several days later, "yesterday" would be false.
+  const daysLater = describeFinishedDay(period, '2026-03-05T04:00:00Z' as IsoDateTime);
+  assert.equal(daysLater.bare, 'Sunday');
+  assert.equal(daysLater.withOn, 'on Sunday');
+});
+
+test('a genuinely-late daily Build check-in uses the correct finished-day wording, never a stale "Once today"', () => {
+  const viewModel = buildActiveChallengeViewModel(findScenario('build-late-reporting-open'));
+  const scenario = findScenario('build-late-reporting-open');
+  const finishedDay = describeFinishedDay(scenario.periods[0], scenario.now);
+  assert.ok(viewModel.nextAction.detail.startsWith(`${finishedDay.bare[0].toUpperCase()}${finishedDay.bare.slice(1)} is complete`));
+});
+
+// --- Fix: an uncorrected Stop lapse explains the zero-lapse consequence, without claiming a charge already happened ---
+
+test('an uncorrected Stop lapse explains the promise can no longer pass, without implying the consequence was already charged', () => {
+  const viewModel = buildActiveChallengeViewModel(findScenario('stop-lapse-recorded'));
+  assert.equal(viewModel.currentPeriodStatus.kind, 'stop_lapse_on_record');
+  const copy = viewModel.currentPeriodCopy.toLowerCase();
+  assert.ok(copy.includes('can no longer pass'));
+  assert.ok(copy.includes('corrected'));
+  assert.ok(!copy.includes('charged') && !copy.includes('processed'));
+});
+
+// --- Fix: the Stop final-attestation home no longer says "Tracking has ended" twice ---
+
+test('the Stop final-attestation state does not repeat "Tracking has ended" between currentPeriodCopy and nextAction.detail', () => {
+  const viewModel = buildActiveChallengeViewModel(findScenario('stop-final-attestation-due'));
+  assert.ok(viewModel.currentPeriodCopy.includes('Tracking has ended'));
+  assert.ok(!viewModel.nextAction.detail.includes('Tracking has ended'));
+  assert.ok(viewModel.nextAction.detail.startsWith('Final answer due by '));
 });

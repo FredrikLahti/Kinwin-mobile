@@ -117,6 +117,31 @@ function daysBetween(fromIso: IsoDateTime, toIso: IsoDateTime): number {
   return Math.max(0, Math.ceil(ms / MS_PER_DAY));
 }
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Names the finished calendar day a daily Build period covers, relative to
+ * `now` — never hardcoded to "yesterday", since that's only true when the
+ * period's day genuinely is the day before `now`'s day (a fixture further in
+ * the past, or a real user checking in a few days late, needs a weekday
+ * name instead). Hand-rolled rather than `toLocaleDateString` to match
+ * `formatClockTime`'s deterministic, Intl-free approach.
+ */
+function describeFinishedDay(period: ChallengePeriod, now: IsoDateTime): { bare: string; withOn: string } {
+  const periodDate = new Date(period.startsAt);
+  const nowDate = new Date(now);
+  const periodUtcDay = Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), periodDate.getUTCDate());
+  const nowUtcDay = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate());
+  const diffDays = Math.round((nowUtcDay - periodUtcDay) / MS_PER_DAY);
+  if (diffDays === 1) return { bare: 'yesterday', withOn: 'yesterday' };
+  const weekday = WEEKDAYS[periodDate.getUTCDay()];
+  return { bare: weekday, withOn: `on ${weekday}` };
+}
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+}
+
 function formatMoney(minorUnits: number, currency: string): string {
   try {
     return (minorUnits / 100).toLocaleString('en-US', { style: 'currency', currency });
@@ -249,6 +274,7 @@ function nextActionFor(
   direction: ActivatedChallengeSnapshot['successRule']['direction'],
   status: CurrentPeriodStatus,
   period: ChallengePeriod,
+  now: IsoDateTime,
 ): NextAction {
   const deadline = formatClockTime(period.reportingClosesAt);
   switch (status.kind) {
@@ -257,10 +283,13 @@ function nextActionFor(
     case 'calm':
       return { kind: 'none', label: '', detail: '' };
     case 'check_in_due':
+      // Optional, not owed yet — tracking is still running, so this is
+      // never framed as a task Kinwin requires right now. See
+      // docs/CHALLENGE_CHECKIN_UX.md's "Daily Build before tracking ends".
       return {
         kind: 'check_in',
         label: direction === 'cut_back' ? 'Log today' : 'Check in',
-        detail: 'A quick check-in keeps your promise on record.',
+        detail: '',
       };
     case 'reported':
       return { kind: 'none', label: '', detail: '' };
@@ -271,7 +300,7 @@ function nextActionFor(
         label: routine ? 'Report total' : 'Check in now',
         detail: routine
           ? `${period.periodKind === 'week' ? 'This week' : 'This period'} has ended. You can report your total until ${deadline}.`
-          : `Yesterday is complete. You can still check in until ${deadline}.`,
+          : `${capitalize(describeFinishedDay(period, now).bare)} is complete. You can still check in until ${deadline}.`,
       };
     }
     case 'late_reported':
@@ -288,7 +317,7 @@ function nextActionFor(
       return {
         kind: 'stop_final_attestation',
         label: 'Give final answer',
-        detail: `Tracking has ended. Confirm before ${deadline}.`,
+        detail: `Final answer due by ${deadline}.`,
       };
     case 'error':
       return { kind: 'none', label: '', detail: 'Something in this check-in history needs attention.' };
@@ -315,7 +344,7 @@ function currentPeriodCopy(
     switch (status.kind) {
       case 'upcoming': return 'Not started yet.';
       case 'calm': return `Nothing to report yet this ${periodWord}.`;
-      case 'check_in_due': return 'Not logged yet today.';
+      case 'check_in_due': return "Check in when you've done it.";
       case 'reported':
       case 'late_reported': {
         const completions = status.fact.kind === 'build_completion' ? status.fact.completions : 0;
@@ -355,7 +384,7 @@ function currentPeriodCopy(
   switch (status.kind) {
     case 'upcoming': return 'Not started yet.';
     case 'calm': return 'No check-in needed right now.';
-    case 'stop_lapse_on_record': return 'A lapse is on record.';
+    case 'stop_lapse_on_record': return "A lapse is on record. Under this challenge's rule, the promise can no longer pass unless this entry was recorded by accident and corrected.";
     case 'stop_final_attestation_due': return 'Tracking has ended. Confirm whether you kept the promise for the full challenge.';
     case 'missed': return 'No final answer was received before the deadline, so this counts as not kept.';
     case 'closed_satisfied': return 'You confirmed the promise was kept for the full challenge.';
@@ -462,7 +491,7 @@ export function buildActiveChallengeViewModel(input: ChallengeUxPreviewInput): A
     currentPeriodHeadline: currentPeriodHeadline(focusPeriod),
     currentPeriodStatus: status,
     currentPeriodCopy: currentPeriodCopy(direction, focusPeriod, status),
-    nextAction: nextActionFor(direction, status, focusPeriod),
+    nextAction: nextActionFor(direction, status, focusPeriod, now),
     consequenceSummary: buildConsequenceSummary(challenge),
     timeRemaining: buildTimeRemaining(challenge, now, finalResult !== null),
     progress: progressSummary(challenge, periods, periodStates),
@@ -509,4 +538,4 @@ export function describeFact(fact: CheckInFact): string {
   }
 }
 
-export { formatClockTime, daysBetween, isBinaryDailyTarget, isRoutineEndOfPeriodReport };
+export { formatClockTime, daysBetween, isBinaryDailyTarget, isRoutineEndOfPeriodReport, describeFinishedDay };

@@ -12,7 +12,7 @@ import { CheckInAppendPlan } from '@/domain/challenge/check-in/append-plan';
 import { CheckInFact } from '@/domain/challenge/check-in/types';
 import { CheckInId } from '@/domain/challenge/types';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { describeFact, describePeriodTarget } from '@/lib/challenge-ux-preview/view-model';
+import { describeFact, describeFinishedDay, describePeriodTarget } from '@/lib/challenge-ux-preview/view-model';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 /**
@@ -108,11 +108,12 @@ export default function ChallengeUxPreviewCheckIn() {
     // explicit yes/no for that specific finished day — this is a genuine
     // report, never a no-op, and "no" is a legitimate, real zero.
     if (binary && status.kind === 'late_check_in') {
+      const finishedDay = describeFinishedDay(period, scenario.now);
       return (
         <Shell>
           <Text style={styles.phaseLabel}>CHECK IN</Text>
-          <Text style={styles.contextLine}>{describePeriodTarget(period)}</Text>
-          <Text accessibilityRole="header" style={styles.headline}>Did you complete this for that day?</Text>
+          <Text style={styles.contextLine}>Once {finishedDay.withOn}</Text>
+          <Text accessibilityRole="header" style={styles.headline}>Did you do it {finishedDay.withOn}?</Text>
           <Text style={styles.promise}>{viewModel.promise}</Text>
           <AnimatedPrimaryButton accessibilityHint="Records that day's promise as complete" label="Yes" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 1 })} reducedMotion={reducedMotion} />
           <SecondaryButton label="No" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 0 })} />

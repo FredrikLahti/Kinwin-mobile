@@ -133,7 +133,7 @@ function copyForStatus(status: { kind: string }): string {
   switch (status.kind) {
     case 'upcoming': return 'Not started yet';
     case 'calm': return "You're up to date";
-    case 'check_in_due': return 'Check-in due';
+    case 'check_in_due': return 'Not recorded yet';
     case 'reported': return 'Recorded';
     case 'late_check_in': return 'Check-in still open';
     case 'late_reported': return 'Recorded late';
