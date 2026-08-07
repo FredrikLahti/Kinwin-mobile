@@ -31,20 +31,23 @@ export default function ChallengeUxPreviewCheckIn() {
   const period = scenario.periods.find((p) => p.id === viewModel.focusPeriodId)!;
   const status = viewModel.currentPeriodStatus;
 
-  const [plan, setPlan] = useState<CheckInAppendPlan | null>(null);
-  const [submittedFact, setSubmittedFact] = useState<CheckInFact | null>(null);
-  const [dismissedNotToday, setDismissedNotToday] = useState(false);
-  const [confirmLapse, setConfirmLapse] = useState(false);
-  const [buildCount, setBuildCount] = useState(0);
-  const [cutInput, setCutInput] = useState('');
-
-  const backToHome = () => router.replace('/challenge-ux-preview/home' as Href);
-
   const displayedFact: CheckInFact | null =
     status.kind === 'reported' || status.kind === 'late_reported' || status.kind === 'closed_satisfied' || status.kind === 'closed_not_satisfied'
       ? status.fact
       : null;
   const correctionTarget = viewModel.correction.available ? viewModel.correction.targets[0] : null;
+
+  const [plan, setPlan] = useState<CheckInAppendPlan | null>(null);
+  const [submittedFact, setSubmittedFact] = useState<CheckInFact | null>(null);
+  const [dismissedNotYet, setDismissedNotYet] = useState(false);
+  const [confirmLapse, setConfirmLapse] = useState(false);
+  // Prefilled from whatever is currently recorded when correcting, so a
+  // correction never silently resets a real value to zero before the user
+  // has touched anything (see the "small input affordance" fix).
+  const [buildCount, setBuildCount] = useState(() => (displayedFact?.kind === 'build_completion' ? displayedFact.completions : 0));
+  const [cutInput, setCutInput] = useState(() => (displayedFact?.kind === 'cut_back_total' ? String(displayedFact.total) : '0'));
+
+  const backToHome = () => router.replace('/challenge-ux-preview/home' as Href);
 
   const submitAndTrack = (fact: CheckInFact, correctionOfEventId?: CheckInId) => {
     void playImportantHaptic();
@@ -67,6 +70,7 @@ export default function ChallengeUxPreviewCheckIn() {
   // --- Build ---
   if (viewModel.direction === 'build' && period.target.type === 'completion_target') {
     const binary = period.target.target <= 1;
+    const periodWord = period.periodKind === 'week' ? 'week' : 'period';
 
     if (displayedFact && displayedFact.kind === 'build_completion') {
       if (!viewModel.correction.available) {
@@ -84,21 +88,39 @@ export default function ChallengeUxPreviewCheckIn() {
         <Shell>
           <Text style={styles.phaseLabel}>CHANGE THIS CHECK-IN</Text>
           <Text accessibilityRole="header" style={styles.headline}>Currently recorded: {describeFact(displayedFact)}.</Text>
-          <Text style={styles.supporting}>This changes which answer counts for {period.periodKind === 'week' ? 'this week' : 'today'}. The original check-in remains in history.</Text>
+          <Text style={styles.supporting}>This changes which answer counts for {periodWord === 'week' ? 'this week' : 'today'}. The original check-in remains in history.</Text>
           {binary ? (
             <>
               <AnimatedPrimaryButton accessibilityHint="Corrects this check-in to done" label="Mark as done" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 1 }, correctionTarget!.eventId)} reducedMotion={reducedMotion} />
               <SecondaryButton label="Mark as not done" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 0 }, correctionTarget!.eventId)} />
             </>
           ) : (
-            <Stepper label={`Corrected total (target ${period.target.target})`} onChange={setBuildCount} value={buildCount} />
+            <>
+              <Stepper label={`Corrected total (target ${period.target.target})`} onChange={setBuildCount} value={buildCount} />
+              <AnimatedPrimaryButton accessibilityHint="Saves the corrected total" label="Save correction" onPress={() => submitAndTrack({ kind: 'build_completion', completions: buildCount }, correctionTarget!.eventId)} reducedMotion={reducedMotion} />
+            </>
           )}
-          {!binary && <AnimatedPrimaryButton accessibilityHint="Saves the corrected total" label="Save correction" onPress={() => submitAndTrack({ kind: 'build_completion', completions: buildCount }, correctionTarget!.eventId)} reducedMotion={reducedMotion} />}
         </Shell>
       );
     }
 
-    if (dismissedNotToday) {
+    // A simple binary daily promise, finished but not yet reported: ask an
+    // explicit yes/no for that specific finished day — this is a genuine
+    // report, never a no-op, and "no" is a legitimate, real zero.
+    if (binary && status.kind === 'late_check_in') {
+      return (
+        <Shell>
+          <Text style={styles.phaseLabel}>CHECK IN</Text>
+          <Text style={styles.contextLine}>{describePeriodTarget(period)}</Text>
+          <Text accessibilityRole="header" style={styles.headline}>Did you complete this for that day?</Text>
+          <Text style={styles.promise}>{viewModel.promise}</Text>
+          <AnimatedPrimaryButton accessibilityHint="Records that day's promise as complete" label="Yes" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 1 })} reducedMotion={reducedMotion} />
+          <SecondaryButton label="No" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 0 })} />
+        </Shell>
+      );
+    }
+
+    if (dismissedNotYet) {
       return (
         <Shell>
           <Text style={styles.phaseLabel}>CHECK IN</Text>
@@ -113,16 +135,16 @@ export default function ChallengeUxPreviewCheckIn() {
       <Shell>
         <Text style={styles.phaseLabel}>CHECK IN</Text>
         <Text style={styles.contextLine}>{describePeriodTarget(period)}</Text>
-        <Text accessibilityRole="header" style={styles.headline}>{binary ? 'Did you do it?' : 'How many so far?'}</Text>
+        <Text accessibilityRole="header" style={styles.headline}>{binary ? 'Did you do it?' : `How many times this ${periodWord}?`}</Text>
         <Text style={styles.promise}>{viewModel.promise}</Text>
         {binary ? (
           <>
             <AnimatedPrimaryButton accessibilityHint="Records today's promise as done" label="Done" onPress={() => submitAndTrack({ kind: 'build_completion', completions: 1 })} reducedMotion={reducedMotion} />
-            <SecondaryButton label="Not today" onPress={() => { void playSelectionHaptic(); setDismissedNotToday(true); }} />
+            <SecondaryButton label="Not yet" onPress={() => { void playSelectionHaptic(); setDismissedNotYet(true); }} />
           </>
         ) : (
           <>
-            <Stepper label="Total completed this period" onChange={setBuildCount} value={buildCount} />
+            <Stepper label={`Total completed this ${periodWord}`} onChange={setBuildCount} value={buildCount} />
             <AnimatedPrimaryButton accessibilityHint="Reports this total for the period" label="Save total" onPress={() => submitAndTrack({ kind: 'build_completion', completions: buildCount })} reducedMotion={reducedMotion} />
           </>
         )}
@@ -134,6 +156,7 @@ export default function ChallengeUxPreviewCheckIn() {
   if (viewModel.direction === 'cut_back' && period.target.type === 'maximum_value') {
     const unit = period.target.measurement.unit;
     const maximum = period.target.maximum;
+    const periodWord = period.periodKind === 'week' ? 'week' : 'period';
     const parsed = Number(cutInput.replace(',', '.'));
     const validInput = cutInput.trim() !== '' && Number.isFinite(parsed) && parsed >= 0;
 
@@ -164,7 +187,7 @@ export default function ChallengeUxPreviewCheckIn() {
       <Shell>
         <Text style={styles.phaseLabel}>CHECK IN</Text>
         <Text style={styles.contextLine}>{describePeriodTarget(period)}</Text>
-        <Text accessibilityRole="header" style={styles.headline}>How many {unit} so far?</Text>
+        <Text accessibilityRole="header" style={styles.headline}>How many {unit} this {periodWord}?</Text>
         <Text style={styles.promise}>{viewModel.promise}</Text>
         <NumberInput onChangeText={setCutInput} unit={unit} value={cutInput} />
         <AnimatedPrimaryButton accessibilityHint="Reports this total for the period" disabled={!validInput} label="Record total" onPress={() => submitAndTrack({ kind: 'cut_back_total', total: parsed, unit })} reducedMotion={reducedMotion} />
@@ -199,7 +222,7 @@ export default function ChallengeUxPreviewCheckIn() {
     }
 
     if (status.kind === 'stop_lapse_on_record') {
-      if (!viewModel.correction.available) {
+      if (viewModel.stopLapseCorrectionTarget === null) {
         return (
           <Shell>
             <Text style={styles.phaseLabel}>CHECK IN</Text>
@@ -209,12 +232,13 @@ export default function ChallengeUxPreviewCheckIn() {
           </Shell>
         );
       }
+      const lapseTarget = viewModel.stopLapseCorrectionTarget;
       return (
         <Shell>
-          <Text style={styles.phaseLabel}>CHECK IN</Text>
+          <Text style={styles.phaseLabel}>CORRECT AN EARLIER ENTRY</Text>
           <Text accessibilityRole="header" style={styles.headline}>A lapse is on record.</Text>
           <Text style={styles.supporting}>If this was reported by accident, you can correct it while the reporting window is open. The original entry remains in history.</Text>
-          <AnimatedPrimaryButton accessibilityHint="Corrects this lapse to still going, by accident" label="This was reported by accident" onPress={() => submitAndTrack({ kind: 'stop_intact' }, correctionTarget!.eventId)} reducedMotion={reducedMotion} />
+          <AnimatedPrimaryButton accessibilityHint="Corrects this lapse to still going, by accident" label="This was reported by accident" onPress={() => submitAndTrack({ kind: 'stop_intact' }, lapseTarget.eventId)} reducedMotion={reducedMotion} />
           <SecondaryButton label="Leave it as recorded" onPress={backToHome} />
         </Shell>
       );
@@ -223,7 +247,7 @@ export default function ChallengeUxPreviewCheckIn() {
     if (confirmLapse) {
       return (
         <Shell>
-          <Text style={styles.phaseLabel}>CHECK IN</Text>
+          <Text style={styles.phaseLabel}>REPORT A LAPSE</Text>
           <Text accessibilityRole="header" style={styles.headline}>Record a lapse?</Text>
           <Text style={styles.supporting}>This would affect the challenge result under the current success rule.</Text>
           <AnimatedPrimaryButton accessibilityHint="Confirms and records one lapse" label="Record lapse" onPress={() => submitAndTrack({ kind: 'stop_lapse' })} reducedMotion={reducedMotion} />
@@ -232,14 +256,18 @@ export default function ChallengeUxPreviewCheckIn() {
       );
     }
 
+    // The normal V1 Stop lifecycle leads with reporting a lapse — it does
+    // not require or promote a routine "Still going" attestation. The
+    // domain still accepts an ordinary `stop_intact` (kept here as a
+    // low-emphasis secondary), but this UX does not encourage it.
     return (
       <Shell>
-        <Text style={styles.phaseLabel}>CHECK IN</Text>
-        <Text accessibilityRole="header" style={styles.headline}>Are you still keeping it?</Text>
+        <Text style={styles.phaseLabel}>REPORT A LAPSE</Text>
+        <Text accessibilityRole="header" style={styles.headline}>Did something happen?</Text>
         <Text style={styles.promise}>{viewModel.promise}</Text>
-        <Text style={styles.supporting}>Be honest. This check-in is for you. There&rsquo;s no need to do this every day — only when something changes.</Text>
-        <AnimatedPrimaryButton accessibilityHint="Records the promise as still intact" label="Still going" onPress={() => submitAndTrack({ kind: 'stop_intact' })} reducedMotion={reducedMotion} />
-        <SecondaryButton label="I slipped" onPress={() => { void playSelectionHaptic(); setConfirmLapse(true); }} />
+        <Text style={styles.supporting}>If you slipped, record it here. This check-in is for you.</Text>
+        <AnimatedPrimaryButton accessibilityHint="Starts recording a lapse" label="Yes, report a lapse" onPress={() => { void playSelectionHaptic(); setConfirmLapse(true); }} reducedMotion={reducedMotion} />
+        <SecondaryButton label="No, still going" onPress={() => submitAndTrack({ kind: 'stop_intact' })} />
       </Shell>
     );
   }
@@ -300,7 +328,7 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
 function NumberInput({ value, onChangeText, unit }: { value: string; onChangeText: (value: string) => void; unit: string }) {
   return (
     <View style={styles.inputRow}>
-      <TextInput accessibilityLabel={`Current total in ${unit}`} inputMode="decimal" keyboardType="decimal-pad" onChangeText={onChangeText} placeholder="0" placeholderTextColor={theme.colors.warmGrey} style={styles.input} value={value} />
+      <TextInput accessibilityLabel={`Current total in ${unit}`} inputMode="decimal" keyboardType="decimal-pad" onChangeText={onChangeText} placeholderTextColor={theme.colors.warmGrey} style={styles.input} value={value} />
       <Text style={styles.inputUnit}>{unit}</Text>
     </View>
   );

@@ -55,33 +55,53 @@ export default function ChallengeUxPreviewHome() {
         <Section label={viewModel.currentPeriodHeadline.toUpperCase()}>
           <Text style={styles.sectionTitle}>{copyForStatus(viewModel.currentPeriodStatus)}</Text>
           <Text style={styles.body}>{viewModel.currentPeriodCopy}</Text>
-          {ACTIONABLE_NEXT_ACTIONS.has(viewModel.nextAction.kind) ? (
+          {viewModel.nextAction.detail !== '' && <Text style={styles.detail}>{viewModel.nextAction.detail}</Text>}
+          {ACTIONABLE_NEXT_ACTIONS.has(viewModel.nextAction.kind) && (
             <AnimatedPrimaryButton
               accessibilityHint="Opens the check-in for this period"
               label={viewModel.nextAction.label}
               onPress={goToCheckIn}
               reducedMotion={reducedMotion}
             />
-          ) : (
-            <Text style={styles.detail}>{viewModel.nextAction.detail}</Text>
+          )}
+          {viewModel.direction === 'stop' && viewModel.currentPeriodStatus.kind === 'calm' && (
+            <Pressable
+              accessibilityHint="Opens a low-emphasis way to record a lapse if one happened"
+              accessibilityRole="button"
+              onPress={goToCheckIn}
+              style={styles.textButton}
+            >
+              <Text style={styles.textButtonText}>Report a lapse</Text>
+            </Pressable>
           )}
         </Section>
 
-        {viewModel.correction.available && (
-          <Pressable
-            accessibilityHint="Opens a low-emphasis way to change what you already reported"
-            accessibilityRole="button"
-            onPress={goToCheckIn}
-            style={styles.textButton}
-          >
-            <Text style={styles.textButtonText}>Change this check-in</Text>
-          </Pressable>
-        )}
+        {viewModel.direction === 'stop'
+          ? viewModel.stopLapseCorrectionTarget !== null && (
+            <Pressable
+              accessibilityHint="Opens a low-emphasis way to correct an earlier lapse reported by accident"
+              accessibilityRole="button"
+              onPress={goToCheckIn}
+              style={styles.textButton}
+            >
+              <Text style={styles.textButtonText}>Correct an earlier entry</Text>
+            </Pressable>
+          )
+          : viewModel.correction.available && (
+            <Pressable
+              accessibilityHint="Opens a low-emphasis way to change what you already reported"
+              accessibilityRole="button"
+              onPress={goToCheckIn}
+              style={styles.textButton}
+            >
+              <Text style={styles.textButtonText}>Change this check-in</Text>
+            </Pressable>
+          )}
 
         <Section label="PROGRESS">
-          <Text style={styles.body}>{progressLine(viewModel.progress)}</Text>
+          {viewModel.progress.progressSoFarLabel && <Text style={styles.body}>{viewModel.progress.progressSoFarLabel}</Text>}
           {viewModel.progress.streakLabel && <Text style={styles.streak}>{viewModel.progress.streakLabel}</Text>}
-          <Text style={styles.aggregate}>{viewModel.progress.aggregateLabel}</Text>
+          <Text style={styles.aggregate}>{viewModel.progress.requirementLabel}</Text>
         </Section>
 
         <Section label="TIME REMAINING">
@@ -107,14 +127,6 @@ export default function ChallengeUxPreviewHome() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function progressLine(progress: { periodsMet: number; periodsClosed: number; periodsTotal: number }): string {
-  if (progress.periodsClosed === 0) {
-    return progress.periodsTotal > 1 ? `No periods have closed yet (${progress.periodsTotal} total).` : 'This period hasn’t closed yet.';
-  }
-  const remaining = progress.periodsClosed < progress.periodsTotal ? ` (${progress.periodsTotal} total)` : '';
-  return `${progress.periodsMet} of ${progress.periodsClosed} completed periods met so far${remaining}.`;
 }
 
 function copyForStatus(status: { kind: string }): string {

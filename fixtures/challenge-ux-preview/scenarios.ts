@@ -105,10 +105,13 @@ const buildDailyReportedDone: ChallengeUxScenario = (() => {
 })();
 
 const buildWeeklyReportTotal: ChallengeUxScenario = (() => {
+  // Tracking has ended and reporting is open — a weekly count is only ever
+  // solicited once, at period end, never as an evolving "so far" mid-week
+  // total. See docs/CHALLENGE_CHECKIN_UX.md's "Reporting timing model".
   const period = weeklyBuildPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
   return {
     id: 'build-weekly-report-total', menuLabel: 'Build weekly count — report total', menuGroup: 'Build', landing: 'check-in',
-    challenge: weeklyBuildChallenge(), periods: [period], events: [], now: iso('2026-08-06T12:00:00Z'),
+    challenge: weeklyBuildChallenge(), periods: [period], events: [], now: iso('2026-08-10T06:00:00Z'),
   };
 })();
 
@@ -170,11 +173,22 @@ function cutBackPeriod(startsAt: IsoDateTime, endsAt: IsoDateTime, reportingClos
   return buildPeriod({ periodKind: 'week', startsAt, endsAt, reportingClosesAt, target: { type: 'maximum_value', maximum: 3, measurement: { type: 'count', unit: 'meals' } } });
 }
 
+const cutBackActiveNothingDue: ChallengeUxScenario = (() => {
+  const period = cutBackPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
+  return {
+    id: 'cut-back-active-nothing-due', menuLabel: 'Cut back — active, nothing due yet', menuGroup: 'Cut back', landing: 'home',
+    challenge: cutBackChallenge(), periods: [period], events: [], now: iso('2026-08-06T12:00:00Z'),
+  };
+})();
+
 const cutBackReportTotal: ChallengeUxScenario = (() => {
+  // Tracking has ended and reporting is open — see the note on
+  // build-weekly-report-total above; the same locked rule applies to Cut
+  // back regardless of cadence.
   const period = cutBackPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
   return {
     id: 'cut-back-report-total', menuLabel: 'Cut back — report total', menuGroup: 'Cut back', landing: 'check-in',
-    challenge: cutBackChallenge(), periods: [period], events: [], now: iso('2026-08-06T12:00:00Z'),
+    challenge: cutBackChallenge(), periods: [period], events: [], now: iso('2026-08-10T06:00:00Z'),
   };
 })();
 
@@ -182,11 +196,11 @@ const cutBackWithinLimit: ChallengeUxScenario = (() => {
   const period = cutBackPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
   const event = buildEvent({
     periodId: period.id, eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total: 2, unit: 'meals' },
-    clientRecordedAt: iso('2026-08-06T12:30:00Z'),
+    clientRecordedAt: iso('2026-08-10T06:00:00Z'),
   });
   return {
     id: 'cut-back-within-limit', menuLabel: 'Cut back — within limit', menuGroup: 'Cut back', landing: 'home',
-    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-06T13:00:00Z'),
+    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-10T06:30:00Z'),
   };
 })();
 
@@ -194,11 +208,11 @@ const cutBackOverLimit: ChallengeUxScenario = (() => {
   const period = cutBackPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
   const event = buildEvent({
     periodId: period.id, eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total: 5, unit: 'meals' },
-    clientRecordedAt: iso('2026-08-06T12:30:00Z'),
+    clientRecordedAt: iso('2026-08-10T06:00:00Z'),
   });
   return {
     id: 'cut-back-over-limit', menuLabel: 'Cut back — over limit', menuGroup: 'Cut back', landing: 'home',
-    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-06T13:00:00Z'),
+    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-10T06:30:00Z'),
   };
 })();
 
@@ -206,11 +220,11 @@ const cutBackCorrection: ChallengeUxScenario = (() => {
   const period = cutBackPeriod(iso('2026-08-03T00:00:00Z'), iso('2026-08-10T00:00:00Z'), iso('2026-08-11T12:00:00Z'));
   const event = buildEvent({
     periodId: period.id, eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total: 2, unit: 'meals' },
-    clientRecordedAt: iso('2026-08-06T12:30:00Z'),
+    clientRecordedAt: iso('2026-08-10T06:00:00Z'),
   });
   return {
     id: 'cut-back-correction', menuLabel: 'Cut back — correction', menuGroup: 'Cut back', landing: 'check-in',
-    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-06T13:00:00Z'),
+    challenge: cutBackChallenge(), periods: [period], events: [event], now: iso('2026-08-10T06:30:00Z'),
   };
 })();
 
@@ -360,6 +374,7 @@ export const CHALLENGE_UX_SCENARIOS: readonly ChallengeUxScenario[] = [
   buildMissedDeadline,
   buildCorrectionAvailable,
   buildCorrectionClosed,
+  cutBackActiveNothingDue,
   cutBackReportTotal,
   cutBackWithinLimit,
   cutBackOverLimit,
