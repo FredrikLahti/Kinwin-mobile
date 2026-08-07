@@ -51,7 +51,30 @@ export default function HomeScreen() {
               label="Start"
               onPress={() => router.push('/onboarding/goal' as Href)}
             />
-            <Text style={styles.feedback}> </Text>
+            <Pressable
+              accessibilityHint="Opens the internal Kin social prototype, using local preview data only"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/social-preview' as Href)}
+            >
+              <Text style={styles.socialPreviewLink}>Kin social preview (internal prototype)</Text>
+            </Pressable>
+            <Pressable
+              accessibilityHint="Opens the internal social onboarding UX prototype, using local preview data only"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/social-onboarding-preview' as Href)}
+            >
+              <Text style={styles.socialPreviewLink}>Social onboarding UX preview (internal prototype)</Text>
+            </Pressable>
+            <Pressable
+              accessibilityHint="Opens the internal active-challenge check-in UX prototype, using local fixture data only"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/challenge-ux-preview' as Href)}
+            >
+              <Text style={styles.socialPreviewLink}>Challenge check-in UX preview (internal prototype)</Text>
+            </Pressable>
           </View>
         </View>
       </ScrollView>
@@ -126,11 +149,12 @@ const styles = StyleSheet.create({
   action: {
     gap: 8,
   },
-  feedback: {
+  socialPreviewLink: {
     minHeight: 20,
     color: '#62625D',
     fontSize: 13,
     lineHeight: 20,
     textAlign: 'center',
+    textDecorationLine: 'underline',
   },
 });
