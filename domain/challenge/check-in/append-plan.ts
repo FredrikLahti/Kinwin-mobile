@@ -39,19 +39,35 @@ export type CheckInAppendPlan =
 
 /**
  * The idempotency + reporting-window contract, as a pure function over
- * already-known state — no IO. Same `operationId` + same declared fact is
- * always safely repeatable (`idempotent_replay`), even after the reporting
- * deadline — a resubmitted retry of something already accepted must not
- * start failing just because time has passed. Same `operationId` with a
- * different fact is rejected outright rather than silently producing a
- * different result.
+ * already-known state — no IO. `check_in_events.idempotency_key` is unique
+ * per *challenge*, not per period, so the idempotency check below is
+ * intentionally challenge-scoped and separate from `existingEventsForPeriod`
+ * (which stays period-local — it is only ever used for reduction/correction
+ * semantics, never for finding a reused operation id).
+ *
+ * The caller is expected to resolve `(challenge_id, idempotency_key)`
+ * challenge-wide FIRST — a single lookup against the whole challenge, not a
+ * per-period one — and pass whatever it finds (or `null`) as
+ * `existingEventForOperationId`; period history is loaded separately, only
+ * for the period the request actually targets. A future trusted write
+ * endpoint should follow the same two-step shape: resolve the operation id
+ * challenge-wide before touching period history at all.
+ *
+ * "Same logical operation" (→ `idempotent_replay`) requires the existing
+ * event to match the request on every part of its persisted semantic
+ * identity: period, event type (or `correction`), the declared fact, and —
+ * for a correction — its target. Any mismatch on a reused operation id —
+ * including the operation id having been used for a *different period* of
+ * the same challenge — is a real collision, not a legitimate retry, and is
+ * rejected outright (`operation_id_conflict`) rather than silently
+ * producing a different result. This must never be treated as a corner
+ * case a database unique-constraint exception happens to catch later; it is
+ * this pure contract's normal, expected behavior.
  *
  * `period.reportingClosesAt` (not `period.endsAt` — see periods.ts) is the
- * single deadline for BOTH a genuinely new first report and a correction:
- * previously only corrections were deadline-checked, which meant a first
- * declaration could arrive arbitrarily late while an immediate correction
- * of it could not — an inconsistency this fixes by gating both the same
- * way.
+ * single deadline for BOTH a genuinely new first report and a correction —
+ * see the module-level note in docs/CHECK_IN_ENGINE.md's "Reporting window"
+ * section.
  *
  * Stop (`period.target.type === 'maximum_lapses'`) is the one direction
  * where a second, ordinary (non-correction) declaration for the same
@@ -63,12 +79,12 @@ export type CheckInAppendPlan =
 export function planCheckInAppend(
   request: CheckInAppendRequest,
   existingEventsForPeriod: readonly CheckInEvent[],
+  existingEventForOperationId: CheckInEvent | null,
   context: { readonly now: IsoDateTime; readonly period: ChallengePeriod },
 ): CheckInAppendPlan {
-  const sameOperation = existingEventsForPeriod.find((event) => event.operationId === request.operationId);
-  if (sameOperation) {
-    return requestMatchesEvent(request, sameOperation)
-      ? { kind: 'idempotent_replay', existingEventId: sameOperation.id }
+  if (existingEventForOperationId) {
+    return requestMatchesEvent(request, existingEventForOperationId)
+      ? { kind: 'idempotent_replay', existingEventId: existingEventForOperationId.id }
       : { kind: 'rejected', reason: 'operation_id_conflict' };
   }
 
@@ -109,9 +125,11 @@ export function planCheckInAppend(
 }
 
 function requestMatchesEvent(request: CheckInAppendRequest, event: CheckInEvent): boolean {
+  const sameChallenge = event.challengeId === request.challengeId;
+  const samePeriod = event.periodId === request.periodId;
   const sameEventType = event.eventType === (request.isCorrection ? 'correction' : request.fact.kind);
   const sameCorrectionTarget = event.eventType === 'correction'
     ? request.isCorrection && event.correctionOfEventId === request.correctionOfEventId
     : !request.isCorrection;
-  return sameEventType && sameCorrectionTarget && factsEqual(event.fact, request.fact);
+  return sameChallenge && samePeriod && sameEventType && sameCorrectionTarget && factsEqual(event.fact, request.fact);
 }

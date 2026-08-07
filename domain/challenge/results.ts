@@ -106,8 +106,12 @@ function evaluateBuild(
   // one over-completed period "bank" credit toward another would silently
   // change what the aggregate threshold means. A documented modeling
   // decision, not a mechanical necessity — see docs/CHECK_IN_ENGINE.md.
-  // A closed_without_input period contributes 0 — a known fact for build,
-  // not a policy call (see NO_RESPONSE_SUCCEEDS's doc comment).
+  // A closed_without_input period contributes no completion credit here —
+  // no input was received for it (the audit truth); the locked no-response
+  // policy is what says that contributes nothing toward the aggregate,
+  // same as it says the period counts as not satisfied (see
+  // NO_RESPONSE_SUCCEEDS's doc comment) — this is not a claim that zero
+  // completions are known to have occurred.
   let total = 0;
   for (const { period, state } of evaluated) {
     if (state.kind === 'closed_without_input') continue;

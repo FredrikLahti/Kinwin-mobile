@@ -155,6 +155,37 @@ test('stop: an accidental lapse corrected to intact, plus a later final intact a
   assert.deepEqual(result, { ok: true, state: { kind: 'satisfied', fact: { kind: 'stop_intact' } } });
 });
 
+// --- A correction must not masquerade as the final intact attestation ---
+// The correction's own (necessarily later) timestamp must never be mistaken
+// for an ordinary root stop_intact declaration's timestamp — only the root
+// declaration's own trusted time counts toward the final-attestation window.
+
+test('stop: an early lapse corrected to intact AFTER tracking ends, with no separate final attestation, is still closed_without_input — the correction is not itself a final attestation', () => {
+  const period = stopPeriod();
+  const earlyLapse = event({ eventType: 'stop_lapse', fact: { kind: 'stop_lapse' }, clientRecordedAt: '2026-03-01T06:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-01T06:00:00Z' as IsoDateTime }, period.id);
+  // The correction itself lands inside [endsAt, reportingClosesAt) — exactly the window a bug could mistake for a final attestation.
+  const correctionAfterTrackingEnds = event({ eventType: 'correction', fact: { kind: 'stop_intact' }, correctionOfEventId: earlyLapse.id, clientRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime }, period.id);
+  const result = derivePeriodState(period, [earlyLapse, correctionAfterTrackingEnds], period.reportingClosesAt);
+  assert.deepEqual(result, { ok: true, state: { kind: 'closed_without_input' } });
+});
+
+test('stop: an early lapse corrected to intact, plus a SEPARATE ordinary final intact declaration, is success', () => {
+  const period = stopPeriod();
+  const earlyLapse = event({ eventType: 'stop_lapse', fact: { kind: 'stop_lapse' }, clientRecordedAt: '2026-03-01T06:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-01T06:00:00Z' as IsoDateTime }, period.id);
+  const correctionAfterTrackingEnds = event({ eventType: 'correction', fact: { kind: 'stop_intact' }, correctionOfEventId: earlyLapse.id, clientRecordedAt: '2026-03-02T01:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T01:00:00Z' as IsoDateTime }, period.id);
+  const separateFinalAttestation = event({ eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime }, period.id);
+  const result = derivePeriodState(period, [earlyLapse, correctionAfterTrackingEnds, separateFinalAttestation], period.reportingClosesAt);
+  assert.deepEqual(result, { ok: true, state: { kind: 'satisfied', fact: { kind: 'stop_intact' } } });
+});
+
+test('stop: an ordinary final intact declaration later corrected to a lapse no longer qualifies — failure', () => {
+  const period = stopPeriod();
+  const finalIntact = event({ eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T02:00:00Z' as IsoDateTime }, period.id);
+  const correctionToLapse = event({ eventType: 'correction', fact: { kind: 'stop_lapse' }, correctionOfEventId: finalIntact.id, clientRecordedAt: '2026-03-02T03:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T03:00:00Z' as IsoDateTime }, period.id);
+  const result = derivePeriodState(period, [finalIntact, correctionToLapse], period.reportingClosesAt);
+  assert.deepEqual(result, { ok: true, state: { kind: 'not_satisfied', fact: { kind: 'stop_lapse' } } });
+});
+
 test('stop: repeated ordinary intact attestations are valid history, not a malformed chain', () => {
   const period = stopPeriod();
   const first = event({ eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-03-01T02:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-01T02:00:00Z' as IsoDateTime }, period.id);

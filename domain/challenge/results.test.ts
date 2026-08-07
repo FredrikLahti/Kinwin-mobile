@@ -146,7 +146,7 @@ test('build: aggregate threshold plus continuity together decide a daily challen
   const p3 = period({ startsAt: '2026-03-03T00:00:00Z' as IsoDateTime, endsAt: '2026-03-04T00:00:00Z' as IsoDateTime, periodNumber: 3 });
   const events = [
     event(p1.id, { eventType: 'build_completion', fact: { kind: 'build_completion', completions: 1 } }),
-    // p2: no check-in at all — a known, determinable 0 for build, not ambiguous.
+    // p2: no check-in at all — no input was received; the locked no-response policy contributes nothing toward the aggregate for it.
     event(p3.id, { eventType: 'build_completion', fact: { kind: 'build_completion', completions: 1 } }),
   ];
   const result = evaluateChallenge({ challenge: baseChallenge(rule), periods: [p1, p2, p3], events, evaluatedAt: NOW });

@@ -130,22 +130,50 @@ currently effective for its own lineage. A correction with no prior entry
 period that already has an effective fact, both fail the reduction safely (`ok: false`) rather than
 guessing — this is the domain-level enforcement of "a correction must be explicit."
 
-## Idempotency semantics
+## Idempotency semantics — challenge-scoped, not period-scoped
 
 `ClientOperationId` (`CheckInAppendRequest.operationId`, maps to SQL's `idempotency_key`) is a
 client-minted identifier for one logical operation, resubmitted verbatim on retry.
-`planCheckInAppend` (`domain/challenge/check-in/append-plan.ts`) is the pure contract a trusted
-write endpoint should follow:
+`check_in_events.idempotency_key` is unique **per challenge**, not per period — so
+`planCheckInAppend` (`domain/challenge/check-in/append-plan.ts`) takes the operation-id lookup as
+its own, separate, challenge-scoped input, distinct from period-local history:
 
-- **Same operation ID + same payload** → `idempotent_replay`, referencing the existing event. Safe
-  to call repeatedly — including after the reporting deadline — and never creates a second row.
-- **Same operation ID + a different/conflicting payload** → `rejected` with reason
-  `operation_id_conflict`. Never silently produces a different result for a reused ID.
-- **New operation ID, first declaration for the period, within the reporting window** → `insert`.
-- **New operation ID, flagged correction, valid target, within the reporting window** → `insert`
-  with `eventType: 'correction'`.
-- **New operation ID, either case, after `reportingClosesAt`** → `rejected` with reason
-  `reporting_deadline_passed`.
+```ts
+planCheckInAppend(
+  request: CheckInAppendRequest,
+  existingEventsForPeriod: readonly CheckInEvent[],   // period-local — reduction/correction semantics only
+  existingEventForOperationId: CheckInEvent | null,   // challenge-scoped — the idempotency check only
+  context: { now: IsoDateTime; period: ChallengePeriod },
+): CheckInAppendPlan
+```
+
+**The bug this fixes.** An earlier revision searched for a reused operation id only inside
+`existingEventsForPeriod`. Since the SQL uniqueness constraint is challenge-wide, an operation id
+reused across two *different* periods of the same challenge would never be found by a period-local
+search — the pure contract would plan a normal insert for what the database would actually reject
+as a duplicate key, pushing detection onto a later database exception instead of this contract
+catching it as its ordinary, expected behavior.
+
+**The contract now requires:**
+
+- Operation id unused anywhere in the challenge (`existingEventForOperationId: null`) → continue
+  normal planning against period-local history, as before.
+- Operation id already used for the **same logical operation** → `idempotent_replay`, referencing
+  the existing event. Safe to call repeatedly, including after the reporting deadline.
+- Operation id reused for **a different period** of the same challenge → `operation_id_conflict`.
+- Operation id reused with a **conflicting fact, event type, or correction target** — even within
+  the same period — → `operation_id_conflict`. Never silently produces a different result for a
+  reused id.
+
+"Same logical operation" is defined by matching every part of the persisted semantic identity:
+challenge, period, event type (or `correction`), the declared fact, and — for a correction — its
+target (`requestMatchesEvent` in `append-plan.ts`).
+
+**This must never be treated as a corner case a database unique-constraint exception happens to
+catch later** — it is this pure contract's normal, expected behavior. The future trusted write
+endpoint should mirror the same two-step shape this contract expects: resolve
+`(challenge_id, idempotency_key)` challenge-wide **first** — a single lookup against the whole
+challenge — before loading and touching any period-local history.
 
 This function is pure and does no IO — it mirrors the existing "plan pattern" from
 `lib/supabase/draft-mutation.ts`. It does not itself touch Supabase; no network write endpoint was
@@ -191,14 +219,29 @@ per-chain facts:
 
 - **`hasUncorrectedLapse`** — does any chain's effective fact remain `stop_lapse`? If so, the period
   is `not_satisfied`, full stop, regardless of anything else in the history.
-- **`hasFinalIntactAttestation`** — does any chain's effective fact resolve to `stop_intact`, with a
-  timestamp inside `[period.endsAt, period.reportingClosesAt)` — i.e. after tracking ended, before
-  the reporting deadline? A Stop challenge may not succeed merely because an old `stop_intact` event
-  exists from earlier in the challenge; it needs an appropriate **final** attestation once tracking
-  is actually over. If there's no uncorrected lapse and this final attestation exists, the period is
-  `satisfied`. If neither condition is met (e.g. an early ping followed by silence through the
-  deadline), the period is `closed_without_input` — not automatically a failure at the period level,
-  but resolved into one at the challenge level by the locked no-response policy below.
+- **`hasFinalIntactAttestation`** — does an ordinary, root `stop_intact` declaration exist — still
+  currently effective (its chain's terminal fact is still `stop_intact`) — whose **own** trusted
+  timestamp falls inside `[period.endsAt, period.reportingClosesAt)`? A Stop challenge may not
+  succeed merely because an old `stop_intact` event exists from earlier in the challenge; it needs
+  an appropriate **final** attestation once tracking is actually over. If there's no uncorrected
+  lapse and this final attestation exists, the period is `satisfied`. If neither condition is met
+  (e.g. an early ping followed by silence through the deadline), the period is
+  `closed_without_input` — not automatically a failure at the period level, but resolved into one
+  at the challenge level by the locked no-response policy below.
+
+  **A correction's own timestamp never counts here, on either side.** `ChainEntry` (in
+  `stop-reduction.ts`) keeps a root declaration's own event type and own trusted timestamp separate
+  from its chain's terminal (correction-resolved) fact and timestamp — the two were conflated in an
+  earlier revision, which let a correction's timestamp accidentally qualify as the final
+  attestation: an early accidental `stop_lapse`, corrected to `stop_intact` sometime after tracking
+  ended, would wrongly look like a final attestation purely because the *correction* landed inside
+  the window. A correction answers "what was the truth of the event I am correcting?" — it is not
+  itself a new current-status attestation. Concretely: correcting an old lapse to intact removes it
+  from `hasUncorrectedLapse`, but only a *separate*, ordinary root `stop_intact` declaration whose
+  own timestamp falls in the window can satisfy `hasFinalIntactAttestation`. Symmetrically, an
+  ordinary final `stop_intact` declaration that is later corrected to `stop_lapse` no longer
+  qualifies either — its chain's terminal fact is `stop_lapse`, which also makes it absorbing via
+  `hasUncorrectedLapse`.
 
 ## `EffectivePeriodState`
 
@@ -272,9 +315,11 @@ recorded truth is always "no input was received"; whether that counts against th
 > that period is deemed **not satisfied** for challenge-result purposes. Applied consistently
 > across build, cut_back, and stop.
 
-- For **build**, this is mostly moot in practice: silence for a period unambiguously means 0
-  completions, a known fact, which already contributes 0 toward the aggregate and already breaks
-  continuity like any other unmet period — the locked policy and build's arithmetic agree.
+- For **build**, the audit truth is still "no input was received" — this package never fabricates
+  an explicit zero-completion event and never claims to know that zero completions occurred. The
+  locked policy is what determines the *result consequence*: a `closed_without_input` period is
+  deemed not satisfied, contributes no completion credit toward the aggregate, and breaks
+  continuity the same way an explicit unmet period does.
 - For **cut_back**, a `closed_without_input` period counts as "exceeded" for both the aggregate
   `minimumPeriodsWithinLimit` count (it is not counted as within-limit) and the continuity
   safeguard (it counts as an exceeded period in a consecutive run) — see below.
@@ -344,12 +389,19 @@ after the reporting deadline (and an idempotent replay still succeeding after it
 stale-target corrections failing safely, Stop's sticky-lapse cases (final intact attestation
 succeeds; an early-only ping followed by silence fails; a lapse followed by a later ordinary intact
 still fails; an accidental lapse explicitly corrected then finally attested succeeds; repeated
-ordinary intact attestations are valid, not corrections), explicit success and failure for build/
-cut_back/stop, no-response at close for build (implicit 0), cut_back (counts as exceeded toward
-continuity), and stop (policy-driven failure), daily/weekly/continuous period kinds, a
-challenge-level result staying pending while a future period exists, cut_back's locked
-aggregate-AND-continuity evaluator (including a case where the aggregate alone would pass but
-continuity fails, and vice versa), and a malformed/inconsistent event chain failing safely rather
-than producing a false success. Since period boundaries are consumed as opaque already-generated
-ISO instants (never recomputed here), DST correctness is exercised only by using a period pair with
-a genuinely non-24-hour boundary in the input fixtures, not by reimplementing any timezone logic.
+ordinary intact attestations are valid, not corrections), the correction-vs-final-attestation
+regression (an early lapse corrected to intact *after* tracking ends is not itself a final
+attestation without a separate ordinary declaration; that separate declaration does succeed; an
+ordinary final intact later corrected to a lapse no longer qualifies), cross-period operation-id
+reuse (`operation_id_conflict`, not a false replay, even when period-local history alone would miss
+it — including a conflicting event type across periods, and a same-period/same-fact reuse still
+replaying safely independent of period-local history), explicit success and failure for build/
+cut_back/stop, no-response at close for build (contributes no completion credit, without claiming
+zero completions are known to have occurred), cut_back (counts as exceeded toward continuity), and
+stop (policy-driven failure), daily/weekly/continuous period kinds, a challenge-level result staying
+pending while a future period exists, cut_back's locked aggregate-AND-continuity evaluator
+(including a case where the aggregate alone would pass but continuity fails, and vice versa), and a
+malformed/inconsistent event chain failing safely rather than producing a false success. Since
+period boundaries are consumed as opaque already-generated ISO instants (never recomputed here), DST
+correctness is exercised only by using a period pair with a genuinely non-24-hour boundary in the
+input fixtures, not by reimplementing any timezone logic.
