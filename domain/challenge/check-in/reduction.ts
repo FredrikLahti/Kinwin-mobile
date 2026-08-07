@@ -68,8 +68,12 @@ export function reduceEffectiveFact(
   return { ok: true, effective: current };
 }
 
-/** Two events sharing an operation id must agree on everything they declare — a real collision, not a legitimate retry, otherwise. */
-function findOperationIdConflict(events: readonly CheckInEvent[]): string | null {
+/**
+ * Shared with `stop-reduction.ts`: two events sharing an operation id must
+ * agree on everything they declare — a real collision, not a legitimate
+ * retry, otherwise.
+ */
+export function findOperationIdConflict(events: readonly CheckInEvent[]): string | null {
   const byOperation = new Map<string, CheckInEvent>();
   for (const event of events) {
     if (event.operationId === null) continue;
@@ -88,7 +92,8 @@ function findOperationIdConflict(events: readonly CheckInEvent[]): string | null
   return null;
 }
 
-function dedupeByOperationId(events: readonly CheckInEvent[]): readonly CheckInEvent[] {
+/** Shared with `stop-reduction.ts` — see the comment at its call site above. */
+export function dedupeByOperationId(events: readonly CheckInEvent[]): readonly CheckInEvent[] {
   const seen = new Set<string>();
   const result: CheckInEvent[] = [];
   for (const event of events) {

@@ -20,12 +20,23 @@ export type PeriodTarget =
 
 /**
  * A generated, immutable period descriptor — exactly what
- * `private.generate_challenge_periods` writes to `challenge_periods`.
- * Deliberately does NOT carry `computed_status`/`is_closed`: those are
- * cached, derived columns a future trusted write would populate by running
- * this package's evaluator (see `check-in/period-state.ts`), not trusted
- * input to it — an evaluator that read its own cached output as input could
- * never self-correct a stale cache.
+ * `private.generate_challenge_periods` writes to `challenge_periods`, plus
+ * `reportingClosesAt`. Deliberately does NOT carry `computed_status`/
+ * `is_closed`: those are cached, derived columns a future trusted write
+ * would populate by running this package's evaluator (see
+ * `check-in/period-state.ts`), not trusted input to it — an evaluator that
+ * read its own cached output as input could never self-correct a stale
+ * cache.
+ *
+ * `endsAt` is the tracking boundary — when the behavior itself stops being
+ * observed. `reportingClosesAt` is a separate, later, trusted boundary: the
+ * self-service deadline by which a first report or a correction must be
+ * submitted before the period is treated as finally decided. The two are
+ * deliberately not the same field — see docs/CHECK_IN_ENGINE.md's
+ * "Reporting window" section. This package does not choose a duration for
+ * the gap between them (no hardcoded 12/24/48-hour rule here); the future
+ * trusted activation/check-in write layer must supply an authoritative
+ * `reportingClosesAt` for every period it persists.
  */
 export type ChallengePeriod = {
   readonly schemaVersion: 1;
@@ -35,6 +46,7 @@ export type ChallengePeriod = {
   readonly periodKind: ChallengePeriodKind;
   readonly startsAt: IsoDateTime;
   readonly endsAt: IsoDateTime;
+  readonly reportingClosesAt: IsoDateTime;
   readonly target: PeriodTarget;
 };
 

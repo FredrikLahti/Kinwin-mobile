@@ -13,7 +13,7 @@ import {
   SuccessRuleSnapshot,
   UserId,
 } from './types';
-import { computeCutBackAggregateOnly, evaluateChallenge } from './results';
+import { evaluateChallenge } from './results';
 import { CheckInEvent } from './check-in/types';
 
 const CHALLENGE_ID = 'challenge-1' as ChallengeId;
@@ -57,8 +57,9 @@ function buildRuleFor(successRule: SuccessRuleSnapshot): ActivatedChallengeSnaps
 }
 
 let periodSequence = 0;
-function period(overrides: Partial<ChallengePeriod>): ChallengePeriod {
+function period(overrides: Partial<ChallengePeriod> = {}): ChallengePeriod {
   periodSequence += 1;
+  const endsAt = overrides.endsAt ?? ('2026-03-02T00:00:00Z' as IsoDateTime);
   return {
     schemaVersion: 1,
     id: `period-${periodSequence}` as ChallengePeriodId,
@@ -66,7 +67,13 @@ function period(overrides: Partial<ChallengePeriod>): ChallengePeriod {
     periodNumber: periodSequence,
     periodKind: 'day',
     startsAt: '2026-03-01T00:00:00Z' as IsoDateTime,
-    endsAt: '2026-03-02T00:00:00Z' as IsoDateTime,
+    endsAt,
+    // Defaults to endsAt (no reporting-window gap) unless a test explicitly
+    // overrides it — most tests here aren't exercising the reporting-window
+    // distinction (see check-in/append-plan.test.ts and
+    // check-in/period-state.test.ts for that), just build/cut_back/stop
+    // outcomes once a period is settled.
+    reportingClosesAt: endsAt,
     target: { type: 'completion_target', target: 1 },
     ...overrides,
   };
@@ -179,50 +186,131 @@ test('build: the minimum_completions_per_week safeguard is a per-period floor, n
   assert.ok(result.evaluable && result.status === 'failure');
 });
 
-test('stop: a challenge with no recorded lapse is a final success', () => {
-  const p = period({ periodKind: 'continuous', target: { type: 'maximum_lapses', maximum: 0 } });
-  const events = [event(p.id, { eventType: 'stop_intact', fact: { kind: 'stop_intact' } })];
+// --- Stop: sticky-lapse semantics at the challenge level (see check-in/period-state.test.ts for the unit-level coverage) ---
+
+function stopPeriodWithReportingWindow(): ChallengePeriod {
+  return period({
+    periodKind: 'continuous',
+    target: { type: 'maximum_lapses', maximum: 0 },
+    endsAt: '2026-03-02T00:00:00Z' as IsoDateTime,
+    reportingClosesAt: '2026-03-03T00:00:00Z' as IsoDateTime,
+  });
+}
+
+test('stop: a final intact attestation after tracking ends is a final success', () => {
+  const p = stopPeriodWithReportingWindow();
+  const events = [event(p.id, {
+    eventType: 'stop_intact', fact: { kind: 'stop_intact' },
+    clientRecordedAt: '2026-03-02T12:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T12:00:00Z' as IsoDateTime,
+  })];
   const result = evaluateChallenge({ challenge: baseChallenge(stopRule()), periods: [p], events, evaluatedAt: NOW });
   assert.equal(result.evaluable, true);
   assert.ok(result.evaluable && result.status === 'success');
 });
 
-test('stop: an explicitly recorded lapse is a final failure', () => {
-  const p = period({ periodKind: 'continuous', target: { type: 'maximum_lapses', maximum: 0 } });
+test('stop: an explicitly recorded, uncorrected lapse is a final failure regardless of when it happened', () => {
+  const p = stopPeriodWithReportingWindow();
   const events = [event(p.id, { eventType: 'stop_lapse', fact: { kind: 'stop_lapse' } })];
   const result = evaluateChallenge({ challenge: baseChallenge(stopRule()), periods: [p], events, evaluatedAt: NOW });
   assert.equal(result.evaluable, true);
   assert.ok(result.evaluable && result.status === 'failure');
 });
 
-test('stop: no response at all by close is treated as failure under the recommended no-response policy', () => {
-  const p = period({ periodKind: 'continuous', target: { type: 'maximum_lapses', maximum: 0 } });
+test('stop: an early intact ping alone, with no final attestation, is a final failure — not an automatic success', () => {
+  const p = stopPeriodWithReportingWindow();
+  // Only an early ping, during tracking — never a final attestation after endsAt.
+  const events = [event(p.id, { eventType: 'stop_intact', fact: { kind: 'stop_intact' } })];
+  const result = evaluateChallenge({ challenge: baseChallenge(stopRule()), periods: [p], events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+test('stop: a lapse followed by a later ordinary intact attestation is still a final failure', () => {
+  const p = stopPeriodWithReportingWindow();
+  const events = [
+    event(p.id, { eventType: 'stop_lapse', fact: { kind: 'stop_lapse' } }),
+    event(p.id, {
+      eventType: 'stop_intact', fact: { kind: 'stop_intact' },
+      clientRecordedAt: '2026-03-02T12:00:00Z' as IsoDateTime, serverRecordedAt: '2026-03-02T12:00:00Z' as IsoDateTime,
+    }),
+  ];
+  const result = evaluateChallenge({ challenge: baseChallenge(stopRule()), periods: [p], events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+test('stop: no response at all by close is treated as failure under the locked no-response policy', () => {
+  const p = stopPeriodWithReportingWindow();
   const result = evaluateChallenge({ challenge: baseChallenge(stopRule()), periods: [p], events: [], evaluatedAt: NOW });
   assert.equal(result.evaluable, true);
   assert.ok(result.evaluable && result.status === 'failure');
 });
 
-test('cut_back: once closed, evaluation stays pending on the unresolved continuity policy rather than guessing', () => {
-  const p = period({ target: { type: 'maximum_value', maximum: 3, measurement: { type: 'count', unit: 'drinks' } } });
-  const events = [event(p.id, { eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total: 1, unit: 'drinks' } })];
-  const result = evaluateChallenge({ challenge: baseChallenge(cutBackRule()), periods: [p], events, evaluatedAt: NOW });
-  assert.equal(result.evaluable, false);
-  assert.ok(!result.evaluable && result.reasons.includes('cut_back_continuity_policy_unresolved'));
-  // The period-level facts are still surfaced, even though the challenge-level result is withheld.
-  assert.ok(!result.evaluable && result.periodStates?.[0]?.kind === 'satisfied');
+// --- Cut back: locked V1 evaluator — aggregate threshold AND continuity safeguard, both required ---
+
+function cutBackPeriods(totals: readonly (number | null)[], rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }>): { periods: ChallengePeriod[]; events: CheckInEvent[] } {
+  const periods: ChallengePeriod[] = [];
+  const events: CheckInEvent[] = [];
+  totals.forEach((total, index) => {
+    const startsAt = `2026-03-0${index + 1}T00:00:00Z` as IsoDateTime;
+    const endsAt = `2026-03-0${index + 2}T00:00:00Z` as IsoDateTime;
+    const p = period({ startsAt, endsAt, target: { type: 'maximum_value', maximum: rule.maximumAllowedValue, measurement: { type: 'count', unit: 'drinks' } }, periodNumber: index + 1 });
+    periods.push(p);
+    if (total !== null) events.push(event(p.id, { eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total, unit: 'drinks' } }));
+  });
+  return { periods, events };
+}
+
+test('cut_back: aggregate threshold met and continuity intact — success', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 1, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 3, minimumPeriodsWithinLimit: 2,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  // p1, p2 within limit; p3 exceeds — a single-period exceeded run, well within the maximum of 2.
+  const { periods, events } = cutBackPeriods([1, 2, 9], rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'success');
 });
 
-test('cut_back: computeCutBackAggregateOnly is introspectable without being the trusted result', () => {
-  const rule = cutBackRule();
-  const states: NonNullable<ReturnType<typeof evaluateChallenge>['periodStates']> = [
-    { kind: 'satisfied', fact: { kind: 'cut_back_total', total: 1, unit: 'drinks' } },
-    { kind: 'closed_without_input' },
-    { kind: 'not_satisfied', fact: { kind: 'cut_back_total', total: 9, unit: 'drinks' } },
-  ];
-  const aggregate = computeCutBackAggregateOnly(rule, states);
-  assert.equal(aggregate.periodsWithinLimit, 1);
-  assert.equal(aggregate.ambiguousPeriodsExcludedFromWithinLimit, 1);
-  assert.equal(aggregate.satisfiedByAggregateAlone, 1 >= rule.minimumPeriodsWithinLimit);
+test('cut_back: continuity is violated even though the aggregate threshold alone would pass', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 1, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 4, minimumPeriodsWithinLimit: 1,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  // p1 within (aggregate satisfied: 1 >= 1); p2, p3, p4 exceed consecutively — a run of 3 > the locked maximum of 2.
+  const { periods, events } = cutBackPeriods([1, 9, 9, 9], rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+test('cut_back: the aggregate threshold alone is not met, even though continuity would be fine', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 1, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 3, minimumPeriodsWithinLimit: 3,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  // Only 2 of 3 periods within limit — minimumPeriodsWithinLimit of 3 is not met — despite the single exceeded period being well within continuity.
+  const { periods, events } = cutBackPeriods([1, 2, 9], rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+test('cut_back: a period closed without a required report counts as exceeded toward continuity', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 1, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 4, minimumPeriodsWithinLimit: 1,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  // p1 within (aggregate satisfied); p2, p3, p4 never reported at all — a consecutive no-response run of 3 > the locked maximum of 2.
+  const { periods, events } = cutBackPeriods([1, null, null, null], rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
 });
 
 test('period boundaries a non-24h apart (a DST-like gap) are honored exactly as generated, with no hidden fixed-duration assumption', () => {
@@ -244,14 +332,6 @@ function buildRule(): Extract<SuccessRuleSnapshot, { direction: 'build' }> {
   return {
     direction: 'build', ruleVersion: 1, totalPlannedCompletions: 1, minimumRequiredCompletions: 1,
     continuitySafeguard: { type: 'maximum_consecutive_missed_days', maximum: 2 }, periodTarget: 1, periodUnit: 'day',
-  };
-}
-
-function cutBackRule(): Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> {
-  return {
-    direction: 'cut_back', ruleVersion: 1, measurementType: 'count', maximumAllowedValue: 3,
-    periodUnit: 'day', totalPeriods: 3, minimumPeriodsWithinLimit: 2,
-    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
   };
 }
 
