@@ -67,6 +67,14 @@ export default function HomeScreen() {
             >
               <Text style={styles.socialPreviewLink}>Social onboarding UX preview (internal prototype)</Text>
             </Pressable>
+            <Pressable
+              accessibilityHint="Opens the internal active-challenge check-in UX prototype, using local fixture data only"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/challenge-ux-preview' as Href)}
+            >
+              <Text style={styles.socialPreviewLink}>Challenge check-in UX preview (internal prototype)</Text>
+            </Pressable>
           </View>
         </View>
       </ScrollView>
