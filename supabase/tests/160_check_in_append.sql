@@ -43,16 +43,13 @@ begin
     'archived'
   );
 
-  -- A still-pending commitment, used below to prove check-ins are rejected
-  -- against anything that is not yet active.
-  insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
-    values ('73333333-0000-0000-0000-000000000002', '71111111-0000-0000-0000-000000000001', '72222222-0000-0000-0000-000000000001', 1, 1, 'pending_activation');
-
   -- The real active challenge this file's success cases check in against --
   -- activated directly here (service_role) rather than by re-driving
   -- 150_full_activation.sql's flow, since this file only needs a real,
   -- already-active challenge with real periods, not a re-proof of
-  -- activation itself.
+  -- activation itself. Activated FIRST, before the still-pending commitment
+  -- below, so the two are never simultaneously 'pending_activation' for the
+  -- same owner (challenges_owner_one_pending_idx allows only one).
   insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
     values ('73333333-0000-0000-0000-000000000001', '71111111-0000-0000-0000-000000000001', '72222222-0000-0000-0000-000000000001', 1, 1, 'pending_activation');
   insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency, authorization_status, authorized_at)
@@ -79,6 +76,15 @@ begin
       'sitOutAcknowledged', true, 'membershipStatusAtActivation', 'trialing'
     )
     where id = '73333333-0000-0000-0000-000000000001';
+
+  -- A still-pending commitment, used below to prove check-ins are rejected
+  -- against anything that is not yet active. Inserted only after the
+  -- challenge above is already 'active' (see the ordering note above), and
+  -- with no source_draft_id of its own -- challenges_source_draft_idx
+  -- allows a given draft to back at most one challenge, and the draft above
+  -- is already spoken for.
+  insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
+    values ('73333333-0000-0000-0000-000000000002', '71111111-0000-0000-0000-000000000001', null, 1, 1, 'pending_activation');
 end;
 $$;
 reset role;
@@ -154,7 +160,14 @@ begin
 end;
 $$;
 
--- Rejects a check-in against a challenge that is not active.
+-- Rejects a check-in against a challenge that is not active. The challenge
+-- itself is found (owned by this caller) but its status check fails first
+-- -- 22023, not P0002 (which is reserved for "not found at all", proven
+-- separately by append_rejects_owner_mismatch above). This challenge also
+-- has no periods generated for it (still pending_activation), so the
+-- period_id subquery below deliberately passes NULL -- the status check in
+-- append_check_in_event runs before the period lookup, so this still
+-- exercises exactly the intended path.
 select test.assert_fails(
   'append_rejects_inactive_challenge',
   $stmt$select public.append_check_in_event(
@@ -162,7 +175,7 @@ select test.assert_fails(
     (select id from public.challenge_periods where challenge_id = '73333333-0000-0000-0000-000000000002' limit 1),
     'build_completion', jsonb_build_object('kind', 'build_completion', 'completions', 1), 'ios', now(), 'op-inactive'
   )$stmt$,
-  'P0002'
+  '22023'
 );
 
 -- Rejects a payload whose declared `kind` does not match the event type.
