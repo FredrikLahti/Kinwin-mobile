@@ -1,3 +1,4 @@
+import { Feather } from '@expo/vector-icons';
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
@@ -6,12 +7,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CheckInSheetV2 } from '@/components/v2/check-in-sheet';
+import { DemoCheckInSheetV2 } from '@/components/v2/demo-check-in-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { ProgressDotsV2 } from '@/components/v2/progress-dots';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
+import { useUXV2Preview } from '@/contexts/ux-v2-preview-context';
+import { demoHomeKinEvents, demoMonthProgress, demoOtherChallenges, demoTodayChallenge } from '@/fixtures/ux-v2-preview';
 import { useActiveChallengeView } from '@/hooks/use-active-challenge-view';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { playSelectionHaptic } from '@/lib/haptics';
 import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
 
 function greetingWord() {
@@ -29,11 +34,13 @@ export default function HomeV2() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const { profile, user } = useAuth();
+  const { demoEnabled, toggleDemo } = useUXV2Preview();
   const { onboarding, preview, configuration, view } = useActiveChallengeView();
   const [checkInOpen, setCheckInOpen] = useState(false);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
-  const hasChallenge = view !== null && configuration !== null;
+  const hasRealChallenge = view !== null && configuration !== null;
+  const showToday = demoEnabled || hasRealChallenge;
 
   const createChallenge = async () => {
     if (user) {
@@ -47,7 +54,7 @@ export default function HomeV2() {
     router.push('/onboarding/goal' as Href);
   };
 
-  const progressLine = () => {
+  const realProgressLine = () => {
     if (!configuration) return '';
     if (configuration.direction === 'build') {
       return `${preview.buildCompletions} of ${configuration.target} ${periodPhrase(configuration.periodUnit)}`;
@@ -66,17 +73,32 @@ export default function HomeV2() {
         <View>
           <View style={styles.header}>
             <Text style={styles.wordmark}>KINWIN</Text>
+            <Pressable
+              accessibilityHint="Toggles representative demo content for UX v2 visual review"
+              accessibilityRole="button"
+              accessibilityState={{ selected: demoEnabled }}
+              hitSlop={8}
+              onPress={() => { void playSelectionHaptic(); toggleDemo(); }}
+              style={[styles.demoPill, demoEnabled && styles.demoPillActive]}
+            >
+              <Text style={[styles.demoPillText, demoEnabled && styles.demoPillTextActive]}>DEMO</Text>
+            </Pressable>
           </View>
           <Text style={styles.greeting}>{greetingWord()}, {firstName}</Text>
 
-          {hasChallenge && configuration && view ? (
-            <View style={styles.todaySection}>
+          {showToday ? (
+            <View style={styles.section}>
               <Text style={styles.sectionLabel}>TODAY</Text>
-              <View style={styles.card}>
-                <Text numberOfLines={2} style={styles.challengeName}>{onboarding.behaviorText.trim()}</Text>
-                <Text style={styles.progressLine}>{progressLine()}</Text>
-                {configuration.direction === 'build' && (
-                  <ProgressDotsV2 filled={preview.buildCompletions} total={configuration.target} />
+              <View style={styles.todayCard}>
+                <Text numberOfLines={1} style={styles.challengeName}>
+                  {demoEnabled ? demoTodayChallenge.name : onboarding.behaviorText.trim()}
+                </Text>
+                <Text style={styles.progressLine}>{demoEnabled ? demoTodayChallenge.progressLine : realProgressLine()}</Text>
+                {(demoEnabled || configuration?.direction === 'build') && (
+                  <ProgressDotsV2
+                    filled={demoEnabled ? demoTodayChallenge.filled : preview.buildCompletions}
+                    total={demoEnabled ? demoTodayChallenge.total : (configuration?.target ?? 0)}
+                  />
                 )}
                 <View style={styles.checkInButton}>
                   <PrimaryButtonV2
@@ -94,6 +116,67 @@ export default function HomeV2() {
               <Text style={styles.emptyBody}>Create one to see it here.</Text>
             </View>
           )}
+
+          {demoEnabled && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>YOUR CHALLENGES</Text>
+              <View style={styles.rowGroup}>
+                {demoOtherChallenges.map((challenge) => (
+                  <Pressable
+                    accessibilityHint="Preview row; challenge detail is not built yet"
+                    accessibilityRole="button"
+                    key={challenge.id}
+                    onPress={() => void playSelectionHaptic()}
+                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  >
+                    <Text style={styles.rowLabel}>{challenge.name}</Text>
+                    <View style={styles.rowRight}>
+                      <Text style={styles.rowValue}>{challenge.status}</Text>
+                      <Feather color={theme.colors.warmGrey} name="chevron-right" size={16} />
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {demoEnabled && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>FROM YOUR KIN</Text>
+              <View style={styles.rowGroup}>
+                {demoHomeKinEvents.map((event) => (
+                  <Pressable
+                    accessibilityHint="Opens Kin"
+                    accessibilityRole="button"
+                    key={event.id}
+                    onPress={() => router.push('/home/kin' as Href)}
+                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  >
+                    <Text style={styles.rowLabel}>{event.name}</Text>
+                    <Text numberOfLines={1} style={styles.rowValueMuted}>{event.event}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {demoEnabled && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>PROGRESS</Text>
+              <Pressable
+                accessibilityHint="Opens the progress preview"
+                accessibilityRole="button"
+                onPress={() => router.push('/home/progress' as Href)}
+                style={({ pressed }) => [styles.rowGroup, styles.singleRow, pressed && styles.rowPressed]}
+              >
+                <Text style={styles.rowLabel}>{demoMonthProgress.label}</Text>
+                <View style={styles.rowRight}>
+                  <Text style={styles.rowValue}>{demoMonthProgress.value}</Text>
+                  <Feather color={theme.colors.warmGrey} name="chevron-right" size={16} />
+                </View>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <Pressable
@@ -107,7 +190,11 @@ export default function HomeV2() {
       </View>
 
       <BottomSheetV2 onClose={() => setCheckInOpen(false)} reducedMotion={reducedMotion} visible={checkInOpen}>
-        <CheckInSheetV2 onClose={() => setCheckInOpen(false)} />
+        {demoEnabled ? (
+          <DemoCheckInSheetV2 onClose={() => setCheckInOpen(false)} />
+        ) : (
+          <CheckInSheetV2 onClose={() => setCheckInOpen(false)} />
+        )}
       </BottomSheetV2>
     </SafeAreaView>
   );
@@ -122,60 +209,51 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.medium,
-    paddingVertical: theme.spacing.medium,
+    paddingVertical: theme.spacing.small,
   },
-  header: { minHeight: 36, justifyContent: 'center' },
+  header: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
-  greeting: {
-    marginTop: theme.spacing.large,
-    color: theme.colors.ivory,
-    fontSize: 26,
-    fontWeight: '600',
+  demoPill: {
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4,
   },
-  sectionLabel: {
-    marginTop: theme.spacing.large,
-    color: theme.colors.warmGrey,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.4,
+  demoPillActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  demoPillText: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  demoPillTextActive: { color: theme.colors.crimsonBright },
+  greeting: { marginTop: theme.spacing.small, color: theme.colors.ivory, fontSize: 22, fontWeight: '600' },
+  section: { marginTop: theme.spacing.small },
+  sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 },
+  todayCard: {
+    marginTop: 8, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.oxblood,
+    backgroundColor: theme.colors.surfaceRaised, padding: theme.spacing.medium, gap: 6,
   },
-  todaySection: { gap: theme.spacing.small },
-  card: {
-    marginTop: theme.spacing.small,
-    borderRadius: theme.radius.controlled,
-    borderWidth: 1,
-    borderColor: theme.colors.oxblood,
-    backgroundColor: theme.colors.surfaceRaised,
-    padding: theme.spacing.large,
-    gap: theme.spacing.small,
+  challengeName: { color: theme.colors.ivory, fontSize: 21, fontWeight: '700' },
+  progressLine: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '700' },
+  checkInButton: { marginTop: 6 },
+  emptySection: { marginTop: theme.spacing.large, gap: theme.spacing.xsmall },
+  emptyTitle: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700' },
+  emptyBody: { color: theme.colors.ivoryMuted, fontSize: 13 },
+  rowGroup: {
+    marginTop: 8, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, overflow: 'hidden',
   },
-  challengeName: {
-    color: theme.colors.ivory,
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 30,
+  row: {
+    minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
   },
-  progressLine: {
-    color: theme.colors.crimsonBright,
-    fontSize: 15,
-    fontWeight: '700',
+  singleRow: {
+    minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12,
   },
-  checkInButton: { marginTop: theme.spacing.small },
-  emptySection: {
-    marginTop: theme.spacing.xlarge,
-    gap: theme.spacing.xsmall,
-  },
-  emptyTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
-  emptyBody: { color: theme.colors.ivoryMuted, fontSize: 14 },
+  rowPressed: { backgroundColor: theme.colors.surfaceFocused },
+  rowLabel: { color: theme.colors.ivory, fontSize: 14, fontWeight: '600', flexShrink: 1, marginRight: 8 },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  rowValue: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
+  rowValueMuted: { color: theme.colors.ivoryMuted, fontSize: 13, flexShrink: 1, textAlign: 'right' },
   createButton: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: theme.radius.controlled,
-    borderWidth: 1,
-    borderColor: theme.colors.structureLineStrong,
-    backgroundColor: theme.colors.surface,
+    minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
   },
   createButtonPressed: { backgroundColor: theme.colors.surfaceRaised },
-  createButtonLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  createButtonLabel: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
 });

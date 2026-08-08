@@ -7,13 +7,16 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ChallengePreviewProvider } from '@/contexts/challenge-preview-context';
 import { OnboardingProvider, useOnboarding } from '@/contexts/onboarding-context';
+import { UXV2PreviewProvider } from '@/contexts/ux-v2-preview-context';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <OnboardingProvider>
         <ChallengePreviewProvider>
-          <AuthGate />
+          <UXV2PreviewProvider>
+            <AuthGate />
+          </UXV2PreviewProvider>
         </ChallengePreviewProvider>
         <StatusBar style="auto" />
       </OnboardingProvider>
