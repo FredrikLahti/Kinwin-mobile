@@ -9,6 +9,7 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ChallengePreviewProvider } from '@/contexts/challenge-preview-context';
 import { OnboardingProvider, useOnboarding } from '@/contexts/onboarding-context';
+import { UXV2PreviewProvider } from '@/contexts/ux-v2-preview-context';
 import { StripeProvider } from '@/lib/stripe/native-stripe';
 import { readStripeConfig } from '@/lib/stripe/config';
 import { resolveStripeUrlScheme } from '@/lib/stripe/stripe-url-scheme';
@@ -29,7 +30,9 @@ export default function RootLayout() {
       <AuthProvider>
         <OnboardingProvider>
           <ChallengePreviewProvider>
-            <AuthGate />
+            <UXV2PreviewProvider>
+              <AuthGate />
+            </UXV2PreviewProvider>
           </ChallengePreviewProvider>
           <StatusBar style="auto" />
         </OnboardingProvider>
@@ -72,6 +75,7 @@ function AuthGate() {
       <Stack.Screen name="auth" />
       <Stack.Protected guard={status === 'signed_in'}>
         <Stack.Screen name="account" />
+        <Stack.Screen name="home" />
       </Stack.Protected>
       <Stack.Screen
         name="onboarding"

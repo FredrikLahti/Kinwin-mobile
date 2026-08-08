@@ -100,8 +100,8 @@ $$;
 -- Same incidental-status note as above.
 insert into public.challenges (id, owner_id, schema_version, rule_engine_version, challenge_status)
   values ('88888888-0000-0000-0000-000000000008', '11111111-1111-1111-1111-111111111111', 1, 1, 'canceled_before_activation');
-insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, target_payload)
-  values ('77777777-0000-0000-0000-000000000007', '88888888-0000-0000-0000-000000000008', 1, 'day', now(), now() + interval '1 day', jsonb_build_object('type', 'maximum_value', 'maximum', 3));
+insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload)
+  values ('77777777-0000-0000-0000-000000000007', '88888888-0000-0000-0000-000000000008', 1, 'day', now(), now() + interval '1 day', now() + interval '2 days', jsonb_build_object('type', 'maximum_value', 'maximum', 3));
 insert into public.check_in_events (id, challenge_id, owner_id, period_id, event_type, event_payload, source, client_recorded_at)
   values ('66666666-0000-0000-0000-000000000006', '88888888-0000-0000-0000-000000000008', '11111111-1111-1111-1111-111111111111', '77777777-0000-0000-0000-000000000007', 'cut_back_total', jsonb_build_object('currentTotal', 2, 'unit', 'times'), 'ios', now());
 insert into public.check_in_events (id, challenge_id, owner_id, period_id, event_type, event_payload, source, client_recorded_at)
