@@ -537,8 +537,8 @@ begin
   insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
     values (v_challenge, v_owner, v_draft, 1, 1, 'pending_activation');
 
-  insert into public.challenge_periods (challenge_id, period_number, period_kind, starts_at, ends_at, target_payload)
-    values (v_challenge, 5, 'day', now(), now() + interval '1 day', jsonb_build_object('type', 'completion_target', 'target', 1));
+  insert into public.challenge_periods (challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload)
+    values (v_challenge, 5, 'day', now(), now() + interval '1 day', now() + interval '2 days', jsonb_build_object('type', 'completion_target', 'target', 1));
 
   perform test.assert_fails('simulated_failure_rejected',
     format('select private.generate_challenge_periods(%L::uuid, now(), %L)', v_challenge, 'Europe/Stockholm'), '23505');
