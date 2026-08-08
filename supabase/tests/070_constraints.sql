@@ -46,15 +46,24 @@ $$;
 
 select test.assert_fails(
   'period_ends_not_after_starts_denied',
-  $stmt$insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, target_payload)
-    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001', 2, 'day', now(), now(), jsonb_build_object('type', 'completion_target', 'target', 1))$stmt$,
+  $stmt$insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload)
+    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001', 2, 'day', now(), now(), now() + interval '2 days', jsonb_build_object('type', 'completion_target', 'target', 1))$stmt$,
   '23514'
 );
 
 select test.assert_fails(
   'period_number_non_positive_denied',
-  $stmt$insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, target_payload)
-    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001', 0, 'day', now(), now() + interval '1 day', jsonb_build_object('type', 'completion_target', 'target', 1))$stmt$,
+  $stmt$insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload)
+    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001', 0, 'day', now(), now() + interval '1 day', now() + interval '2 days', jsonb_build_object('type', 'completion_target', 'target', 1))$stmt$,
+  '23514'
+);
+
+-- 20260811000000_full_activation.sql's added constraint: the reporting
+-- deadline must be strictly after tracking ends, not merely present.
+select test.assert_fails(
+  'period_reporting_closes_not_after_ends_denied',
+  $stmt$insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload)
+    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001', 3, 'day', now(), now() + interval '1 day', now() + interval '1 day', jsonb_build_object('type', 'completion_target', 'target', 1))$stmt$,
   '23514'
 );
 

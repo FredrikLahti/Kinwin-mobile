@@ -1,21 +1,22 @@
 import { Feather } from '@expo/vector-icons';
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
-import { CheckInSheetV2 } from '@/components/v2/check-in-sheet';
 import { DemoCheckInSheetV2 } from '@/components/v2/demo-check-in-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { ProgressDotsV2 } from '@/components/v2/progress-dots';
+import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
+import { useOnboarding } from '@/contexts/onboarding-context';
 import { useUXV2Preview } from '@/contexts/ux-v2-preview-context';
 import { demoHomeKinEvents, demoMonthProgress, demoOtherChallenges, demoTodayChallenge } from '@/fixtures/ux-v2-preview';
-import { useActiveChallengeView } from '@/hooks/use-active-challenge-view';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { playSelectionHaptic } from '@/lib/haptics';
 import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
 
@@ -26,20 +27,17 @@ function greetingWord() {
   return 'Good evening';
 }
 
-function periodPhrase(periodUnit: 'day' | 'week' | 'challenge') {
-  return periodUnit === 'day' ? 'today' : periodUnit === 'week' ? 'this week' : 'this challenge';
-}
-
 export default function HomeV2() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const { profile, user } = useAuth();
+  const onboarding = useOnboarding();
   const { demoEnabled, toggleDemo } = useUXV2Preview();
-  const { onboarding, preview, configuration, view } = useActiveChallengeView();
+  const { state: real, refresh } = useRealActiveChallenge();
   const [checkInOpen, setCheckInOpen] = useState(false);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
-  const hasRealChallenge = view !== null && configuration !== null;
+  const hasRealChallenge = real.status === 'ready';
   const showToday = demoEnabled || hasRealChallenge;
 
   const createChallenge = async () => {
@@ -54,17 +52,14 @@ export default function HomeV2() {
     router.push('/onboarding/goal' as Href);
   };
 
-  const realProgressLine = () => {
-    if (!configuration) return '';
-    if (configuration.direction === 'build') {
-      return `${preview.buildCompletions} of ${configuration.target} ${periodPhrase(configuration.periodUnit)}`;
-    }
-    if (configuration.direction === 'cut') {
-      const total = preview.cutTotal ?? 0;
-      return `${total} of ${configuration.target} ${configuration.unit} ${periodPhrase(configuration.periodUnit)}`;
-    }
-    return preview.stopStatus === 'lapse' ? 'Lapse recorded' : preview.stopStatus === 'intact' ? 'Promise intact' : 'No check-in yet';
-  };
+  const onRealCheckInSubmitted = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+
+  const focusPeriod = real.status === 'ready'
+    ? real.data.periods.find((period) => period.id === real.view.focusPeriodId) ?? null
+    : null;
+  const canCheckIn = real.status === 'ready' && real.view.nextAction.kind !== 'none';
 
   return (
     <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>
@@ -91,29 +86,46 @@ export default function HomeV2() {
               <Text style={styles.sectionLabel}>TODAY</Text>
               <View style={styles.todayCard}>
                 <Text numberOfLines={1} style={styles.challengeName}>
-                  {demoEnabled ? demoTodayChallenge.name : onboarding.behaviorText.trim()}
+                  {demoEnabled ? demoTodayChallenge.name : real.status === 'ready' ? real.view.promise : ''}
                 </Text>
-                <Text style={styles.progressLine}>{demoEnabled ? demoTodayChallenge.progressLine : realProgressLine()}</Text>
-                {(demoEnabled || configuration?.direction === 'build') && (
-                  <ProgressDotsV2
-                    filled={demoEnabled ? demoTodayChallenge.filled : preview.buildCompletions}
-                    total={demoEnabled ? demoTodayChallenge.total : (configuration?.target ?? 0)}
-                  />
+                <Text style={styles.progressLine}>
+                  {demoEnabled ? demoTodayChallenge.progressLine : real.status === 'ready' ? real.view.currentPeriodCopy : ''}
+                </Text>
+                {demoEnabled ? (
+                  <ProgressDotsV2 filled={demoTodayChallenge.filled} total={demoTodayChallenge.total} />
+                ) : (
+                  focusPeriod?.target.type === 'completion_target' && (
+                    <ProgressDotsV2
+                      filled={
+                        real.status === 'ready' && real.view.currentPeriodStatus.kind !== 'upcoming'
+                          && 'fact' in real.view.currentPeriodStatus && real.view.currentPeriodStatus.fact?.kind === 'build_completion'
+                          ? real.view.currentPeriodStatus.fact.completions
+                          : 0
+                      }
+                      total={focusPeriod.target.target}
+                    />
+                  )
                 )}
-                <View style={styles.checkInButton}>
-                  <PrimaryButtonV2
-                    accessibilityHint="Opens check-in for this challenge"
-                    label="Check in"
-                    onPress={() => setCheckInOpen(true)}
-                    reducedMotion={reducedMotion}
-                  />
-                </View>
+                {(demoEnabled || canCheckIn) && (
+                  <View style={styles.checkInButton}>
+                    <PrimaryButtonV2
+                      accessibilityHint="Opens check-in for this challenge"
+                      label={demoEnabled ? 'Check in' : (real.status === 'ready' ? real.view.nextAction.label || 'Check in' : 'Check in')}
+                      onPress={() => setCheckInOpen(true)}
+                      reducedMotion={reducedMotion}
+                    />
+                  </View>
+                )}
               </View>
             </View>
           ) : (
             <View style={styles.emptySection}>
-              <Text style={styles.emptyTitle}>No active challenge yet.</Text>
-              <Text style={styles.emptyBody}>Create one to see it here.</Text>
+              <Text style={styles.emptyTitle}>
+                {real.status === 'error' ? 'Could not load your challenge.' : 'No active challenge yet.'}
+              </Text>
+              <Text style={styles.emptyBody}>
+                {real.status === 'error' ? real.message : 'Create one to see it here.'}
+              </Text>
             </View>
           )}
 
@@ -192,9 +204,14 @@ export default function HomeV2() {
       <BottomSheetV2 onClose={() => setCheckInOpen(false)} reducedMotion={reducedMotion} visible={checkInOpen}>
         {demoEnabled ? (
           <DemoCheckInSheetV2 onClose={() => setCheckInOpen(false)} />
-        ) : (
-          <CheckInSheetV2 onClose={() => setCheckInOpen(false)} />
-        )}
+        ) : real.status === 'ready' && focusPeriod ? (
+          <RealCheckInSheetV2
+            challenge={real.data.challenge}
+            onClose={() => setCheckInOpen(false)}
+            onSubmitted={onRealCheckInSubmitted}
+            period={focusPeriod}
+          />
+        ) : null}
       </BottomSheetV2>
     </SafeAreaView>
   );
