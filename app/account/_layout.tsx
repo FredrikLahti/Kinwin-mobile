@@ -5,6 +5,7 @@ export default function AccountLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="pending-commitment" />
+      <Stack.Screen name="payment-setup" />
     </Stack>
   );
 }

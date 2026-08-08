@@ -27,14 +27,14 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
 };
 
 // Every state a signed-in user can be in on this screen. 'summary' is the
-// only one that can reach 'confirmCancel'/'paymentPlaceholder'/'canceling';
-// those three all carry the same commitment back so the screen never loses
-// it while the user is deciding.
+// only one that can reach 'confirmCancel'/'canceling'; those both carry the
+// same commitment back so the screen never loses it while the user is
+// deciding. Payment setup itself is a dedicated route
+// (app/account/payment-setup.tsx), not a state here.
 type ScreenState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'none' }
   | { readonly kind: 'summary'; readonly commitment: PendingCommitment }
-  | { readonly kind: 'paymentPlaceholder'; readonly commitment: PendingCommitment }
   | { readonly kind: 'confirmCancel'; readonly commitment: PendingCommitment }
   | { readonly kind: 'canceling'; readonly commitment: PendingCommitment }
   | { readonly kind: 'canceled' }
@@ -64,15 +64,10 @@ export default function PendingCommitmentScreen() {
   // step exists, never shows a stale commitment.
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const openPaymentPlaceholder = () => {
+  const continueSetup = () => {
     if (state.kind !== 'summary') return;
     void playSelectionHaptic();
-    setState({ kind: 'paymentPlaceholder', commitment: state.commitment });
-  };
-
-  const backToSummary = (commitment: PendingCommitment) => {
-    void playSelectionHaptic();
-    setState({ kind: 'summary', commitment });
+    router.push('/account/payment-setup' as Href);
   };
 
   const askToCancel = () => {
@@ -170,16 +165,20 @@ export default function PendingCommitmentScreen() {
             </View>
           )}
 
-          {(state.kind === 'summary' || state.kind === 'paymentPlaceholder' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
+          {(state.kind === 'summary' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
             <CommitmentSummary commitment={state.commitment} />
           )}
 
           {state.kind === 'summary' && (
             <View style={styles.actions}>
               <AnimatedPrimaryButton
-                accessibilityHint="Shows what happens next toward payment and activation"
-                label="Continue setup"
-                onPress={openPaymentPlaceholder}
+                accessibilityHint={
+                  state.commitment.authorizationStatus === 'authorized'
+                    ? 'Opens payment setup to review or change your saved payment method'
+                    : 'Opens payment setup to save a payment method for this commitment'
+                }
+                label={state.commitment.authorizationStatus === 'authorized' ? 'Payment method' : 'Continue setup'}
+                onPress={continueSetup}
                 reducedMotion={reducedMotion}
               />
               <Pressable
@@ -189,24 +188,6 @@ export default function PendingCommitmentScreen() {
                 style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
               >
                 <Text style={styles.dangerButtonLabel}>Cancel commitment</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {state.kind === 'paymentPlaceholder' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>NEXT: PAYMENT SETUP</Text>
-              <Text style={styles.body}>
-                Payment setup is the next step and is not built yet. No payment method has been
-                collected, no charge has been authorized, and this challenge has not been activated.
-              </Text>
-              <Pressable
-                accessibilityHint="Returns to the pending commitment summary"
-                accessibilityRole="button"
-                onPress={() => backToSummary(state.commitment)}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>Back to summary</Text>
               </Pressable>
             </View>
           )}
@@ -306,7 +287,14 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
       />
       <SummaryRow label="CONSEQUENCE CATEGORY" value={categoryLabel} />
       <SummaryRow label="STAKE" value={stakeLabel} />
-      <SummaryRow label="CURRENT STATUS" value="Pending — payment setup and final activation are still required." />
+      <SummaryRow
+        label="CURRENT STATUS"
+        value={
+          commitment.authorizationStatus === 'authorized'
+            ? 'Payment method ready. No charge has been made — final activation is still required.'
+            : 'Pending — payment setup and final activation are still required.'
+        }
+      />
     </View>
   );
 }

@@ -15,7 +15,13 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "enableGooglePay": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

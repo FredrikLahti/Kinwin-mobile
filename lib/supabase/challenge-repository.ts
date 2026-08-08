@@ -55,6 +55,9 @@ export type PendingCommitment = {
   readonly consequenceStatus: string;
   readonly stakeMinorUnits: number;
   readonly currency: string;
+  /** Server-derived, webhook-authoritative — see docs/PRODUCT_DECISIONS.md's "Consequence payment setup" section. Never a client-side claim. */
+  readonly authorizationStatus: string;
+  readonly authorizedAt: string | null;
 };
 
 export type FetchPendingCommitmentResult =
@@ -92,7 +95,7 @@ export async function fetchPendingCommitment(userId: string): Promise<FetchPendi
   const [draftResult, recipientsResult, consequenceResult] = await Promise.all([
     supabase.from('challenge_drafts').select('draft_payload').eq('id', challenge.source_draft_id).maybeSingle(),
     supabase.from('challenge_recipients').select('id, display_name, recipient_role').eq('challenge_id', challenge.id).order('sort_order', { ascending: true }),
-    supabase.from('consequences').select('status, stake_minor_units, currency').eq('challenge_id', challenge.id).maybeSingle(),
+    supabase.from('consequences').select('status, stake_minor_units, currency, authorization_status, authorized_at').eq('challenge_id', challenge.id).maybeSingle(),
   ]);
   if (draftResult.error) return { ok: false, ...classifyError(draftResult.error) };
   if (recipientsResult.error) return { ok: false, ...classifyError(recipientsResult.error) };
@@ -115,6 +118,8 @@ export async function fetchPendingCommitment(userId: string): Promise<FetchPendi
       consequenceStatus: consequenceResult.data.status,
       stakeMinorUnits: consequenceResult.data.stake_minor_units,
       currency: consequenceResult.data.currency,
+      authorizationStatus: consequenceResult.data.authorization_status,
+      authorizedAt: consequenceResult.data.authorized_at,
     },
   };
 }
