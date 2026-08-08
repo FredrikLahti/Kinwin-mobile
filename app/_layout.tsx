@@ -55,6 +55,7 @@ function AuthGate() {
       <Stack.Screen name="auth" />
       <Stack.Protected guard={status === 'signed_in'}>
         <Stack.Screen name="account" />
+        <Stack.Screen name="home" />
       </Stack.Protected>
       <Stack.Screen
         name="onboarding"

@@ -1,4 +1,4 @@
-import { Href, useRouter } from 'expo-router';
+import { Href, Redirect, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,7 +7,11 @@ import { useAuth } from '@/contexts/auth-context';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { status, user } = useAuth();
+  const { status } = useAuth();
+
+  if (status === 'signed_in') {
+    return <Redirect href="/home" />;
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -18,25 +22,14 @@ export default function HomeScreen() {
         <View style={styles.container}>
           <View style={styles.topRow}>
             <Text style={styles.version}>Mobile V1</Text>
-            {status === 'signed_in' ? (
-              <Pressable
-                accessibilityHint="Opens your account and saved draft"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => router.push('/account' as Href)}
-              >
-                <Text style={styles.authLink} numberOfLines={1}>{user?.email}</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                accessibilityHint="Opens sign in and sign up"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => router.push('/auth' as Href)}
-              >
-                <Text style={styles.authLink}>Sign in</Text>
-              </Pressable>
-            )}
+            <Pressable
+              accessibilityHint="Opens sign in and sign up"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/auth' as Href)}
+            >
+              <Text style={styles.authLink}>Sign in</Text>
+            </Pressable>
           </View>
 
           <View style={styles.copy}>
