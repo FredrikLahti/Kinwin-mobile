@@ -1,12 +1,12 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { formatRecipientNames } from '@/components/share/recipient-promise-page';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -148,7 +148,7 @@ export default function PendingCommitmentScreen() {
   const startNewDraft = () => {
     void playImportantHaptic();
     onboarding.resetDraft();
-    router.replace('/onboarding/goal' as Href);
+    router.replace('/create/goal' as Href);
   };
 
   const goBack = () => {
@@ -208,7 +208,7 @@ export default function PendingCommitmentScreen() {
 
           {state.kind === 'summary' && state.commitment.authorizationStatus === 'authorized' && (
             <View style={styles.actions}>
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Activates this challenge for real — tracking starts today"
                 disabled={activation.status === 'activating'}
                 label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
@@ -239,7 +239,7 @@ export default function PendingCommitmentScreen() {
 
           {state.kind === 'summary' && state.commitment.authorizationStatus !== 'authorized' && (
             <View style={styles.actions}>
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Opens payment setup to save a payment method for this commitment"
                 label="Continue setup"
                 onPress={continueSetup}
@@ -264,7 +264,7 @@ export default function PendingCommitmentScreen() {
                 yet, so this simply ends the commitment. This cannot be undone; you would need to
                 start a new draft to try again.
               </Text>
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Permanently cancels this pending commitment"
                 label="Yes, cancel commitment"
                 onPress={() => void confirmCancel(state.commitment)}
@@ -291,7 +291,7 @@ export default function PendingCommitmentScreen() {
                 This commitment has been canceled. The record is kept for your history, but it no
                 longer holds a place — you&apos;re free to start a new draft.
               </Text>
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Starts a fresh onboarding draft"
                 label="Start a new draft"
                 onPress={startNewDraft}
@@ -385,35 +385,31 @@ const styles = StyleSheet.create({
     marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
-  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
+  wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
   intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.copper, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 30, fontWeight: '400', lineHeight: 36,
-  },
-  body: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  phaseLabel: { color: theme.colors.crimson, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
   section: { gap: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
-  sectionLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
+  sectionLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   summary: { gap: 16 },
   lockedNotice: {
     flexDirection: 'row', alignItems: 'flex-start',
     borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
   },
-  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.copper },
-  lockedText: { flex: 1, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17 },
+  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimson },
+  lockedText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 11, lineHeight: 17 },
   summaryRow: {
     gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
   },
-  summaryLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  summaryValue: { color: theme.colors.bone, fontSize: 14, lineHeight: 20 },
+  summaryLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  summaryValue: { color: theme.colors.ivory, fontSize: 14, lineHeight: 20 },
   actions: { gap: 12, paddingTop: 4 },
   dangerButton: {
     minHeight: 48, alignItems: 'center', justifyContent: 'center',

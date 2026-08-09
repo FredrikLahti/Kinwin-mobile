@@ -78,21 +78,7 @@ function AuthGate() {
         <Stack.Screen name="home" />
       </Stack.Protected>
       <Stack.Screen
-        name="onboarding"
-        options={{
-          animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom',
-          gestureEnabled: true,
-        }}
-      />
-      <Stack.Screen
-        name="consequence"
-        options={{
-          animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom',
-          gestureEnabled: true,
-        }}
-      />
-      <Stack.Screen
-        name="share"
+        name="create"
         options={{
           animation: Platform.OS === 'web' ? 'none' : 'fade_from_bottom',
           gestureEnabled: true,

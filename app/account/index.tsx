@@ -82,7 +82,7 @@ export default function AccountScreen() {
     const result = await fetchLatestEditableDraft(user.id);
     if (result.ok && result.draftId && result.data) {
       onboarding.loadDraftData(result.data, result.draftId);
-      router.push('/consequence/review' as Href);
+      router.push('/create/review' as Href);
     }
   };
 
@@ -95,7 +95,7 @@ export default function AccountScreen() {
       return;
     }
     onboarding.resetDraft();
-    router.push('/onboarding/goal' as Href);
+    router.push('/create/goal' as Href);
   };
 
   const handleSignOut = async () => {
