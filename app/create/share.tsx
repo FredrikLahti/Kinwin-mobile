@@ -105,7 +105,7 @@ export default function CreateShareScreen() {
             </View>
           </View>
 
-          <Pressable accessibilityHint="Shows what your recipients will see" accessibilityRole="button" onPress={openPreview} style={styles.previewLink}>
+          <Pressable accessibilityHint="Shows what your recipients will see" accessibilityRole="button" hitSlop={6} onPress={openPreview} style={styles.previewLink}>
             <Text style={styles.previewLinkText}>Preview what they’ll see</Text>
           </Pressable>
         </View>
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   },
   actionRow: { flexDirection: 'row', gap: 10 },
   actionHalf: { flex: 1 },
-  previewLink: { minHeight: 32, justifyContent: 'center' },
+  previewLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   previewLinkText: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '700' },
   footer: {
     width: '100%', maxWidth: 480, alignSelf: 'center',

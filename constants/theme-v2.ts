@@ -8,12 +8,15 @@ import { kinwinTheme } from '@/constants/theme';
 //
 // Color semantics (locked): primary actions (Continue, Confirm commitment,
 // Add payment method, Activate challenge, Create challenge) fill with
-// `ivory` and dark text — they must never look destructive. Selected/
-// focused states use `oxblood`/`oxbloodDeep`. Secondary actions stay dark
-// surfaces with restrained borders/text. `crimson`/`crimsonBright` are
-// reserved for destructive actions (cancel, delete) and small restrained
-// accents (links, icons) — never a filled primary button. `sage` is for
-// restrained success/completed indicators where semantically useful.
+// `brass` and dark (`ink`) text — muted antique-gold, never bright/shiny
+// gold, orange, copper, white/ivory, or crimson; must never look
+// destructive. Selected/focused states use `oxblood`/`oxbloodDeep`.
+// Secondary actions stay dark surfaces with restrained borders/text.
+// `crimson`/`crimsonBright` are reserved for destructive actions (cancel,
+// delete) and small restrained accents (links, icons) — never a filled
+// primary button. `sage` is for restrained success/completed indicators
+// where semantically useful. `ivory` stays for typography/content, not
+// large primary-button fills.
 export const kinwinThemeV2 = {
   colors: {
     ink: '#120C0D',
@@ -23,6 +26,7 @@ export const kinwinThemeV2 = {
     ivory: '#F4EBE1',
     ivoryMuted: '#B7A9A2',
     warmGrey: '#8A7A75',
+    brass: '#B79A63',
     oxblood: '#5C2530',
     oxbloodDeep: '#331519',
     crimson: '#D93A46',

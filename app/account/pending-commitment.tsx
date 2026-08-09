@@ -191,7 +191,7 @@ export default function PendingCommitmentScreen() {
                   {activation.status === 'error' && (
                     <Text accessibilityLiveRegion="polite" style={styles.errorText}>{activation.message}</Text>
                   )}
-                  <Pressable accessibilityHint="Opens Stripe to save a different card" accessibilityRole="button" onPress={changePaymentMethod} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+                  <Pressable accessibilityHint="Opens Stripe to save a different card" accessibilityRole="button" hitSlop={6} onPress={changePaymentMethod} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
                     <Text style={styles.textButtonLabel}>Change payment method</Text>
                   </Pressable>
                 </>
@@ -203,7 +203,7 @@ export default function PendingCommitmentScreen() {
                   reducedMotion={reducedMotion}
                 />
               )}
-              <Pressable accessibilityHint="Cancels this commitment" accessibilityRole="button" onPress={openCancelSheet} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+              <Pressable accessibilityHint="Cancels this commitment" accessibilityRole="button" hitSlop={6} onPress={openCancelSheet} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
                 <Text style={styles.dangerLink}>Cancel commitment</Text>
               </Pressable>
             </View>
@@ -223,7 +223,7 @@ export default function PendingCommitmentScreen() {
           {state.kind === 'error' && (
             <View style={styles.section}>
               <Text style={styles.errorText}>{state.message}</Text>
-              <Pressable accessibilityHint="Tries again" accessibilityRole="button" onPress={retry} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+              <Pressable accessibilityHint="Tries again" accessibilityRole="button" hitSlop={6} onPress={retry} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
                 <Text style={styles.textButtonLabel}>Retry</Text>
               </Pressable>
             </View>
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
   body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
   section: { gap: 14 },
-  textButton: { minHeight: 44, justifyContent: 'center' },
+  textButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   dangerLink: { color: '#E37D6A', fontSize: 13, fontWeight: '600' },

@@ -125,6 +125,7 @@
 * The first onboarding step asks for the user’s larger desired outcome.
 * The goal supplies meaning; the controllable behavior is defined in the following step.
 * The brand concept experiment validated semantic haptics and restrained motion, but its UI layout was not approved as production design.
+* Interaction rule: a user should be able to predict what will happen from where they touch. If an entire row is tappable, the row must visually communicate that it is a control (a border, background, or pill). If only text looks interactive, only the text plus a reasonable touch margin should trigger it — no large invisible hitboxes.
 
 ## Current scope
 
