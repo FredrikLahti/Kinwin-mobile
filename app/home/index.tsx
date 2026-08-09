@@ -27,6 +27,20 @@ function greetingWord() {
   return 'Good evening';
 }
 
+// A period that hasn't started yet is a real, expected state (every
+// activation's first period starts at the next local midnight — see
+// docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules" — never the
+// activation instant itself, so this is normal on activation day, not an
+// error). "Not started yet." alone reads as broken; naming the actual start
+// date answers "what do I need to do now?" honestly: nothing, yet.
+function formatUpcomingStart(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 export default function HomeV2() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
@@ -89,7 +103,13 @@ export default function HomeV2() {
                   {demoEnabled ? demoTodayChallenge.name : real.status === 'ready' ? real.view.promise : ''}
                 </Text>
                 <Text style={styles.progressLine}>
-                  {demoEnabled ? demoTodayChallenge.progressLine : real.status === 'ready' ? real.view.currentPeriodCopy : ''}
+                  {demoEnabled
+                    ? demoTodayChallenge.progressLine
+                    : real.status === 'ready'
+                      ? (real.view.currentPeriodStatus.kind === 'upcoming' && focusPeriod
+                          ? `Starts ${formatUpcomingStart(focusPeriod.startsAt)}`
+                          : real.view.currentPeriodCopy)
+                      : ''}
                 </Text>
                 {demoEnabled ? (
                   <ProgressDotsV2 filled={demoTodayChallenge.filled} total={demoTodayChallenge.total} />

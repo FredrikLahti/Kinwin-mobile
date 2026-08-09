@@ -27,6 +27,17 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   wellness: 'Wellness',
 };
 
+// Makes an already-authorized commitment's status unmistakable about *why*
+// activating it below won't ask for a card again — a real, dated prior
+// authorization, not a bypass.
+function formatAuthorizedDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 // Every state a signed-in user can be in on this screen. 'summary' is the
 // only one that can reach 'confirmCancel'/'canceling'; those both carry the
 // same commitment back so the screen never loses it while the user is
@@ -344,7 +355,7 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
         label="CURRENT STATUS"
         value={
           commitment.authorizationStatus === 'authorized'
-            ? 'Payment method ready. No charge has been made — final activation is still required.'
+            ? `Payment method saved${commitment.authorizedAt ? ` on ${formatAuthorizedDate(commitment.authorizedAt)}` : ''}. No charge has been made — activating below reuses this saved method rather than asking again.`
             : 'Pending — payment setup and final activation are still required.'
         }
       />
