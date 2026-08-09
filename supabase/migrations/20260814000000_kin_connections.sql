@@ -9,12 +9,17 @@ alter table public.profiles add column kin_code text unique;
 
 -- 8 chars from a 32-symbol alphabet with 0/O/1/I/l removed (easy to read
 -- aloud or re-type by hand when sharing a code with a friend in person).
+-- floor(), not a bare ::integer cast -- casting a real to integer in
+-- Postgres ROUNDS to nearest rather than truncating, so random()*32 could
+-- occasionally round up to 32 and produce an out-of-range substr() start
+-- position (silently returning '' for that character instead of erroring,
+-- shortening the code below 8 chars). floor() always yields 0..31.
 create or replace function private.generate_kin_code()
 returns text
 language sql
 set search_path = ''
 as $$
-  select string_agg(substr('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', (random() * 32)::integer + 1, 1), '')
+  select string_agg(substr('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', floor(random() * 32)::integer + 1, 1), '')
   from generate_series(1, 8);
 $$;
 
