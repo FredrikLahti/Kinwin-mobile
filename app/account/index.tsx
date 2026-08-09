@@ -95,7 +95,7 @@ export default function AccountScreen() {
       return;
     }
     onboarding.resetDraft();
-    router.push('/create/goal' as Href);
+    router.push('/create/intro' as Href);
   };
 
   const handleSignOut = async () => {

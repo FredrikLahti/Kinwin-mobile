@@ -42,12 +42,13 @@ export function ChoiceListV2<T extends string>({ layout = 'stack', onChange, opt
               pressed && styles.optionPressed,
             ]}
           >
-            <Text numberOfLines={layout === 'row' ? 2 : undefined} style={[styles.label, selected && styles.labelSelected]}>
+            <Text style={[styles.label, layout === 'row' && styles.labelRow, selected && styles.labelSelected]}>
               {option.label}
             </Text>
             {option.description && (
               <Text style={[styles.description, selected && styles.descriptionSelected]}>{option.description}</Text>
             )}
+            {layout === 'row' && <View aria-hidden style={[styles.rowIndicator, selected && styles.rowIndicatorSelected]} />}
           </Pressable>
         );
       })}
@@ -68,14 +69,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  optionRow: { flex: 1, alignItems: 'center' },
+  optionRow: { flex: 1, minHeight: 76, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, gap: 8 },
   optionSelected: {
     borderColor: theme.colors.crimson,
     backgroundColor: theme.colors.crimsonSurface,
   },
   optionPressed: { backgroundColor: theme.colors.surfaceFocused },
   label: { color: theme.colors.ivoryMuted, fontSize: 15, fontWeight: '700' },
+  labelRow: { fontSize: 14, textAlign: 'center' },
   labelSelected: { color: theme.colors.ivory },
   description: { marginTop: 3, color: theme.colors.warmGrey, fontSize: 12, lineHeight: 17 },
   descriptionSelected: { color: theme.colors.ivoryMuted },
+  rowIndicator: { width: 16, height: 3, borderRadius: 2, backgroundColor: 'transparent' },
+  rowIndicatorSelected: { backgroundColor: theme.colors.crimsonBright },
 });

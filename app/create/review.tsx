@@ -272,34 +272,25 @@ export default function CreateReviewScreen() {
           </View>
         )
       }
-      headline="Review your promise."
+      headline="Review your challenge"
       onBack={() => router.back()}
       progressLabel="Step 7 of 7: review"
-      supportingCopy="One challenge. Two clear outcomes. Nothing is charged or activated on this screen."
       totalSteps={7}
     >
       <View style={styles.recap}>
-        <Text style={styles.recapLabel}>YOUR CHALLENGE</Text>
         {goal.trim().length > 0 && <Text style={styles.goalText}>{goal.trim()}</Text>}
-        <Text style={styles.recapText}>{successRule?.challengeSummary ?? 'Complete the earlier steps.'}</Text>
-        <View style={styles.recapDivider} />
-        <Text style={styles.recapLabel}>SUCCESS MEANS</Text>
-        <Text style={styles.recapText}>{successRule?.overall ?? 'Meeting the success rule you set.'}</Text>
+        <Text style={styles.recapText}>{successRule?.overall ?? 'Complete the earlier steps.'}</Text>
       </View>
 
-      <View style={styles.futures}>
-        <View style={styles.futureCard}>
-          <Text style={styles.futureLabelKeep}>IF YOU SUCCEED</Text>
-          <Text style={styles.futureTitle}>You keep the change.</Text>
-          <Text style={styles.futureText}>Nothing is charged.</Text>
+      <View style={styles.outcomes}>
+        <View style={styles.outcomeRow}>
+          <Text style={styles.outcomeLabel}>Success</Text>
+          <Text style={styles.outcomeValue}>Pay nothing</Text>
         </View>
-        <View style={[styles.futureCard, styles.futureCardWin]}>
-          <Text style={styles.futureLabelWin}>IF IT FAILS</Text>
-          <Text style={styles.futureTitle}>They receive the experience.</Text>
-          <Text style={styles.futureText}>
-            {formattedStake && categoryLabel
-              ? `${formattedStake} funds one shared ${categoryLabel.toLowerCase()} reward for ${recipientNamesText}.`
-              : 'Your stake funds one shared reward.'}
+        <View style={[styles.outcomeRow, styles.outcomeRowLast]}>
+          <Text style={styles.outcomeLabel}>Missed challenge</Text>
+          <Text style={styles.outcomeValue}>
+            {formattedStake ? `${recipientNamesText} get ${formattedStake}` : `${recipientNamesText} get the reward`}
           </Text>
         </View>
       </View>
@@ -389,20 +380,13 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2, borderLeftColor: theme.colors.crimson, backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.precise, paddingHorizontal: 16, paddingVertical: 14,
   },
-  recapLabel: { color: theme.colors.crimsonBright, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  goalText: { marginTop: 6, color: theme.colors.ivory, fontSize: 17, fontWeight: '700', lineHeight: 22 },
+  goalText: { color: theme.colors.ivory, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   recapText: { marginTop: 5, color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
-  recapDivider: { height: 1, marginVertical: 12, backgroundColor: theme.colors.structureLine },
-  futures: { flexDirection: 'row', gap: 8 },
-  futureCard: {
-    flex: 1, minHeight: 116, borderRadius: theme.radius.controlled, borderWidth: 1,
-    borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, padding: 14,
-  },
-  futureCardWin: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
-  futureLabelKeep: { color: theme.colors.warmGrey, fontSize: 8, fontWeight: '800', letterSpacing: 1 },
-  futureLabelWin: { color: theme.colors.crimsonBright, fontSize: 8, fontWeight: '800', letterSpacing: 1 },
-  futureTitle: { marginTop: 8, color: theme.colors.ivory, fontSize: 14, fontWeight: '700', lineHeight: 19 },
-  futureText: { marginTop: 6, color: theme.colors.ivoryMuted, fontSize: 11, lineHeight: 16 },
+  outcomes: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
+  outcomeRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
+  outcomeRowLast: { borderBottomWidth: 0 },
+  outcomeLabel: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
+  outcomeValue: { flex: 1, marginLeft: 12, color: theme.colors.ivory, fontSize: 13, fontWeight: '700', textAlign: 'right' },
   summaryTable: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
   summaryRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
   summaryRowLast: { borderBottomWidth: 0 },

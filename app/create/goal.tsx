@@ -44,27 +44,24 @@ export default function CreateGoalScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="What do you want to change?"
+      headline="What’s your goal?"
       onBack={() => router.back()}
       progressLabel="Step 1 of 7: goal"
-      supportingCopy="Start with the outcome that matters to you. Next, you'll turn it into a promise you can control."
       totalSteps={7}
     >
       <View style={[styles.field, focused && styles.fieldFocused]}>
-        <Text style={styles.fieldLabel}>I want to…</Text>
         <TextInput
-          accessibilityLabel="I want to"
+          accessibilityLabel="Your goal"
           autoCapitalize="sentences"
+          autoFocus
           maxLength={GOAL_MAX_LENGTH}
-          multiline
           onBlur={() => setFocused(false)}
           onChangeText={setGoal}
           onFocus={() => setFocused(true)}
-          placeholder="Feel stronger and more confident"
+          placeholder="Feel stronger"
           placeholderTextColor={theme.colors.warmGrey}
           selectionColor={theme.colors.crimsonBright}
           style={styles.input}
-          textAlignVertical="top"
           value={goal}
         />
         {goal.length >= 100 && <Text style={styles.counter}>{goal.length}/{GOAL_MAX_LENGTH}</Text>}
@@ -96,16 +93,12 @@ export default function CreateGoalScreen() {
 
 const styles = StyleSheet.create({
   field: {
-    minHeight: 120, borderRadius: theme.radius.controlled, borderWidth: 1,
+    minHeight: 64, justifyContent: 'center', borderRadius: theme.radius.controlled, borderWidth: 1,
     borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 18, paddingTop: 14, paddingBottom: 10,
+    paddingHorizontal: 18, paddingVertical: 10,
   },
   fieldFocused: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.surfaceRaised },
-  fieldLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '600' },
-  input: {
-    marginTop: 10, minHeight: 60, color: theme.colors.ivory, fontSize: 22, lineHeight: 29,
-    paddingHorizontal: 0, paddingVertical: 0,
-  },
+  input: { color: theme.colors.ivory, fontSize: 21, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
   counter: { marginTop: 6, color: theme.colors.warmGrey, fontSize: 11, textAlign: 'right' },
   examples: { gap: 10 },
   examplesLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },

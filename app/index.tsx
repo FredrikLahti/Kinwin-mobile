@@ -42,7 +42,7 @@ export default function HomeScreen() {
             <PrimaryButton
               accessibilityHint="Opens the first Kinwin onboarding step"
               label="Start"
-              onPress={() => router.push('/create/goal' as Href)}
+              onPress={() => router.push('/create/intro' as Href)}
             />
             <Pressable
               accessibilityHint="Opens the internal Kin social prototype, using local preview data only"

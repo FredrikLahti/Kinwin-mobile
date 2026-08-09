@@ -68,10 +68,9 @@ export default function CreateDurationScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="How long will you hold it?"
+      headline="For how long?"
       onBack={() => router.back()}
       progressLabel="Step 4 of 7: duration"
-      supportingCopy="Choose long enough to matter, but short enough to stay real."
       totalSteps={7}
     >
       <View style={styles.durationRow}>
@@ -135,9 +134,6 @@ export default function CreateDurationScreen() {
 
       {rule && (
         <View style={styles.summary}>
-          <Text style={styles.summaryLabel}>YOUR CHALLENGE</Text>
-          <Text style={styles.summaryText}>{rule.challengeSummary}</Text>
-          <View style={styles.summaryDivider} />
           <Text style={styles.summaryLabel}>SUCCESS MEANS</Text>
           <Text style={styles.summaryText}>{rule.overall}</Text>
         </View>
@@ -185,5 +181,4 @@ const styles = StyleSheet.create({
   },
   summaryLabel: { color: theme.colors.crimsonBright, fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
   summaryText: { marginTop: 5, color: theme.colors.ivory, fontSize: 15, lineHeight: 21 },
-  summaryDivider: { height: 1, marginVertical: 12, backgroundColor: theme.colors.structureLine },
 });

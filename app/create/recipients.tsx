@@ -80,10 +80,9 @@ export default function CreateRecipientsScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="Who should win if you don't?"
+      headline="Who gets the reward?"
       onBack={() => router.back()}
       progressLabel="Step 6 of 7: loved ones"
-      supportingCopy="Choose 1–4 people you care about, and one adult who will organize the reward."
       totalSteps={7}
     >
       <View style={styles.section}>
@@ -129,8 +128,7 @@ export default function CreateRecipientsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>REWARD ORGANIZER</Text>
-        <Text style={styles.sectionHelper}>One adult who receives the reward details and arranges the experience.</Text>
+        <Text style={styles.sectionLabel}>ORGANIZER</Text>
         <View style={styles.organizerList}>
           {recipientChoices.map((recipient) => {
             const selected = rewardOrganizer?.type === 'recipient' && rewardOrganizer.recipientId === recipient.id;
@@ -177,7 +175,6 @@ export default function CreateRecipientsScreen() {
 const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
-  sectionHelper: { marginTop: -4, color: theme.colors.ivoryMuted, fontSize: 12, lineHeight: 17 },
   recipientList: { gap: 8 },
   recipientRow: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,

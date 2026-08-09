@@ -1,15 +1,13 @@
 import * as Linking from 'expo-linking';
-import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
-import { formatRecipientNames } from '@/components/share/recipient-promise-page';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
-import { ExperienceCategory } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readStripeConfig } from '@/lib/stripe/config';
@@ -19,15 +17,6 @@ import { derivePaymentSetupAvailability } from '@/lib/stripe/payment-setup-avail
 import { pollForAuthorization } from '@/lib/stripe/poll-authorization';
 import { fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
 import { createConsequenceSetupIntent } from '@/lib/supabase/consequence-setup-repository';
-import { calculateSuccessRule } from '@/lib/success-rule';
-
-const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
-  adventure: 'Adventure',
-  culture: 'Culture',
-  dinner: 'Dinner',
-  getaway: 'Getaway',
-  wellness: 'Wellness',
-};
 
 type SetupMode = 'initial' | 'replace';
 
@@ -37,7 +26,10 @@ type SetupMode = 'initial' | 'replace';
 // itself is a native modal that blocks the screen underneath while it is
 // up, so commitment cancellation (which lives only on the pending-commitment
 // screen) is structurally unreachable during 'presenting' — there is no
-// separate flag to manage for that requirement.
+// separate flag to manage for that requirement. There is no 'ready' state:
+// once authorized, this screen hands off to /account/pending-commitment
+// immediately rather than showing its own confirmation — saving a card is
+// an infrastructure step, not a moment to linger on.
 type ScreenState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'none' }
@@ -45,7 +37,6 @@ type ScreenState =
   | { readonly kind: 'consent'; readonly commitment: PendingCommitment; readonly mode: SetupMode }
   | { readonly kind: 'presenting'; readonly commitment: PendingCommitment; readonly mode: SetupMode }
   | { readonly kind: 'verifying'; readonly commitment: PendingCommitment; readonly timedOut: boolean; readonly checking: boolean }
-  | { readonly kind: 'ready'; readonly commitment: PendingCommitment }
   | { readonly kind: 'error'; readonly commitment: PendingCommitment | null; readonly message: string };
 
 export default function PaymentSetupScreen() {
@@ -54,6 +45,10 @@ export default function PaymentSetupScreen() {
   const { user } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const { handleURLCallback } = useStripe();
+  // Only relevant when a card is already saved: opened from pending-commitment's
+  // "Change payment method" link, which is the one case that should go straight
+  // to consent instead of being redirected away as already-done.
+  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
 
   const [state, setState] = useState<ScreenState>({ kind: 'loading' });
   const [acknowledged, setAcknowledged] = useState(false);
@@ -80,14 +75,16 @@ export default function PaymentSetupScreen() {
       return;
     }
     setAcknowledged(false);
-    if (result.commitment.authorizationStatus === 'authorized') {
-      setState({ kind: 'ready', commitment: result.commitment });
-    } else if (availability.kind !== 'available') {
+    if (result.commitment.authorizationStatus === 'authorized' && modeParam !== 'replace') {
+      router.replace('/account/pending-commitment' as Href);
+      return;
+    }
+    if (availability.kind !== 'available') {
       setState({ kind: 'unavailable', reason: availability.reason, commitment: result.commitment });
     } else {
-      setState({ kind: 'consent', commitment: result.commitment, mode: 'initial' });
+      setState({ kind: 'consent', commitment: result.commitment, mode: modeParam === 'replace' ? 'replace' : 'initial' });
     }
-  }, [availability, user]);
+  }, [availability, modeParam, router, user]);
 
   // Re-derives from the server every time this screen gains focus — reopening
   // after backgrounding, navigating away and back, or a delayed webhook must
@@ -119,7 +116,7 @@ export default function PaymentSetupScreen() {
           return { authorized: true };
         }
         if (result.commitment.authorizationStatus === 'authorized') {
-          setState({ kind: 'ready', commitment: result.commitment });
+          router.replace('/account/pending-commitment' as Href);
           return { authorized: true };
         }
         const commitment = result.commitment;
@@ -131,7 +128,7 @@ export default function PaymentSetupScreen() {
     if (outcome === 'timeout' && activeRef.current) {
       setState((previous) => (previous.kind === 'verifying' ? { ...previous, timedOut: true } : previous));
     }
-  }, [user]);
+  }, [router, user]);
 
   const startPaymentSheet = useCallback(async (commitment: PendingCommitment, mode: SetupMode) => {
     if (!user) return;
@@ -186,17 +183,6 @@ export default function PaymentSetupScreen() {
     void startPaymentSheet(state.commitment, state.mode);
   };
 
-  const startReplacement = () => {
-    if (state.kind !== 'ready') return;
-    void playSelectionHaptic();
-    setAcknowledged(false);
-    if (availability.kind !== 'available') {
-      setState({ kind: 'unavailable', reason: availability.reason, commitment: state.commitment });
-      return;
-    }
-    setState({ kind: 'consent', commitment: state.commitment, mode: 'replace' });
-  };
-
   const checkAgain = useCallback(async () => {
     if (state.kind !== 'verifying' || !user) return;
     setState((previous) => (previous.kind === 'verifying' ? { ...previous, checking: true } : previous));
@@ -211,11 +197,11 @@ export default function PaymentSetupScreen() {
       return;
     }
     if (result.commitment.authorizationStatus === 'authorized') {
-      setState({ kind: 'ready', commitment: result.commitment });
+      router.replace('/account/pending-commitment' as Href);
       return;
     }
     setState({ kind: 'verifying', commitment: result.commitment, timedOut: true, checking: false });
-  }, [state, user]);
+  }, [router, state, user]);
 
   const retry = () => {
     void playSelectionHaptic();
@@ -223,11 +209,6 @@ export default function PaymentSetupScreen() {
   };
 
   const goBack = () => {
-    void playSelectionHaptic();
-    router.back();
-  };
-
-  const doneForNow = () => {
     void playSelectionHaptic();
     router.back();
   };
@@ -256,12 +237,7 @@ export default function PaymentSetupScreen() {
             <Text style={styles.wordmark}>KINWIN</Text>
           </View>
 
-          <View style={styles.intro}>
-            <Text style={styles.phaseLabel}>PAYMENT SETUP</Text>
-            <Text accessibilityRole="header" style={styles.headline}>
-              {state.kind === 'ready' ? 'Payment method ready' : 'Save a payment method'}
-            </Text>
-          </View>
+          <Text accessibilityRole="header" style={styles.headline}>Add payment method</Text>
 
           {state.kind === 'loading' && (
             <Text accessibilityLiveRegion="polite" style={styles.body}>Checking your commitment…</Text>
@@ -283,16 +259,17 @@ export default function PaymentSetupScreen() {
             </View>
           )}
 
-          {(state.kind === 'consent' || state.kind === 'presenting' || state.kind === 'unavailable') && (
-            <ConsentSummary commitment={state.commitment} mode={state.kind === 'consent' || state.kind === 'presenting' ? state.mode : 'initial'} />
-          )}
-
           {state.kind === 'consent' && (
             <View style={styles.section}>
+              <Text style={styles.stakeLine}>
+                {state.commitment.stakeMinorUnits > 0
+                  ? `$${(state.commitment.stakeMinorUnits / 100).toLocaleString('en-US')} may be charged to this card if the challenge fails.`
+                  : 'This card may be charged if the challenge fails.'}
+              </Text>
               <DisclosureList />
 
               <Pressable
-                accessibilityLabel="I understand and accept how my saved card may be used, as described above"
+                accessibilityLabel="I understand and accept how my saved card may be used"
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: acknowledged }}
                 hitSlop={3}
@@ -302,15 +279,13 @@ export default function PaymentSetupScreen() {
                 <View aria-hidden style={[styles.acknowledgementMark, acknowledged && styles.acknowledgementMarkSelected]}>
                   <Text style={styles.acknowledgementCheck}>{acknowledged ? '✓' : ''}</Text>
                 </View>
-                <Text style={styles.acknowledgementText}>
-                  I understand and accept how my saved card may be used, as described above.
-                </Text>
+                <Text style={styles.acknowledgementText}>I understand and accept this.</Text>
               </Pressable>
 
               <PrimaryButtonV2
                 accessibilityHint="Opens Stripe's secure payment form to save a card"
                 disabled={!acknowledged}
-                label={state.mode === 'replace' ? 'Continue to update payment' : 'Continue to payment'}
+                label={state.mode === 'replace' ? 'Update card' : 'Continue to Stripe'}
                 onPress={continueToPaymentSheet}
                 reducedMotion={reducedMotion}
               />
@@ -336,7 +311,7 @@ export default function PaymentSetupScreen() {
               <Text accessibilityLiveRegion="polite" style={styles.body}>
                 {state.timedOut
                   ? 'Still verifying with Stripe. This can take a little longer than usual — you can check again, or leave and come back later; your progress is saved.'
-                  : 'Stripe confirmed the card step. Kinwin is now waiting for the server to confirm the payment method is saved — this usually takes a few seconds.'}
+                  : 'Confirming your card was saved — this usually takes a few seconds.'}
               </Text>
               {state.timedOut && (
                 <Pressable
@@ -349,32 +324,6 @@ export default function PaymentSetupScreen() {
                   <Text style={styles.textButtonLabel}>{state.checking ? 'Checking…' : 'Check again'}</Text>
                 </Pressable>
               )}
-            </View>
-          )}
-
-          {state.kind === 'ready' && (
-            <View style={styles.section}>
-              <View style={styles.readyNotice}>
-                <View aria-hidden style={styles.readyMark} />
-                <Text style={styles.readyText}>
-                  Your payment method is saved for this commitment. No charge has been made. This challenge
-                  still needs final activation, which is a separate later step.
-                </Text>
-              </View>
-              <PrimaryButtonV2
-                accessibilityHint="Returns to your pending commitment"
-                label="Done for now"
-                onPress={doneForNow}
-                reducedMotion={reducedMotion}
-              />
-              <Pressable
-                accessibilityHint="Starts saving a different payment method for this commitment"
-                accessibilityRole="button"
-                onPress={startReplacement}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>Change payment method</Text>
-              </Pressable>
             </View>
           )}
 
@@ -397,50 +346,15 @@ export default function PaymentSetupScreen() {
   );
 }
 
-function ConsentSummary({ commitment, mode }: { readonly commitment: PendingCommitment; readonly mode: SetupMode }) {
-  const successRule = calculateSuccessRule({
-    ...commitment.draftData,
-    rhythm: { ...commitment.draftData.rhythm, selectedWeekdays: [...commitment.draftData.rhythm.selectedWeekdays] },
-  });
-  const categoryLabel = commitment.draftData.experienceCategory ? CATEGORY_LABELS[commitment.draftData.experienceCategory] : 'Not set';
-  const organizer = commitment.recipients.find((recipient) => recipient.isOrganizer);
-  const recipientNames = commitment.recipients.map((recipient) => recipient.displayName);
-  const stakeLabel = `$${(commitment.stakeMinorUnits / 100).toLocaleString('en-US')} ${commitment.currency}`;
-
-  return (
-    <View style={styles.summary}>
-      <View style={styles.lockedNotice}>
-        <View aria-hidden style={styles.lockedMark} />
-        <Text style={styles.lockedText}>
-          {mode === 'replace'
-            ? 'Your currently saved payment method stays active and usable until Stripe confirms the new one — nothing is disabled while you set up a replacement.'
-            : 'This is what you are saving a payment method for:'}
-        </Text>
-      </View>
-
-      <SummaryRow label="STAKE" value={stakeLabel} />
-      <SummaryRow label="CONSEQUENCE CATEGORY" value={categoryLabel} />
-      <SummaryRow
-        label="RECIPIENT"
-        value={`${formatRecipientNames(recipientNames)}${organizer ? ` · Organizer: ${organizer.displayName}` : ''}`}
-      />
-      <SummaryRow label="TRIGGERS A CHARGE IF" value={successRule?.overall ?? successRule?.challengeSummary ?? 'This locked challenge fails.'} />
-    </View>
-  );
-}
-
-// The data list docs/PRODUCT_DECISIONS.md's "Consequence payment setup" section
+// The points docs/PRODUCT_DECISIONS.md's "Consequence payment setup" section
 // requires the consent screen to convey — plain product copy, not approved legal
 // wording (see that section's own caveat: final consent copy requires legal review
 // before shipping).
 const DISCLOSURE_POINTS: readonly string[] = [
   'No money is charged now.',
-  'Your card is saved securely with Stripe for possible later use.',
-  'If this locked challenge is determined to have failed, the stake shown above may be charged to this card.',
-  'That charge can happen automatically, even while you are not using Kinwin.',
-  'This card is saved only for this commitment — not for any other purpose.',
-  'Saving a payment method does not activate this challenge.',
-  'Final activation and your Kinwin membership are separate, still-future steps.',
+  'Your card is saved securely with Stripe.',
+  'A charge can happen automatically, even while you’re not using Kinwin.',
+  'This card is used only for this commitment.',
 ];
 
 function DisclosureList() {
@@ -456,21 +370,12 @@ function DisclosureList() {
   );
 }
 
-function SummaryRow({ label, value }: { readonly label: string; readonly value: string }) {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: theme.colors.ink },
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 20,
   },
   header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
   backButton: {
@@ -480,51 +385,30 @@ const styles = StyleSheet.create({
   backButtonPressed: { backgroundColor: theme.colors.surface },
   backIcon: { color: theme.colors.crimsonBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
   wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
-  intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.crimson, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700' },
   body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
-  section: { gap: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
+  section: { gap: 16 },
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
-  summary: { gap: 16 },
-  lockedNotice: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.structureLine,
-    backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
-  },
-  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimson },
-  lockedText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 11, lineHeight: 17 },
-  summaryRow: {
-    gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
-  },
-  summaryLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  summaryValue: { color: theme.colors.ivory, fontSize: 14, lineHeight: 20 },
-  disclosureList: { gap: 10 },
+  stakeLine: { color: theme.colors.ivory, fontSize: 16, fontWeight: '600', lineHeight: 22 },
+  disclosureList: { gap: 9 },
   disclosureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   disclosureMark: { width: 4, height: 4, marginTop: 7, borderRadius: 2, backgroundColor: theme.colors.crimson },
   disclosureText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   acknowledgement: {
-    minHeight: 88, flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+    minHeight: 56, flexDirection: 'row', alignItems: 'center', borderWidth: 1,
     borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 15, paddingVertical: 14,
+    borderRadius: theme.radius.controlled, paddingHorizontal: 15, paddingVertical: 12, gap: 12,
   },
   acknowledgementSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.surfaceRaised },
   acknowledgementPressed: { backgroundColor: theme.colors.surfaceFocused },
   acknowledgementMark: {
-    width: 26, height: 26, alignItems: 'center', justifyContent: 'center', marginRight: 13,
-    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: 3, backgroundColor: theme.colors.ink,
+    width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: 4, backgroundColor: theme.colors.ink,
   },
   acknowledgementMarkSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.oxbloodDeep },
-  acknowledgementCheck: { color: theme.colors.crimsonBright, fontSize: 15, fontWeight: '800' },
-  acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600', lineHeight: 19 },
-  readyNotice: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.crimson,
-    backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
-  },
-  readyMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimsonBright },
-  readyText: { flex: 1, color: theme.colors.ivory, fontSize: 13, lineHeight: 19 },
+  acknowledgementCheck: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '800' },
+  acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600' },
 });

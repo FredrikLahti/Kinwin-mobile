@@ -4,11 +4,11 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
-import { formatRecipientNames } from '@/components/share/recipient-promise-page';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
-import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
+import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import {
@@ -19,38 +19,25 @@ import {
 import { activateChallenge } from '@/lib/supabase/active-challenge-repository';
 import { calculateSuccessRule } from '@/lib/success-rule';
 
-const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
-  adventure: 'Adventure',
-  culture: 'Culture',
-  dinner: 'Dinner',
-  getaway: 'Getaway',
-  wellness: 'Wellness',
-};
-
-// Makes an already-authorized commitment's status unmistakable about *why*
-// activating it below won't ask for a card again — a real, dated prior
-// authorization, not a bypass.
-function formatAuthorizedDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  } catch {
-    return '';
-  }
+function formatNames(names: string[]) {
+  if (names.length === 0) return 'your recipients';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
-// Every state a signed-in user can be in on this screen. 'summary' is the
-// only one that can reach 'confirmCancel'/'canceling'; those both carry the
-// same commitment back so the screen never loses it while the user is
-// deciding. Payment setup itself is a dedicated route
-// (app/account/payment-setup.tsx), not a state here.
+// Every state a signed-in user can be in on this screen. Payment setup
+// itself is a dedicated route (app/account/payment-setup.tsx), not a state
+// here. Cancellation confirmation is a bottom sheet layered over 'summary',
+// not a separate screen state — the underlying commitment never disappears
+// while the user is deciding.
 type ScreenState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'none' }
   | { readonly kind: 'summary'; readonly commitment: PendingCommitment }
-  | { readonly kind: 'confirmCancel'; readonly commitment: PendingCommitment }
-  | { readonly kind: 'canceling'; readonly commitment: PendingCommitment }
+  | { readonly kind: 'canceling' }
   | { readonly kind: 'canceled' }
-  | { readonly kind: 'error'; readonly message: string; readonly retry: 'load' | 'cancel'; readonly commitment: PendingCommitment | null };
+  | { readonly kind: 'error'; readonly message: string };
 
 export default function PendingCommitmentScreen() {
   const router = useRouter();
@@ -58,33 +45,34 @@ export default function PendingCommitmentScreen() {
   const { user } = useAuth();
   const onboarding = useOnboarding();
   const [state, setState] = useState<ScreenState>({ kind: 'loading' });
-  // Separate from `state` (rather than a new ScreenState kind) because
-  // activation happens from the same 'summary' screen the founder is
-  // already looking at — there is no separate confirm step the way
-  // cancellation has one, so this only needs a lightweight in-place status.
   const [activation, setActivation] = useState<{ status: 'idle' | 'activating' | 'error'; message?: string }>({ status: 'idle' });
+  const [cancelSheetOpen, setCancelSheetOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!user) return;
     setState({ kind: 'loading' });
     const result = await fetchPendingCommitment(user.id);
     if (!result.ok) {
-      const message = 'message' in result ? result.message : 'Sign in to see your pending commitment.';
-      setState({ kind: 'error', message, retry: 'load', commitment: null });
+      const message = 'message' in result ? result.message : 'Sign in to see your commitment.';
+      setState({ kind: 'error', message });
       return;
     }
     setState(result.commitment ? { kind: 'summary', commitment: result.commitment } : { kind: 'none' });
   }, [user]);
 
   // Refetches every time this screen gains focus (not just on first mount),
-  // so returning here after canceling elsewhere, or after a later payment
-  // step exists, never shows a stale commitment.
+  // so returning here after payment setup or canceling elsewhere never shows
+  // a stale commitment.
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const continueSetup = () => {
-    if (state.kind !== 'summary') return;
+  const openPaymentSetup = () => {
     void playSelectionHaptic();
     router.push('/account/payment-setup' as Href);
+  };
+
+  const changePaymentMethod = () => {
+    void playSelectionHaptic();
+    router.push('/account/payment-setup?mode=replace' as Href);
   };
 
   // The device's own IANA timezone is the one piece of information
@@ -107,24 +95,19 @@ export default function PendingCommitmentScreen() {
     router.replace('/home' as Href);
   }, [router, user]);
 
-  const askToCancel = () => {
-    if (state.kind !== 'summary') return;
+  const openCancelSheet = () => {
     void playSelectionHaptic();
-    setState({ kind: 'confirmCancel', commitment: state.commitment });
-  };
-
-  const abortCancel = (commitment: PendingCommitment) => {
-    void playSelectionHaptic();
-    setState({ kind: 'summary', commitment });
+    setCancelSheetOpen(true);
   };
 
   const confirmCancel = useCallback(async (commitment: PendingCommitment) => {
     if (!user) return;
-    setState({ kind: 'canceling', commitment });
+    setCancelSheetOpen(false);
+    setState({ kind: 'canceling' });
     const result = await cancelPendingChallenge(commitment.challengeId, user.id);
     if (!result.ok) {
-      const message = 'message' in result ? result.message : 'Sign in to cancel your pending commitment.';
-      setState({ kind: 'error', message, retry: 'cancel', commitment });
+      const message = 'message' in result ? result.message : 'Sign in to cancel your commitment.';
+      setState({ kind: 'error', message });
       return;
     }
     void playImportantHaptic();
@@ -137,24 +120,21 @@ export default function PendingCommitmentScreen() {
 
   const retry = () => {
     void playSelectionHaptic();
-    if (state.kind !== 'error') return;
-    if (state.retry === 'cancel' && state.commitment) {
-      void confirmCancel(state.commitment);
-      return;
-    }
     void load();
   };
 
   const startNewDraft = () => {
     void playImportantHaptic();
     onboarding.resetDraft();
-    router.replace('/create/goal' as Href);
+    router.replace('/create/intro' as Href);
   };
 
   const goBack = () => {
     void playSelectionHaptic();
     router.back();
   };
+
+  const commitment = state.kind === 'summary' ? state.commitment : null;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -163,7 +143,7 @@ export default function PendingCommitmentScreen() {
         <View style={styles.content}>
           <View style={styles.header}>
             <Pressable
-              accessibilityHint="Returns to your account"
+              accessibilityHint="Returns to Home"
               accessibilityLabel="Go back"
               accessibilityRole="button"
               hitSlop={8}
@@ -175,146 +155,104 @@ export default function PendingCommitmentScreen() {
             <Text style={styles.wordmark}>KINWIN</Text>
           </View>
 
-          <View style={styles.intro}>
-            <Text style={styles.phaseLabel}>PENDING COMMITMENT</Text>
-            <Text accessibilityRole="header" style={styles.headline}>
-              {state.kind === 'canceled' ? 'Commitment canceled' : 'Your pending commitment'}
-            </Text>
-          </View>
+          <Text accessibilityRole="header" style={styles.headline}>
+            {state.kind === 'canceled' ? 'Commitment canceled' : 'Your commitment'}
+          </Text>
 
           {state.kind === 'loading' && (
-            <Text accessibilityLiveRegion="polite" style={styles.body}>Checking your pending commitment…</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.body}>Checking…</Text>
           )}
 
           {state.kind === 'none' && (
             <View style={styles.section}>
-              <Text style={styles.body}>
-                You don&apos;t have a pending commitment yet. Complete setup to create one.
-              </Text>
-              <Pressable
-                accessibilityHint="Starts a new onboarding draft"
-                accessibilityRole="button"
+              <Text style={styles.body}>You don&apos;t have a commitment in progress.</Text>
+              <PrimaryButtonV2
+                accessibilityHint="Starts a new challenge"
+                label="Start a challenge"
                 onPress={startNewDraft}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>Start a new draft</Text>
-              </Pressable>
+                reducedMotion={reducedMotion}
+              />
             </View>
           )}
 
-          {(state.kind === 'summary' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
-            <CommitmentSummary commitment={state.commitment} />
-          )}
+          {commitment && <CommitmentSummary commitment={commitment} />}
 
-          {state.kind === 'summary' && state.commitment.authorizationStatus === 'authorized' && (
+          {commitment && (
             <View style={styles.actions}>
-              <PrimaryButtonV2
-                accessibilityHint="Activates this challenge for real — tracking starts today"
-                disabled={activation.status === 'activating'}
-                label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
-                onPress={() => void activate(state.commitment)}
-                reducedMotion={reducedMotion}
-              />
-              {activation.status === 'error' && (
-                <Text accessibilityLiveRegion="polite" style={styles.errorText}>{activation.message}</Text>
+              {commitment.authorizationStatus === 'authorized' ? (
+                <>
+                  <PrimaryButtonV2
+                    accessibilityHint="Activates this challenge — tracking starts today"
+                    disabled={activation.status === 'activating'}
+                    label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
+                    onPress={() => void activate(commitment)}
+                    reducedMotion={reducedMotion}
+                  />
+                  {activation.status === 'error' && (
+                    <Text accessibilityLiveRegion="polite" style={styles.errorText}>{activation.message}</Text>
+                  )}
+                  <Pressable accessibilityHint="Opens Stripe to save a different card" accessibilityRole="button" onPress={changePaymentMethod} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+                    <Text style={styles.textButtonLabel}>Change payment method</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <PrimaryButtonV2
+                  accessibilityHint="Opens Stripe to save a payment method"
+                  label="Add payment method"
+                  onPress={openPaymentSetup}
+                  reducedMotion={reducedMotion}
+                />
               )}
-              <Pressable
-                accessibilityHint="Opens payment setup to review or change your saved payment method"
-                accessibilityRole="button"
-                onPress={continueSetup}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>Review payment method</Text>
-              </Pressable>
-              <Pressable
-                accessibilityHint="Asks for confirmation before canceling this pending commitment"
-                accessibilityRole="button"
-                onPress={askToCancel}
-                style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
-              >
-                <Text style={styles.dangerButtonLabel}>Cancel commitment</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {state.kind === 'summary' && state.commitment.authorizationStatus !== 'authorized' && (
-            <View style={styles.actions}>
-              <PrimaryButtonV2
-                accessibilityHint="Opens payment setup to save a payment method for this commitment"
-                label="Continue setup"
-                onPress={continueSetup}
-                reducedMotion={reducedMotion}
-              />
-              <Pressable
-                accessibilityHint="Asks for confirmation before canceling this pending commitment"
-                accessibilityRole="button"
-                onPress={askToCancel}
-                style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
-              >
-                <Text style={styles.dangerButtonLabel}>Cancel commitment</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {state.kind === 'confirmCancel' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>CONFIRM CANCELLATION</Text>
-              <Text style={styles.body}>
-                Canceling is only possible before activation — nothing has been charged or activated
-                yet, so this simply ends the commitment. This cannot be undone; you would need to
-                start a new draft to try again.
-              </Text>
-              <PrimaryButtonV2
-                accessibilityHint="Permanently cancels this pending commitment"
-                label="Yes, cancel commitment"
-                onPress={() => void confirmCancel(state.commitment)}
-                reducedMotion={reducedMotion}
-              />
-              <Pressable
-                accessibilityHint="Keeps the pending commitment and returns to the summary"
-                accessibilityRole="button"
-                onPress={() => abortCancel(state.commitment)}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>No, keep it</Text>
+              <Pressable accessibilityHint="Cancels this commitment" accessibilityRole="button" onPress={openCancelSheet} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+                <Text style={styles.dangerLink}>Cancel commitment</Text>
               </Pressable>
             </View>
           )}
 
           {state.kind === 'canceling' && (
-            <Text accessibilityLiveRegion="polite" style={styles.body}>Canceling your commitment…</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.body}>Canceling…</Text>
           )}
 
           {state.kind === 'canceled' && (
             <View style={styles.section}>
-              <Text style={styles.body}>
-                This commitment has been canceled. The record is kept for your history, but it no
-                longer holds a place — you&apos;re free to start a new draft.
-              </Text>
-              <PrimaryButtonV2
-                accessibilityHint="Starts a fresh onboarding draft"
-                label="Start a new draft"
-                onPress={startNewDraft}
-                reducedMotion={reducedMotion}
-              />
+              <Text style={styles.body}>No payment was taken.</Text>
+              <PrimaryButtonV2 accessibilityHint="Starts a fresh challenge" label="Start a new challenge" onPress={startNewDraft} reducedMotion={reducedMotion} />
             </View>
           )}
 
           {state.kind === 'error' && (
             <View style={styles.section}>
               <Text style={styles.errorText}>{state.message}</Text>
-              <Pressable
-                accessibilityHint="Tries the last action again"
-                accessibilityRole="button"
-                onPress={retry}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
+              <Pressable accessibilityHint="Tries again" accessibilityRole="button" onPress={retry} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
                 <Text style={styles.textButtonLabel}>Retry</Text>
               </Pressable>
             </View>
           )}
         </View>
       </ScrollView>
+
+      <BottomSheetV2 onClose={() => setCancelSheetOpen(false)} reducedMotion={reducedMotion} visible={cancelSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Cancel commitment?</Text>
+        <Text style={styles.sheetBody}>This removes the unfinished commitment. No payment will be taken.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Keeps this commitment and closes this sheet"
+            accessibilityRole="button"
+            onPress={() => setCancelSheetOpen(false)}
+            style={({ pressed }) => [styles.keepButton, pressed && styles.keepButtonPressed]}
+          >
+            <Text style={styles.keepButtonLabel}>Keep commitment</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Permanently cancels this commitment"
+            accessibilityRole="button"
+            onPress={() => commitment && void confirmCancel(commitment)}
+            style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
+          >
+            <Text style={styles.destructiveButtonLabel}>Cancel commitment</Text>
+          </Pressable>
+        </View>
+      </BottomSheetV2>
     </SafeAreaView>
   );
 }
@@ -324,50 +262,17 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
     ...commitment.draftData,
     rhythm: { ...commitment.draftData.rhythm, selectedWeekdays: [...commitment.draftData.rhythm.selectedWeekdays] },
   });
-  const categoryLabel = commitment.draftData.experienceCategory
-    ? CATEGORY_LABELS[commitment.draftData.experienceCategory]
-    : 'Not set';
-  const organizer = commitment.recipients.find((recipient) => recipient.isOrganizer);
   const recipientNames = commitment.recipients.map((recipient) => recipient.displayName);
   const stakeLabel = `$${(commitment.stakeMinorUnits / 100).toLocaleString('en-US')}`;
 
   return (
     <View style={styles.summary}>
-      <View style={styles.lockedNotice}>
-        <View aria-hidden style={styles.lockedMark} />
-        <Text style={styles.lockedText}>
-          This commitment is locked in and saved on the server. It can no longer be edited, and
-          recipients cannot be replaced — cancel and start a new draft to change anything.
-        </Text>
-      </View>
-
-      <SummaryRow label="GOAL" value={commitment.draftData.goal} />
-      <SummaryRow label="PROMISED BEHAVIOR" value={commitment.draftData.behaviorText} />
-      <SummaryRow label="SUCCESS RULE" value={successRule?.overall ?? successRule?.challengeSummary ?? 'Not available'} />
-      <SummaryRow label="DURATION" value={`${commitment.draftData.durationWeeks ?? '—'} weeks`} />
-      <SummaryRow
-        label="RECIPIENTS AND ORGANIZER"
-        value={`${formatRecipientNames(recipientNames)}${organizer ? ` · Organizer: ${organizer.displayName}` : ''}`}
-      />
-      <SummaryRow label="CONSEQUENCE CATEGORY" value={categoryLabel} />
-      <SummaryRow label="STAKE" value={stakeLabel} />
-      <SummaryRow
-        label="CURRENT STATUS"
-        value={
-          commitment.authorizationStatus === 'authorized'
-            ? `Payment method saved${commitment.authorizedAt ? ` on ${formatAuthorizedDate(commitment.authorizedAt)}` : ''}. No charge has been made — activating below reuses this saved method rather than asking again.`
-            : 'Pending — payment setup and final activation are still required.'
-        }
-      />
-    </View>
-  );
-}
-
-function SummaryRow({ label, value }: { readonly label: string; readonly value: string }) {
-  return (
-    <View style={styles.summaryRow}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={styles.goalText}>{commitment.draftData.goal}</Text>
+      <Text style={styles.ruleText}>{successRule?.overall ?? successRule?.challengeSummary ?? commitment.draftData.behaviorText}</Text>
+      <Text style={styles.stakeText}>{stakeLabel} → {formatNames(recipientNames)}</Text>
+      <Text style={styles.paymentStatus}>
+        {commitment.authorizationStatus === 'authorized' ? 'Payment method ✓' : 'Payment method not added yet'}
+      </Text>
     </View>
   );
 }
@@ -377,7 +282,7 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 20,
   },
   header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
   backButton: {
@@ -387,34 +292,36 @@ const styles = StyleSheet.create({
   backButtonPressed: { backgroundColor: theme.colors.surface },
   backIcon: { color: theme.colors.crimsonBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
   wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
-  intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.crimson, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700' },
   body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
-  section: { gap: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
-  sectionLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
+  section: { gap: 14 },
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
-  summary: { gap: 16 },
-  lockedNotice: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.structureLine,
-    backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
+  dangerLink: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '600' },
+  summary: {
+    borderLeftWidth: 2, borderLeftColor: theme.colors.crimson, backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.precise, paddingHorizontal: 16, paddingVertical: 14, gap: 6,
   },
-  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimson },
-  lockedText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 11, lineHeight: 17 },
-  summaryRow: {
-    gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
+  goalText: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700', lineHeight: 23 },
+  ruleText: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
+  stakeText: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
+  paymentStatus: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
+  actions: { gap: 12 },
+  sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
+  sheetBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
+  sheetActions: { gap: 10 },
+  keepButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
   },
-  summaryLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  summaryValue: { color: theme.colors.ivory, fontSize: 14, lineHeight: 20 },
-  actions: { gap: 12, paddingTop: 4 },
-  dangerButton: {
-    minHeight: 48, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,
+  keepButtonPressed: { backgroundColor: theme.colors.surfaceRaised },
+  keepButtonLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  destructiveButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    backgroundColor: '#4A1B1B',
   },
-  dangerButtonPressed: { backgroundColor: theme.colors.surface },
-  dangerButtonLabel: { color: '#E37D6A', fontSize: 14, fontWeight: '700' },
+  destructiveButtonPressed: { backgroundColor: '#5C2222' },
+  destructiveButtonLabel: { color: '#E37D6A', fontSize: 15, fontWeight: '700' },
 });
