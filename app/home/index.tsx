@@ -72,7 +72,7 @@ export default function HomeV2() {
       return;
     }
     onboarding.resetDraft();
-    router.push('/create/goal' as Href);
+    router.push('/create/intro' as Href);
   };
 
   const onRealCheckInSubmitted = useCallback(() => {

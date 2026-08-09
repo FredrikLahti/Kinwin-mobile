@@ -13,50 +13,38 @@ const BEHAVIOR_MAX_LENGTH = 100;
 const DEFINITION_MAX_LENGTH = 140;
 const CUT_MODES: MeasurementMode[] = ['count', 'time', 'amount'];
 
-const DIRECTIONS: { description: string; label: string; value: BehaviorDirection }[] = [
-  { description: 'Do more of a behavior that helps you.', label: 'Build something good', value: 'build' },
-  { description: 'Keep a behavior within a clear boundary.', label: 'Cut something back', value: 'cut' },
-  { description: 'Remove a behavior entirely.', label: 'Stop something completely', value: 'stop' },
+const DIRECTIONS: { label: string; value: BehaviorDirection }[] = [
+  { label: 'Build', value: 'build' },
+  { label: 'Reduce', value: 'cut' },
+  { label: 'Stop', value: 'stop' },
 ];
 
-const INPUT_CONTENT: Record<BehaviorDirection, { label: string; placeholder: string }> = {
-  build: { label: 'I will…', placeholder: 'Strength train' },
-  cut: { label: 'I will limit…', placeholder: 'Social media' },
-  stop: { label: 'I will stop…', placeholder: 'Vaping' },
+const BEHAVIOR_PLACEHOLDER: Record<BehaviorDirection, string> = {
+  build: 'Strength train 3x a week',
+  cut: 'Time on social media',
+  stop: 'Vaping',
 };
 
-const MEASUREMENT_CHOICES: { description: string; label: string; value: MeasurementMode }[] = [
-  { description: 'Each separate time it happens.', label: 'Times', value: 'count' },
-  { description: 'The total minutes or hours.', label: 'Time spent', value: 'time' },
-  { description: 'A quantity such as puffs, pods, servings, items, or money.', label: 'Amount', value: 'amount' },
+const MEASUREMENT_CHOICES: { label: string; value: MeasurementMode }[] = [
+  { label: 'Times', value: 'count' },
+  { label: 'Time spent', value: 'time' },
+  { label: 'Amount', value: 'amount' },
 ];
 
-const DEFINITION_CONTENT: Record<MeasurementMode, { helper: string; label: string; placeholder: string }> = {
-  completion: {
-    helper: 'Describe the minimum that makes one session count.',
-    label: 'One completion means…',
-    placeholder: 'At least 30 minutes of strength training',
-  },
-  count: {
-    helper: 'Define where one occurrence ends and another begins.',
-    label: 'One time means…',
-    placeholder: 'Describe one separate time it happens',
-  },
-  time: {
-    helper: 'The exact time limit and period come next.',
-    label: 'The time I’ll track is…',
-    placeholder: 'Describe what activity should be timed',
-  },
-  amount: {
-    helper: 'Choose the quantity that makes sense. The exact limit and period come next.',
-    label: 'The amount I’ll track is…',
-    placeholder: 'Puffs, pods, items, SEK…',
-  },
-  abstinence: {
-    helper: 'Be specific about what would count as breaking the promise.',
-    label: 'A lapse means…',
-    placeholder: 'Any use of a nicotine vape',
-  },
+const DEFINITION_TITLES: Record<MeasurementMode, string> = {
+  completion: 'What counts as done?',
+  count: 'What counts as one time?',
+  time: 'What should be timed?',
+  amount: 'What are you tracking?',
+  abstinence: 'What counts as a lapse?',
+};
+
+const DEFINITION_PLACEHOLDER: Record<MeasurementMode, string> = {
+  completion: 'At least 30 minutes of strength training',
+  count: 'One check-in message sent',
+  time: 'Time spent on social apps',
+  amount: 'Cigarettes, drinks, dollars…',
+  abstinence: 'Any use of a nicotine vape',
 };
 
 export default function CreatePromiseScreen() {
@@ -84,13 +72,11 @@ export default function CreatePromiseScreen() {
     if (measurementMode !== nextMode) setMeasurementMode(nextMode);
   }, [behaviorDirection, measurementMode, setMeasurementMode]);
 
-  const inputContent = behaviorDirection ? INPUT_CONTENT[behaviorDirection] : null;
   const hasValidMode = Boolean(
     (behaviorDirection === 'build' && measurementMode === 'completion') ||
       (behaviorDirection === 'stop' && measurementMode === 'abstinence') ||
       (behaviorDirection === 'cut' && measurementMode && CUT_MODES.includes(measurementMode)),
   );
-  const definitionContent = measurementMode ? DEFINITION_CONTENT[measurementMode] : null;
   const canContinue = Boolean(
     behaviorDirection && behaviorText.trim().length >= 3 && hasValidMode && definitionText.trim().length >= 3,
   );
@@ -114,10 +100,9 @@ export default function CreatePromiseScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="What will you promise?"
+      headline="What will you do?"
       onBack={() => router.back()}
       progressLabel="Step 2 of 7: promise"
-      supportingCopy="Your goal is the reason. Now choose a behavior you can control and define exactly what counts."
       totalSteps={7}
     >
       <ChoiceListV2
@@ -127,17 +112,18 @@ export default function CreatePromiseScreen() {
         value={behaviorDirection}
       />
 
-      {behaviorDirection && inputContent && (
+      {behaviorDirection && (
         <View style={[styles.field, focusedField === 'behavior' && styles.fieldFocused]}>
-          <Text style={styles.fieldLabel}>{inputContent.label}</Text>
+          <Text style={styles.fieldCaption}>Your promise</Text>
           <TextInput
-            accessibilityLabel={inputContent.label}
+            accessibilityLabel="Your promise"
             autoCapitalize="sentences"
+            autoFocus
             maxLength={BEHAVIOR_MAX_LENGTH}
             onBlur={() => setFocusedField(null)}
             onChangeText={setBehaviorText}
             onFocus={() => setFocusedField('behavior')}
-            placeholder={inputContent.placeholder}
+            placeholder={BEHAVIOR_PLACEHOLDER[behaviorDirection]}
             placeholderTextColor={theme.colors.warmGrey}
             selectionColor={theme.colors.crimsonBright}
             style={styles.input}
@@ -148,30 +134,27 @@ export default function CreatePromiseScreen() {
 
       {behaviorDirection === 'cut' && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>How should this be measured?</Text>
+          <Text style={styles.sectionLabel}>How do you want to measure it?</Text>
           <ChoiceListV2 onChange={setMeasurementMode} options={MEASUREMENT_CHOICES} value={measurementMode} />
         </View>
       )}
 
-      {definitionContent && hasValidMode && (
+      {hasValidMode && measurementMode && (
         <View style={[styles.field, focusedField === 'definition' && styles.fieldFocused]}>
-          <Text style={styles.fieldLabel}>{definitionContent.label}</Text>
+          <Text style={styles.fieldCaption}>{DEFINITION_TITLES[measurementMode]}</Text>
           <TextInput
-            accessibilityLabel={definitionContent.label}
+            accessibilityLabel={DEFINITION_TITLES[measurementMode]}
             autoCapitalize="sentences"
             maxLength={DEFINITION_MAX_LENGTH}
-            multiline
             onBlur={() => setFocusedField(null)}
             onChangeText={setDefinitionText}
             onFocus={() => setFocusedField('definition')}
-            placeholder={definitionContent.placeholder}
+            placeholder={DEFINITION_PLACEHOLDER[measurementMode]}
             placeholderTextColor={theme.colors.warmGrey}
             selectionColor={theme.colors.crimsonBright}
-            style={[styles.input, styles.multilineInput]}
-            textAlignVertical="top"
+            style={styles.input}
             value={definitionText}
           />
-          <Text style={styles.helper}>{definitionContent.helper}</Text>
         </View>
       )}
     </CreateFlowScreenV2>
@@ -180,14 +163,13 @@ export default function CreatePromiseScreen() {
 
 const styles = StyleSheet.create({
   field: {
-    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
-    backgroundColor: theme.colors.surface, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12,
+    minHeight: 64, justifyContent: 'center', borderRadius: theme.radius.controlled, borderWidth: 1,
+    borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface,
+    paddingHorizontal: 18, paddingVertical: 10,
   },
   fieldFocused: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.surfaceRaised },
-  fieldLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '600' },
-  input: { marginTop: 8, minHeight: 30, color: theme.colors.ivory, fontSize: 19, paddingHorizontal: 0, paddingVertical: 0 },
-  multilineInput: { minHeight: 60 },
-  helper: { marginTop: 8, color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
+  fieldCaption: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
+  input: { marginTop: 4, color: theme.colors.ivory, fontSize: 19, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
   section: { gap: 10 },
-  sectionLabel: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
+  sectionLabel: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '600' },
 });

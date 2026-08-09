@@ -17,10 +17,10 @@ import {
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playSelectionHaptic } from '@/lib/haptics';
 
-const BUILD_RHYTHMS: { description: string; label: string; value: RhythmType }[] = [
-  { description: 'One completion each day.', label: 'Every day', value: 'daily' },
-  { description: 'Complete it flexibly within each week.', label: 'Times per week', value: 'weekly_count' },
-  { description: 'Complete it on chosen days.', label: 'Specific days', value: 'specific_days' },
+const BUILD_RHYTHMS: { label: string; value: RhythmType }[] = [
+  { label: 'Every day', value: 'daily' },
+  { label: 'Times per week', value: 'weekly_count' },
+  { label: 'Specific days', value: 'specific_days' },
 ];
 
 const WEEKDAYS: { label: string; short: string; value: Weekday }[] = [
@@ -33,14 +33,14 @@ const WEEKDAYS: { label: string; short: string; value: Weekday }[] = [
   { label: 'Sunday', short: 'S', value: 'sunday' },
 ];
 
-const PERIODS: { description: string; label: string; value: RhythmPeriod }[] = [
-  { description: 'Apply the boundary each day.', label: 'Per day', value: 'day' },
-  { description: 'Apply the boundary across each week.', label: 'Per week', value: 'week' },
+const PERIODS: { label: string; value: RhythmPeriod }[] = [
+  { label: 'Per day', value: 'day' },
+  { label: 'Per week', value: 'week' },
 ];
 
-const TIME_UNITS: { description: string; label: string; value: RhythmTimeUnit }[] = [
-  { description: 'Track the boundary in minutes.', label: 'Minutes', value: 'minutes' },
-  { description: 'Track the boundary in hours.', label: 'Hours', value: 'hours' },
+const TIME_UNITS: { label: string; value: RhythmTimeUnit }[] = [
+  { label: 'Minutes', value: 'minutes' },
+  { label: 'Hours', value: 'hours' },
 ];
 
 function parsePositiveValue(rawValue: string) {
@@ -163,10 +163,9 @@ export default function CreateRhythmScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="What rhythm will hold?"
+      headline="How often?"
       onBack={() => router.back()}
       progressLabel="Step 3 of 7: rhythm"
-      supportingCopy="Set when your promise applies."
       totalSteps={7}
     >
       {behaviorDirection === 'build' && (

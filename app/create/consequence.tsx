@@ -61,10 +61,9 @@ export default function CreateConsequenceScreen() {
           reducedMotion={reducedMotion}
         />
       }
-      headline="What's at stake?"
+      headline="What’s at stake?"
       onBack={() => router.back()}
       progressLabel="Step 5 of 7: consequence"
-      supportingCopy="If you succeed, nothing is charged. If you don't, someone you care about wins."
       totalSteps={7}
     >
       <View style={styles.section}>
