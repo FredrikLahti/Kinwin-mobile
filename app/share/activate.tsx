@@ -293,10 +293,9 @@ export default function ShareActivateScreen() {
     setMembershipChoice(null);
   };
 
-  const previewActiveChallenge = () => {
-    if (!draftIsValid || !trialSelected) return;
+  const continueSetup = () => {
     void playImportantHaptic();
-    router.push('/challenge' as Href);
+    router.push('/account/pending-commitment' as Href);
   };
 
   return (
@@ -573,25 +572,14 @@ export default function ShareActivateScreen() {
                 >
                   <Text style={styles.reviewActionText}>Review membership again</Text>
                 </Pressable>
-                <View style={styles.prototypeShortcutCopy}>
-                  <Text style={styles.prototypeShortcutLabel}>LOCAL PREVIEW ONLY</Text>
-                  <Text style={styles.prototypeShortcutText}>
-                    Prototype shortcut—skips payment setup, recipient-link creation, sharing, and
-                    real activation. It stays entirely on this device, session-only, and is
-                    separate from the server-saved pending commitment above.
-                  </Text>
-                </View>
-                <AnimatedPrimaryButton
-                  accessibilityHint={
-                    draftIsValid
-                      ? 'Opens the active challenge preview without purchasing, sharing, or activating anything'
-                      : 'Repair the upstream draft before opening the preview'
-                  }
-                  disabled={!draftIsValid}
-                  label="Preview active challenge"
-                  onPress={previewActiveChallenge}
-                  reducedMotion={reducedMotion}
-                />
+                {saveState === 'prepared' && (
+                  <AnimatedPrimaryButton
+                    accessibilityHint="Opens your pending commitment to finish payment setup and activation"
+                    label="Continue setup"
+                    onPress={continueSetup}
+                    reducedMotion={reducedMotion}
+                  />
+                )}
               </Animated.View>
             )}
           </View>
@@ -774,14 +762,4 @@ const styles = StyleSheet.create({
   reviewAction: { minHeight: 46, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   reviewActionPressed: { backgroundColor: theme.colors.surface },
   reviewActionText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },
-  prototypeShortcutCopy: {
-    marginBottom: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine,
-    paddingHorizontal: 4, paddingTop: 12,
-  },
-  prototypeShortcutLabel: {
-    color: theme.colors.copper, fontSize: 8, fontWeight: '800', letterSpacing: 1.2,
-  },
-  prototypeShortcutText: {
-    marginTop: 5, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17,
-  },
 });

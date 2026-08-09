@@ -7,6 +7,7 @@ export default function ChallengeLayout() {
       <Stack.Screen name="active" />
       <Stack.Screen name="check-in" />
       <Stack.Screen name="recovery" />
+      <Stack.Screen name="playbook" />
     </Stack>
   );
 }
