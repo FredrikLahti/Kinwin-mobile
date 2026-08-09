@@ -28,10 +28,18 @@ export default function CreateIntroScreen() {
 
   useEffect(() => {
     if (authStatus === 'loading') return;
-    if (authStatus === 'signed_in' && !profile) return;
     if (authStatus === 'signed_in' && profile?.showChallengeIntro === false) {
       router.replace('/create/goal' as Href);
       return;
+    }
+    if (authStatus === 'signed_in' && !profile) {
+      // Normally resolves almost immediately once the profile loads. If it
+      // never does (a transient error, or a profile row genuinely missing
+      // fields), fail open after a short wait rather than leaving the
+      // screen blank forever — showing the intro unnecessarily is a far
+      // smaller problem than a stuck screen.
+      const timeout = setTimeout(() => setReady(true), 2500);
+      return () => clearTimeout(timeout);
     }
     setReady(true);
   }, [authStatus, profile, router]);
