@@ -1,4 +1,6 @@
 import { CurrentPeriodStatus } from '@/lib/challenge-ux-preview/view-model';
+import { ChallengePeriod } from '@/domain/challenge/periods';
+import { CheckInFact } from '@/domain/challenge/check-in/types';
 import { ActivatedChallengeSnapshot, Weekday } from '@/domain/challenge/types';
 
 const WEEKDAY_LABELS: Record<Weekday, string> = {
@@ -121,23 +123,92 @@ export function statusTone(kind: CurrentPeriodStatus['kind']): StatusTone {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** The Y/M/D a UTC instant reads as in a given IANA timezone — never the device's own zone or raw UTC calendar days, since a period boundary is always the challenge's own frozen timezone (see docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"). Used only for day-granularity comparisons below. */
+function localCalendarDayUtcMs(iso: string, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return Date.UTC(get('year'), get('month') - 1, get('day'));
+}
 
 /**
  * "Starts tomorrow" / "Starts Monday" instead of a bare, unexplained "Not
  * started yet" — a period that has not started is a normal, expected state
  * (every activation's first period starts at the next local midnight), not
- * an error, so naming the real date answers "why can't I check in?" hon
- * estly. Falls back to a short date beyond a week out.
+ * an error, so naming the real date answers "why can't I check in?"
+ * honestly. Must compare calendar days in the challenge's own timezone —
+ * comparing raw UTC calendar days undercounts for any timezone ahead of
+ * UTC (e.g. a period starting 22:00 UTC is already the next calendar day
+ * in Europe/Stockholm, so a same-UTC-day comparison would wrongly say
+ * "today" instead of "tomorrow"). Falls back to a short date beyond a
+ * week out.
  */
-export function describeUpcomingStart(startsAtIso: string, nowIso: string): string {
-  const start = new Date(startsAtIso);
-  const now = new Date(nowIso);
-  const startUtcDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-  const nowUtcDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const diffDays = Math.round((startUtcDay - nowUtcDay) / MS_PER_DAY);
+export function describeUpcomingStart(startsAtIso: string, nowIso: string, timezone: string): string {
+  const startDayMs = localCalendarDayUtcMs(startsAtIso, timezone);
+  const nowDayMs = localCalendarDayUtcMs(nowIso, timezone);
+  const diffDays = Math.round((startDayMs - nowDayMs) / MS_PER_DAY);
   if (diffDays <= 0) return 'Starts today';
   if (diffDays === 1) return 'Starts tomorrow';
-  if (diffDays < 7) return `Starts ${WEEKDAY_NAMES[start.getUTCDay()]}`;
-  return `Starts ${start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}`;
+  const start = new Date(startsAtIso);
+  if (diffDays < 7) return `Starts ${new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(start)}`;
+  return `Starts ${new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long', month: 'short', day: 'numeric' }).format(start)}`;
+}
+
+function factOf(status: CurrentPeriodStatus): CheckInFact | null {
+  return 'fact' in status ? status.fact : null;
+}
+
+/**
+ * Human, type-appropriate progress for the challenge detail screen — never
+ * "periods closed" or "lapses" (internal reporting-engine vocabulary).
+ * Returns null when there is nothing truthful and meaningful to say yet
+ * (e.g. a just-activated challenge with no closed periods): showing
+ * nothing is better than surfacing raw engine counters. Avoid never gets a
+ * line here — "maintaining zero" has no progress metric beyond the
+ * headline already shown, and inventing one (e.g. "0 of 1") would be
+ * exactly the kind of internal framing this exists to remove.
+ */
+export function describeProgress(
+  challenge: ActivatedChallengeSnapshot,
+  currentPeriodStatus: CurrentPeriodStatus,
+  progress: { readonly periodsClosed: number; readonly periodsMet: number },
+  focusPeriod: ChallengePeriod | null,
+): string | null {
+  const rule = challenge.behavior.rule;
+  const fact = factOf(currentPeriodStatus);
+
+  if (rule.direction === 'build') {
+    if (focusPeriod?.target.type === 'completion_target' && focusPeriod.target.target > 1 && fact?.kind === 'build_completion') {
+      const periodWord = focusPeriod.periodKind === 'week' ? 'week' : 'period';
+      return `${fact.completions} of ${focusPeriod.target.target} this ${periodWord}`;
+    }
+    if (progress.periodsClosed > 0) {
+      const unit = focusPeriod?.periodKind === 'day' ? 'day' : 'week';
+      return `Kept it ${progress.periodsMet} of ${progress.periodsClosed} ${unit}${progress.periodsClosed === 1 ? '' : 's'}`;
+    }
+    return null;
+  }
+
+  if (rule.direction === 'cut_back') {
+    if (fact?.kind === 'cut_back_total' && focusPeriod) {
+      const periodLabel = focusPeriod.periodKind === 'week' ? 'this week' : 'today';
+      return `${fact.total} of ${rule.boundary.maximumValue} ${rule.measurement.unit} ${periodLabel}`;
+    }
+    return `Stay under ${rule.boundary.maximumValue} ${rule.measurement.unit} per ${rule.boundary.periodUnit}`;
+  }
+
+  return null;
+}
+
+/**
+ * "Week 2 of 4" / "Day 12 of 28" — the challenge's real generated period
+ * position, never a recomputed estimate. Null for Avoid (a single
+ * continuous period has no meaningful position beyond the dates/time
+ * already shown).
+ */
+export function describeDurationPosition(focusPeriod: ChallengePeriod | null, periodsTotal: number): string | null {
+  if (!focusPeriod || periodsTotal <= 0) return null;
+  if (focusPeriod.periodKind === 'week') return `Week ${focusPeriod.periodNumber} of ${periodsTotal}`;
+  if (focusPeriod.periodKind === 'day') return `Day ${focusPeriod.periodNumber} of ${periodsTotal}`;
+  return null;
 }

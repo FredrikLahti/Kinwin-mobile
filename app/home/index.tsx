@@ -148,7 +148,7 @@ export default function HomeV2() {
                 ) : (
                   <>
                     <Text style={[styles.heroStatus, HERO_STATUS_TONE_STYLE[isUpcoming ? 'neutral' : statusTone(real.view.currentPeriodStatus.kind)]]}>
-                      {isUpcoming && focusPeriod ? describeUpcomingStart(focusPeriod.startsAt, new Date().toISOString()) : real.view.currentPeriodCopy}
+                      {isUpcoming && focusPeriod ? describeUpcomingStart(focusPeriod.startsAt, new Date().toISOString(), real.data.challenge.timezone) : real.view.currentPeriodCopy}
                     </Text>
                     {!isUpcoming && Boolean(real.view.timeRemaining) && (
                       <Text style={styles.heroTimeRemaining}>{real.view.timeRemaining}</Text>
