@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { Href, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -18,7 +18,7 @@ import { demoHomeKinEvents, demoMonthProgress, demoOtherChallenges, demoTodayCha
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { playSelectionHaptic } from '@/lib/haptics';
-import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
+import { fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
 
 function greetingWord() {
   const hour = new Date().getHours();
@@ -49,18 +49,27 @@ export default function HomeV2() {
   const { demoEnabled, toggleDemo } = useUXV2Preview();
   const { state: real, refresh } = useRealActiveChallenge();
   const [checkInOpen, setCheckInOpen] = useState(false);
+  const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
   const hasRealChallenge = real.status === 'ready';
   const showToday = demoEnabled || hasRealChallenge;
 
+  const loadPendingCommitment = useCallback(async () => {
+    if (!user) {
+      setPendingCommitment(null);
+      return;
+    }
+    const result = await fetchPendingCommitment(user.id);
+    setPendingCommitment(result.ok ? result.commitment : null);
+  }, [user]);
+
+  useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
+
   const createChallenge = async () => {
-    if (user) {
-      const result = await fetchPendingCommitment(user.id);
-      if (result.ok && result.commitment) {
-        router.push('/account/pending-commitment' as Href);
-        return;
-      }
+    if (pendingCommitment) {
+      router.push('/account/pending-commitment' as Href);
+      return;
     }
     onboarding.resetDraft();
     router.push('/onboarding/goal' as Href);
@@ -146,6 +155,26 @@ export default function HomeV2() {
               <Text style={styles.emptyBody}>
                 {real.status === 'error' ? real.message : 'Create one to see it here.'}
               </Text>
+            </View>
+          )}
+
+          {!demoEnabled && pendingCommitment && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>SETUP</Text>
+              <Pressable
+                accessibilityHint="Opens your pending commitment to finish setup"
+                accessibilityRole="button"
+                onPress={() => router.push('/account/pending-commitment' as Href)}
+                style={({ pressed }) => [styles.rowGroup, styles.singleRow, pressed && styles.rowPressed]}
+              >
+                <Text numberOfLines={1} style={styles.rowLabel}>
+                  {pendingCommitment.authorizationStatus === 'authorized' ? 'Ready to activate' : 'Finish payment setup'}
+                </Text>
+                <View style={styles.rowRight}>
+                  <Text numberOfLines={1} style={styles.rowValueMuted}>{pendingCommitment.draftData.goal.trim()}</Text>
+                  <Feather color={theme.colors.warmGrey} name="chevron-right" size={16} />
+                </View>
+              </Pressable>
             </View>
           )}
 
