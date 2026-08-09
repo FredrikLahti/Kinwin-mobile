@@ -100,7 +100,7 @@ export default function CheckInScreen() {
                 <Text style={styles.phaseLabel}>CHECK IN</Text>
                 <Text accessibilityRole="header" style={styles.headline}>This preview needs a complete challenge.</Text>
                 <Text style={styles.supporting}>Finish the behavior, rhythm, and success rule before recording a preview check-in.</Text>
-                <AnimatedPrimaryButton accessibilityHint="Returns to challenge setup" label="Review challenge setup" onPress={() => router.push('/onboarding/goal' as Href)} reducedMotion={reducedMotion} />
+                <AnimatedPrimaryButton accessibilityHint="Returns to challenge setup" label="Review challenge setup" onPress={() => router.push('/create/goal' as Href)} reducedMotion={reducedMotion} />
               </View>
             ) : result ? (
               <View accessibilityLiveRegion="polite" style={styles.main}>

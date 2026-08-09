@@ -5,9 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { formatRecipientNames } from '@/components/share/recipient-promise-page';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -307,7 +307,7 @@ export default function PaymentSetupScreen() {
                 </Text>
               </Pressable>
 
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Opens Stripe's secure payment form to save a card"
                 disabled={!acknowledged}
                 label={state.mode === 'replace' ? 'Continue to update payment' : 'Continue to payment'}
@@ -361,7 +361,7 @@ export default function PaymentSetupScreen() {
                   still needs final activation, which is a separate later step.
                 </Text>
               </View>
-              <AnimatedPrimaryButton
+              <PrimaryButtonV2
                 accessibilityHint="Returns to your pending commitment"
                 label="Done for now"
                 onPress={doneForNow}
@@ -478,57 +478,53 @@ const styles = StyleSheet.create({
     marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
-  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
+  wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
   intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.copper, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 30, fontWeight: '400', lineHeight: 36,
-  },
-  body: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  phaseLabel: { color: theme.colors.crimson, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
   section: { gap: 14, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   summary: { gap: 16 },
   lockedNotice: {
     flexDirection: 'row', alignItems: 'flex-start',
     borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
   },
-  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.copper },
-  lockedText: { flex: 1, color: theme.colors.boneMuted, fontSize: 11, lineHeight: 17 },
+  lockedMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimson },
+  lockedText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 11, lineHeight: 17 },
   summaryRow: {
     gap: 4, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
   },
-  summaryLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  summaryValue: { color: theme.colors.bone, fontSize: 14, lineHeight: 20 },
+  summaryLabel: { color: theme.colors.crimson, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  summaryValue: { color: theme.colors.ivory, fontSize: 14, lineHeight: 20 },
   disclosureList: { gap: 10 },
   disclosureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  disclosureMark: { width: 4, height: 4, marginTop: 7, borderRadius: 2, backgroundColor: theme.colors.copper },
-  disclosureText: { flex: 1, color: theme.colors.boneMuted, fontSize: 13, lineHeight: 19 },
+  disclosureMark: { width: 4, height: 4, marginTop: 7, borderRadius: 2, backgroundColor: theme.colors.crimson },
+  disclosureText: { flex: 1, color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   acknowledgement: {
     minHeight: 88, flexDirection: 'row', alignItems: 'center', borderWidth: 1,
     borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
     paddingHorizontal: 15, paddingVertical: 14,
   },
-  acknowledgementSelected: { borderColor: theme.colors.copperBright, backgroundColor: theme.colors.surfaceRaised },
+  acknowledgementSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.surfaceRaised },
   acknowledgementPressed: { backgroundColor: theme.colors.surfaceFocused },
   acknowledgementMark: {
     width: 26, height: 26, alignItems: 'center', justifyContent: 'center', marginRight: 13,
-    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: 3, backgroundColor: theme.colors.deepInk,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: 3, backgroundColor: theme.colors.ink,
   },
-  acknowledgementMarkSelected: { borderColor: theme.colors.copperBright, backgroundColor: theme.colors.copperDeep },
-  acknowledgementCheck: { color: theme.colors.copperBright, fontSize: 15, fontWeight: '800' },
-  acknowledgementText: { flex: 1, color: theme.colors.bone, fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  acknowledgementMarkSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.oxbloodDeep },
+  acknowledgementCheck: { color: theme.colors.crimsonBright, fontSize: 15, fontWeight: '800' },
+  acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600', lineHeight: 19 },
   readyNotice: {
     flexDirection: 'row', alignItems: 'flex-start',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.copper,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: theme.colors.crimson,
     backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12, gap: 12,
   },
-  readyMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.copperBright },
-  readyText: { flex: 1, color: theme.colors.bone, fontSize: 13, lineHeight: 19 },
+  readyMark: { width: 2, height: '100%', minHeight: 30, backgroundColor: theme.colors.crimsonBright },
+  readyText: { flex: 1, color: theme.colors.ivory, fontSize: 13, lineHeight: 19 },
 });

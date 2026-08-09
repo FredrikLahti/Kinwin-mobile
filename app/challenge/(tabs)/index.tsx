@@ -9,7 +9,7 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic } from '@/lib/haptics';
 const COOL = '#7D8589';
 export default function ChallengeHome() { const router = useRouter(); const reduced = useReducedMotion(); const { onboarding, preview, view } = useActiveChallengeView();
-  if (!view) return <Shell><Text style={s.eyebrow}>ACTIVE PREVIEW</Text><Text style={s.title}>Complete your challenge draft first.</Text><AnimatedPrimaryButton accessibilityHint="Returns to challenge setup" label="Review setup" onPress={() => router.push('/onboarding/goal')} reducedMotion={reduced} /></Shell>;
+  if (!view) return <Shell><Text style={s.eyebrow}>ACTIVE PREVIEW</Text><Text style={s.title}>Complete your challenge draft first.</Text><AnimatedPrimaryButton accessibilityHint="Returns to challenge setup" label="Review setup" onPress={() => router.push('/create/goal' as Href)} reducedMotion={reduced} /></Shell>;
   const activeRecovery = preview.playbookEntries.find((entry) => entry.recoveryStatus === 'active'); const recipients = onboarding.recipients.map((r) => r.name.trim()).filter(Boolean).join(', ');
   const action = () => view.nextAction.type === 'continue_recovery' ? router.push('/challenge/recovery' as Href) : view.nextAction.type === 'review_playbook' || view.nextAction.type === 'recovery_completed' ? router.push('/challenge/playbook' as Href) : router.push('/challenge/check-in' as Href);
   return <Shell><View style={s.notice}><Text style={s.noticeTitle}>PREVIEW · TEMPORARY</Text><Text style={s.noticeText}>Activity in this session disappears on reload.</Text></View>
