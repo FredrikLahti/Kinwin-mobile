@@ -44,6 +44,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Feather color={color} name="user" size={size} />,
         }}
       />
+      <Tabs.Screen name="challenge" options={{ href: null }} />
       <Tabs.Screen name="progress" options={{ href: null }} />
       <Tabs.Screen name="coming-soon" options={{ href: null }} />
     </Tabs>

@@ -76,9 +76,9 @@ test('correction is available while the reporting window is open and unavailable
 
 test('cut back copy uses the challenge unit and the actual reported total, not a generic count', () => {
   const within = buildActiveChallengeViewModel(findScenario('cut-back-within-limit'));
-  assert.equal(within.currentPeriodCopy, '2 of 3 meals — within the limit.');
+  assert.equal(within.currentPeriodCopy, '2 of 3 meals, within the limit.');
   const over = buildActiveChallengeViewModel(findScenario('cut-back-over-limit'));
-  assert.equal(over.currentPeriodCopy, '5 of 3 meals — over the limit.');
+  assert.equal(over.currentPeriodCopy, '5 of 3 meals, over the limit.');
   assert.ok(!over.currentPeriodCopy.toLowerCase().includes('fail'));
 });
 
@@ -249,7 +249,7 @@ test('the consequence summary never claims the stake was otherwise going to the 
   const copy = viewModel.consequenceSummary.toLowerCase();
   assert.ok(!copy.includes('instead of you'));
   assert.ok(!copy.includes('was charged') && !copy.includes('has been charged') && !copy.includes('paid'));
-  assert.ok(copy.includes('sit it out'));
+  assert.ok(copy.includes('not take part'));
   assert.ok(copy.includes('dinner') || copy.includes('adventure') || copy.includes('cultural outing') || copy.includes('getaway') || copy.includes('wellness day'));
 });
 

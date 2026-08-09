@@ -371,7 +371,7 @@ function currentPeriodCopy(
       case 'reported':
       case 'late_reported': {
         const total = status.fact.kind === 'cut_back_total' ? status.fact.total : 0;
-        return total <= maximum ? `${total} of ${maximum} ${unit} — within the limit.` : `${total} of ${maximum} ${unit} — over the limit.`;
+        return total <= maximum ? `${total} of ${maximum} ${unit}, within the limit.` : `${total} of ${maximum} ${unit}, over the limit.`;
       }
       case 'late_check_in': return `Time to report how many ${unit} this ${periodWord}.`;
       case 'missed': return 'No check-in was received before the deadline, so this period counts as not met.';
@@ -506,7 +506,7 @@ function buildConsequenceSummary(challenge: ActivatedChallengeSnapshot): string 
   const organizer = recipientNames || (challenge.rewardOrganizer.type === 'other' ? challenge.rewardOrganizer.name : 'your recipient');
   const amount = formatMoney(challenge.stake.minorUnits, challenge.stake.currency);
   const category = describeExperienceCategory(challenge.consequenceCategory);
-  return `If you don't keep the promise, ${amount} goes toward ${organizer}'s ${category} — and you sit it out.`;
+  return `If you don't keep the promise, ${amount} goes toward ${organizer}'s ${category}. You will not take part.`;
 }
 
 function buildTimeRemaining(challenge: ActivatedChallengeSnapshot, now: IsoDateTime, isFinal: boolean): string {
