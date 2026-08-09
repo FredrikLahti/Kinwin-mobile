@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
@@ -12,13 +12,21 @@ import { ProgressDotsV2 } from '@/components/v2/progress-dots';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
-import { useOnboarding } from '@/contexts/onboarding-context';
+import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useUXV2Preview } from '@/contexts/ux-v2-preview-context';
 import { demoHomeKinEvents, demoMonthProgress, demoOtherChallenges, demoTodayChallenge } from '@/fixtures/ux-v2-preview';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
-import { playSelectionHaptic } from '@/lib/haptics';
-import { fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
+
+const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
+  adventure: 'adventure',
+  culture: 'culture',
+  dinner: 'dinner',
+  getaway: 'getaway',
+  wellness: 'wellness',
+};
 
 function greetingWord() {
   const hour = new Date().getHours();
@@ -50,6 +58,8 @@ export default function HomeV2() {
   const { state: real, refresh } = useRealActiveChallenge();
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
+  const [startOverSheetOpen, setStartOverSheetOpen] = useState(false);
+  const [startingOver, setStartingOver] = useState(false);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
   const hasRealChallenge = real.status === 'ready';
@@ -66,13 +76,46 @@ export default function HomeV2() {
 
   useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
 
-  const createChallenge = async () => {
+  const createChallenge = () => {
     if (pendingCommitment) {
+      void playSelectionHaptic();
       router.push('/account/pending-commitment' as Href);
       return;
     }
+    void playImportantHaptic();
     onboarding.resetDraft();
     router.push('/create/intro' as Href);
+  };
+
+  const openStartOverSheet = () => {
+    void playSelectionHaptic();
+    setStartOverSheetOpen(true);
+  };
+
+  const confirmStartOver = async () => {
+    if (!pendingCommitment || !user) return;
+    setStartingOver(true);
+    const result = await cancelPendingChallenge(pendingCommitment.challengeId, user.id);
+    setStartingOver(false);
+    if (!result.ok) return;
+    void playImportantHaptic();
+    setStartOverSheetOpen(false);
+    setPendingCommitment(null);
+    onboarding.resetDraft();
+    router.push('/create/intro' as Href);
+  };
+
+  const shareActiveChallenge = async () => {
+    if (real.status !== 'ready') return;
+    void playSelectionHaptic();
+    const { challenge } = real.data;
+    const recipientNames = challenge.recipients.map((recipient) => recipient.name).join(', ') || 'them';
+    const stakeLabel = `$${(challenge.stake.minorUnits / 100).toLocaleString('en-US')}`;
+    const categoryLabel = CATEGORY_LABELS[challenge.consequenceCategory];
+    const message =
+      `Hi! I am keeping a Kinwin challenge: ${challenge.behavior.description}.\n\n` +
+      `If I do not keep it, ${recipientNames} could receive a ${categoryLabel} experience funded by my ${stakeLabel} stake. I will not take part.`;
+    await Share.share({ message });
   };
 
   const onRealCheckInSubmitted = useCallback(() => {
@@ -144,6 +187,11 @@ export default function HomeV2() {
                       reducedMotion={reducedMotion}
                     />
                   </View>
+                )}
+                {!demoEnabled && real.status === 'ready' && (
+                  <Pressable accessibilityHint="Opens your phone's share sheet with your invitation again" accessibilityRole="button" onPress={() => void shareActiveChallenge()} style={styles.shareAgainLink}>
+                    <Text style={styles.shareAgainText}>Share invite again</Text>
+                  </Pressable>
                 )}
               </View>
             </View>
@@ -240,14 +288,19 @@ export default function HomeV2() {
           )}
         </View>
 
-        <Pressable
-          accessibilityHint="Starts setting up a new challenge"
-          accessibilityRole="button"
-          onPress={() => void createChallenge()}
-          style={({ pressed }) => [styles.createButton, pressed && styles.createButtonPressed]}
-        >
-          <Text style={styles.createButtonLabel}>+ Create challenge</Text>
-        </Pressable>
+        <View style={styles.createSection}>
+          <PrimaryButtonV2
+            accessibilityHint={pendingCommitment ? 'Opens your unfinished commitment' : 'Starts setting up a new challenge'}
+            label={pendingCommitment ? 'Continue setup' : '+ Create challenge'}
+            onPress={createChallenge}
+            reducedMotion={reducedMotion}
+          />
+          {pendingCommitment && (
+            <Pressable accessibilityHint="Cancels your unfinished commitment and starts a new one" accessibilityRole="button" onPress={openStartOverSheet} style={styles.startOverLink}>
+              <Text style={styles.startOverText}>Start over instead</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <BottomSheetV2 onClose={() => setCheckInOpen(false)} reducedMotion={reducedMotion} visible={checkInOpen}>
@@ -261,6 +314,30 @@ export default function HomeV2() {
             period={focusPeriod}
           />
         ) : null}
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setStartOverSheetOpen(false)} reducedMotion={reducedMotion} visible={startOverSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Start over?</Text>
+        <Text style={styles.sheetBody}>This cancels your unfinished commitment. No payment will be taken.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Keeps your unfinished commitment and closes this sheet"
+            accessibilityRole="button"
+            onPress={() => setStartOverSheetOpen(false)}
+            style={({ pressed }) => [styles.keepButton, pressed && styles.keepButtonPressed]}
+          >
+            <Text style={styles.keepButtonLabel}>Keep it</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Cancels the unfinished commitment and starts a new challenge"
+            accessibilityRole="button"
+            disabled={startingOver}
+            onPress={() => void confirmStartOver()}
+            style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
+          >
+            <Text style={styles.destructiveButtonLabel}>{startingOver ? 'Starting over…' : 'Start over'}</Text>
+          </Pressable>
+        </View>
       </BottomSheetV2>
     </SafeAreaView>
   );
@@ -283,9 +360,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.structureLineStrong,
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4,
   },
-  demoPillActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  demoPillActive: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
   demoPillText: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  demoPillTextActive: { color: theme.colors.crimsonBright },
+  demoPillTextActive: { color: theme.colors.ivory },
   greeting: { marginTop: theme.spacing.small, color: theme.colors.ivory, fontSize: 22, fontWeight: '600' },
   section: { marginTop: theme.spacing.small },
   sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 },
@@ -296,6 +373,8 @@ const styles = StyleSheet.create({
   challengeName: { color: theme.colors.ivory, fontSize: 21, fontWeight: '700' },
   progressLine: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '700' },
   checkInButton: { marginTop: 6 },
+  shareAgainLink: { marginTop: 4, minHeight: 32, justifyContent: 'center' },
+  shareAgainText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
   emptySection: { marginTop: theme.spacing.large, gap: theme.spacing.xsmall },
   emptyTitle: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700' },
   emptyBody: { color: theme.colors.ivoryMuted, fontSize: 13 },
@@ -316,10 +395,22 @@ const styles = StyleSheet.create({
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rowValue: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   rowValueMuted: { color: theme.colors.ivoryMuted, fontSize: 13, flexShrink: 1, textAlign: 'right' },
-  createButton: {
-    minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+  createSection: { gap: 10 },
+  startOverLink: { minHeight: 36, alignItems: 'center', justifyContent: 'center' },
+  startOverText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '600' },
+  sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
+  sheetBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
+  sheetActions: { gap: 10 },
+  keepButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
   },
-  createButtonPressed: { backgroundColor: theme.colors.surfaceRaised },
-  createButtonLabel: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
+  keepButtonPressed: { backgroundColor: theme.colors.surfaceRaised },
+  keepButtonLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  destructiveButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    backgroundColor: '#4A1B1B',
+  },
+  destructiveButtonPressed: { backgroundColor: '#5C2222' },
+  destructiveButtonLabel: { color: '#E37D6A', fontSize: 15, fontWeight: '700' },
 });

@@ -71,8 +71,8 @@ const styles = StyleSheet.create({
   },
   optionRow: { flex: 1, minHeight: 76, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, gap: 8 },
   optionSelected: {
-    borderColor: theme.colors.crimson,
-    backgroundColor: theme.colors.crimsonSurface,
+    borderColor: theme.colors.oxblood,
+    backgroundColor: theme.colors.oxbloodDeep,
   },
   optionPressed: { backgroundColor: theme.colors.surfaceFocused },
   label: { color: theme.colors.ivoryMuted, fontSize: 15, fontWeight: '700' },
@@ -81,5 +81,5 @@ const styles = StyleSheet.create({
   description: { marginTop: 3, color: theme.colors.warmGrey, fontSize: 12, lineHeight: 17 },
   descriptionSelected: { color: theme.colors.ivoryMuted },
   rowIndicator: { width: 16, height: 3, borderRadius: 2, backgroundColor: 'transparent' },
-  rowIndicatorSelected: { backgroundColor: theme.colors.crimsonBright },
+  rowIndicatorSelected: { backgroundColor: theme.colors.oxblood },
 });

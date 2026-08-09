@@ -270,8 +270,8 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
       <Text style={styles.goalText}>{commitment.draftData.goal}</Text>
       <Text style={styles.ruleText}>{successRule?.overall ?? successRule?.challengeSummary ?? commitment.draftData.behaviorText}</Text>
       <Text style={styles.stakeText}>{stakeLabel} → {formatNames(recipientNames)}</Text>
-      <Text style={styles.paymentStatus}>
-        {commitment.authorizationStatus === 'authorized' ? 'Payment method ✓' : 'Payment method not added yet'}
+      <Text style={commitment.authorizationStatus === 'authorized' ? styles.paymentStatusDone : styles.paymentStatusPending}>
+        {commitment.authorizationStatus === 'authorized' ? 'Payment method added' : 'Payment method not added yet'}
       </Text>
     </View>
   );
@@ -299,15 +299,16 @@ const styles = StyleSheet.create({
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
-  dangerLink: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '600' },
+  dangerLink: { color: '#E37D6A', fontSize: 13, fontWeight: '600' },
   summary: {
-    borderLeftWidth: 2, borderLeftColor: theme.colors.crimson, backgroundColor: theme.colors.surface,
+    borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.precise, paddingHorizontal: 16, paddingVertical: 14, gap: 6,
   },
   goalText: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700', lineHeight: 23 },
   ruleText: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   stakeText: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
-  paymentStatus: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
+  paymentStatusPending: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
+  paymentStatusDone: { marginTop: 4, color: theme.colors.sage, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
   actions: { gap: 12 },
   sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
   sheetBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },

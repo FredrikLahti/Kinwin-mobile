@@ -1,47 +1,49 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
+import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { playImportantHaptic } from '@/lib/haptics';
-
-const SEEN_KEY = 'kinwin.seenChallengeIntro';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 const STEPS = [
-  'Create a challenge around a habit you want to follow.',
-  'Choose people you care about.',
-  'Pick a reward and an amount that is at stake.',
+  'Create a challenge for a habit or behavior you want to change.',
+  'Choose who gets the reward if you miss it.',
+  'Choose the experience and the stake.',
   'Complete the challenge and you pay nothing.',
-  'Miss it and the stake becomes their reward.',
-  'You do not take part in that reward yourself.',
+  'Miss it and the stake funds their reward.',
+  'You do not participate in that reward yourself.',
 ];
 
 export default function CreateIntroScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
+  const { profile, status: authStatus, updateShowChallengeIntro } = useAuth();
   const [ready, setReady] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    void AsyncStorage.getItem(SEEN_KEY).then((value) => {
-      if (cancelled) return;
-      if (value === '1') {
-        router.replace('/create/goal' as Href);
-        return;
-      }
-      setReady(true);
-    });
-    return () => { cancelled = true; };
-  }, [router]);
+    if (authStatus === 'loading') return;
+    if (authStatus === 'signed_in' && !profile) return;
+    if (authStatus === 'signed_in' && profile?.showChallengeIntro === false) {
+      router.replace('/create/goal' as Href);
+      return;
+    }
+    setReady(true);
+  }, [authStatus, profile, router]);
+
+  const toggleDontShowAgain = () => {
+    void playSelectionHaptic();
+    setDontShowAgain((current) => !current);
+  };
 
   const continueToGoal = () => {
     void playImportantHaptic();
-    void AsyncStorage.setItem(SEEN_KEY, '1');
+    if (dontShowAgain && authStatus === 'signed_in') void updateShowChallengeIntro(false);
     router.replace('/create/goal' as Href);
   };
 
@@ -63,12 +65,33 @@ export default function CreateIntroScreen() {
             ))}
           </View>
         </View>
-        <PrimaryButtonV2
-          accessibilityHint="Starts creating your challenge"
-          label="Got it"
-          onPress={continueToGoal}
-          reducedMotion={reducedMotion}
-        />
+
+        <View style={styles.footer}>
+          {authStatus === 'signed_in' && (
+            <Pressable
+              accessibilityHint="Skips this explanation the next time you create a challenge"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: dontShowAgain }}
+              hitSlop={4}
+              onPress={toggleDontShowAgain}
+              style={styles.checkboxRow}
+            >
+              <View style={[styles.checkbox, dontShowAgain && styles.checkboxChecked]}>
+                {dontShowAgain && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <View style={styles.checkboxCopy}>
+                <Text style={styles.checkboxLabel}>Don’t show this again</Text>
+                {dontShowAgain && <Text style={styles.checkboxHelper}>You can turn this back on in Account.</Text>}
+              </View>
+            </Pressable>
+          )}
+          <PrimaryButtonV2
+            accessibilityHint="Starts creating your challenge"
+            label="Got it"
+            onPress={continueToGoal}
+            reducedMotion={reducedMotion}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -87,8 +110,19 @@ const styles = StyleSheet.create({
   steps: { gap: 18 },
   step: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   stepNumber: {
-    width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.crimson,
-    color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700', textAlign: 'center', lineHeight: 24,
+    width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.oxblood,
+    color: theme.colors.ivory, fontSize: 13, fontWeight: '700', textAlign: 'center', lineHeight: 24,
   },
   stepText: { flex: 1, color: theme.colors.ivory, fontSize: 18, fontWeight: '600', lineHeight: 25, paddingTop: 2 },
+  footer: { gap: 16 },
+  checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  checkbox: {
+    width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 4,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
+  },
+  checkboxChecked: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
+  checkmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '800' },
+  checkboxCopy: { flex: 1 },
+  checkboxLabel: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '600' },
+  checkboxHelper: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 12, lineHeight: 16 },
 });

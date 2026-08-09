@@ -26,7 +26,7 @@ type DraftLookup = { status: 'loading' } | { status: 'none' } | { status: 'found
 export default function AccountScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { profile, signOut, updateDisplayName, user } = useAuth();
+  const { profile, signOut, updateDisplayName, updateShowChallengeIntro, user } = useAuth();
   const onboarding = useOnboarding();
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '');
   const [savingName, setSavingName] = useState(false);
@@ -96,6 +96,11 @@ export default function AccountScreen() {
     }
     onboarding.resetDraft();
     router.push('/create/intro' as Href);
+  };
+
+  const toggleShowIntro = async () => {
+    void playSelectionHaptic();
+    await updateShowChallengeIntro(!(profile?.showChallengeIntro ?? true));
   };
 
   const handleSignOut = async () => {
@@ -199,6 +204,20 @@ export default function AccountScreen() {
             </Pressable>
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>PREFERENCES</Text>
+            <Pressable
+              accessibilityHint="Toggles whether How Kinwin works is shown before creating a challenge"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: profile?.showChallengeIntro ?? true }}
+              onPress={() => void toggleShowIntro()}
+              style={({ pressed }) => [styles.toggleRow, pressed && styles.textButtonPressed]}
+            >
+              <Text style={styles.toggleLabel}>Show &quot;How Kinwin works&quot; before creating a challenge</Text>
+              <Text style={styles.textButtonLabel}>{(profile?.showChallengeIntro ?? true) ? 'On' : 'Off'}</Text>
+            </Pressable>
+          </View>
+
           <Pressable
             accessibilityHint="Signs out of your Kinwin account"
             accessibilityRole="button"
@@ -249,6 +268,8 @@ const styles = StyleSheet.create({
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  toggleRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  toggleLabel: { flex: 1, color: theme.colors.boneMuted, fontSize: 13, lineHeight: 19 },
   signOutButton: {
     minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 8,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,

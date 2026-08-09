@@ -33,6 +33,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.structureLine,
   },
   fill: {
-    backgroundColor: theme.colors.crimson,
+    backgroundColor: theme.colors.oxblood,
   },
 });
