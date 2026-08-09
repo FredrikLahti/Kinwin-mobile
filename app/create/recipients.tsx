@@ -17,6 +17,7 @@ export default function CreateRecipientsScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const otherNameRef = useRef<TextInput>(null);
+  const recipientInputRefs = useRef<Record<string, TextInput | null>>({});
   const { behaviorDirection, recipients, rewardOrganizer, setRecipients, setRewardOrganizer } = useOnboarding();
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'recipients');
@@ -37,12 +38,18 @@ export default function CreateRecipientsScreen() {
   const addRecipient = () => {
     if (recipients.length >= MAX_RECIPIENTS) return;
     void playSelectionHaptic();
-    setRecipients((current) => (current.length < MAX_RECIPIENTS ? [...current, createRecipientDraft()] : current));
+    const draft = createRecipientDraft();
+    setRecipients((current) => (current.length < MAX_RECIPIENTS ? [...current, draft] : current));
+    // Move focus straight to the new field so typing continues without an
+    // extra tap, instead of leaving the keyboard wherever it was (or
+    // closing it) when the user clearly intends to keep going.
+    setTimeout(() => recipientInputRefs.current[draft.id]?.focus(), 0);
   };
 
   const removeRecipient = (id: string) => {
     if (recipients[0]?.id === id || recipients.length <= 1) return;
     void playSelectionHaptic();
+    Keyboard.dismiss();
     setRecipients((current) => current.filter((recipient) => recipient.id !== id));
     if (rewardOrganizer?.type === 'recipient' && rewardOrganizer.recipientId === id) {
       setRewardOrganizer(null);
@@ -51,6 +58,7 @@ export default function CreateRecipientsScreen() {
 
   const selectRecipientOrganizer = (recipientId: string) => {
     void playSelectionHaptic();
+    Keyboard.dismiss();
     setRewardOrganizer({ type: 'recipient', recipientId });
   };
 
@@ -113,8 +121,11 @@ export default function CreateRecipientsScreen() {
                 onBlur={() => setFocusedId(null)}
                 onChangeText={(name) => updateRecipientName(recipient.id, name)}
                 onFocus={() => setFocusedId(recipient.id)}
+                onSubmitEditing={() => Keyboard.dismiss()}
                 placeholder="Their name"
                 placeholderTextColor={theme.colors.warmGrey}
+                ref={(el) => { recipientInputRefs.current[recipient.id] = el; }}
+                returnKeyType="done"
                 selectionColor={theme.colors.oxblood}
                 style={styles.recipientInput}
                 value={recipient.name}
@@ -123,7 +134,7 @@ export default function CreateRecipientsScreen() {
           ))}
         </View>
         {recipients.length < MAX_RECIPIENTS && (
-          <Pressable accessibilityHint="Adds another recipient" accessibilityLabel="Add another person" accessibilityRole="button" onPress={addRecipient} style={styles.addAction}>
+          <Pressable accessibilityHint="Adds another recipient" accessibilityLabel="Add another person" accessibilityRole="button" hitSlop={6} onPress={addRecipient} style={styles.addAction}>
             <Text style={styles.addText}>+ Add another person</Text>
           </Pressable>
         )}
@@ -162,8 +173,10 @@ export default function CreateRecipientsScreen() {
             autoCapitalize="words"
             maxLength={MAX_NAME_LENGTH}
             onChangeText={updateOtherName}
+            onSubmitEditing={() => Keyboard.dismiss()}
             placeholder="Their name"
             placeholderTextColor={theme.colors.warmGrey}
+            returnKeyType="done"
             selectionColor={theme.colors.oxblood}
             style={styles.otherNameInput}
             value={rewardOrganizer.name}
@@ -187,7 +200,7 @@ const styles = StyleSheet.create({
   recipientLabel: { color: theme.colors.ivoryMuted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   removeText: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '600' },
   recipientInput: { marginTop: 4, minHeight: 32, color: theme.colors.ivory, fontSize: 18, fontWeight: '500', paddingHorizontal: 0, paddingVertical: 0 },
-  addAction: { minHeight: 44, justifyContent: 'center' },
+  addAction: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   addText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
   organizerList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   organizerChoice: {

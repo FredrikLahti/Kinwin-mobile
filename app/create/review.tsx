@@ -273,7 +273,7 @@ export default function CreateReviewScreen() {
           {saveState === 'error' && (
             <View style={styles.errorRow}>
               <Text style={styles.errorText}>{saveErrorMessage ?? 'Something went wrong.'}</Text>
-              <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" onPress={retrySave}>
+              <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" hitSlop={6} onPress={retrySave} style={styles.retryAction}>
                 <Text style={styles.retryText}>Retry</Text>
               </Pressable>
             </View>
@@ -282,7 +282,9 @@ export default function CreateReviewScreen() {
             <Pressable
               accessibilityHint="Opens sign in, then returns here to save your commitment"
               accessibilityRole="button"
+              hitSlop={6}
               onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
+              style={styles.retryAction}
             >
               <Text style={styles.retryText}>Sign in to save your commitment</Text>
             </Pressable>
@@ -393,5 +395,6 @@ const styles = StyleSheet.create({
   footerStack: { gap: 10 },
   errorRow: { gap: 4 },
   errorText: { color: '#E37D6A', fontSize: 12, lineHeight: 17 },
+  retryAction: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
   retryText: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
 });

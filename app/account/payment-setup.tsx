@@ -251,6 +251,7 @@ export default function PaymentSetupScreen() {
               <Pressable
                 accessibilityHint="Returns to your pending commitment"
                 accessibilityRole="button"
+                hitSlop={6}
                 onPress={backToCommitment}
                 style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
               >
@@ -318,6 +319,7 @@ export default function PaymentSetupScreen() {
                   accessibilityHint="Checks the server again for confirmation"
                   accessibilityRole="button"
                   disabled={state.checking}
+                  hitSlop={6}
                   onPress={() => void checkAgain()}
                   style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
                 >
@@ -333,6 +335,7 @@ export default function PaymentSetupScreen() {
               <Pressable
                 accessibilityHint="Tries again"
                 accessibilityRole="button"
+                hitSlop={6}
                 onPress={retry}
                 style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
               >
@@ -389,7 +392,7 @@ const styles = StyleSheet.create({
   body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   errorText: { color: '#E37D6A', fontSize: 14, lineHeight: 21 },
   section: { gap: 16 },
-  textButton: { minHeight: 44, justifyContent: 'center' },
+  textButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
   textButtonPressed: { opacity: 0.7 },
   textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   stakeLine: { color: theme.colors.ivory, fontSize: 16, fontWeight: '600', lineHeight: 22 },

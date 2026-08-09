@@ -30,7 +30,7 @@ export type ChallengeRuleSummaryInput = {
 };
 
 // A plain restatement of the rule for the user to read back — "Walk for at
-// least 20 minutes, 3 times per week" / "Social media: maximum 3 hours per
+// least 20 minutes, 3 times per week" / "Social media: up to 3 hours per
 // week" / "No smoking" — distinct from lib/success-rule.ts's
 // calculateSuccessRule, which describes the statistical success threshold
 // ("Complete at least 10 of 14 planned sessions"), not the rule itself.
@@ -49,7 +49,7 @@ export function describeChallengeRule({
     const unit = describeUnit(measurementMode, rhythm);
     const targetValue = rhythm.targetValue.trim();
     if (!unit || !rhythm.period || !targetValue) return behavior;
-    return `${behavior}: maximum ${targetValue} ${unit} per ${rhythm.period}`;
+    return `${behavior}: up to ${targetValue} ${unit} per ${rhythm.period}`;
   }
 
   if (behaviorDirection === 'build') {

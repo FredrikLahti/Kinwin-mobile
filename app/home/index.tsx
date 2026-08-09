@@ -189,7 +189,7 @@ export default function HomeV2() {
                   </View>
                 )}
                 {!demoEnabled && real.status === 'ready' && (
-                  <Pressable accessibilityHint="Opens your phone's share sheet with your invitation again" accessibilityRole="button" onPress={() => void shareActiveChallenge()} style={styles.shareAgainLink}>
+                  <Pressable accessibilityHint="Opens your phone's share sheet with your invitation again" accessibilityRole="button" hitSlop={6} onPress={() => void shareActiveChallenge()} style={styles.shareAgainLink}>
                     <Text style={styles.shareAgainText}>Share invite again</Text>
                   </Pressable>
                 )}
@@ -296,7 +296,7 @@ export default function HomeV2() {
             reducedMotion={reducedMotion}
           />
           {pendingCommitment && (
-            <Pressable accessibilityHint="Cancels your unfinished commitment and starts a new one" accessibilityRole="button" onPress={openStartOverSheet} style={styles.startOverLink}>
+            <Pressable accessibilityHint="Cancels your unfinished commitment and starts a new one" accessibilityRole="button" hitSlop={6} onPress={openStartOverSheet} style={styles.startOverLink}>
               <Text style={styles.startOverText}>Start over instead</Text>
             </Pressable>
           )}
@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
   challengeName: { color: theme.colors.ivory, fontSize: 21, fontWeight: '700' },
   progressLine: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '700' },
   checkInButton: { marginTop: 6 },
-  shareAgainLink: { marginTop: 4, minHeight: 32, justifyContent: 'center' },
+  shareAgainLink: { alignSelf: 'flex-start', marginTop: 4, minHeight: 32, justifyContent: 'center' },
   shareAgainText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
   emptySection: { marginTop: theme.spacing.large, gap: theme.spacing.xsmall },
   emptyTitle: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700' },
@@ -396,7 +396,7 @@ const styles = StyleSheet.create({
   rowValue: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   rowValueMuted: { color: theme.colors.ivoryMuted, fontSize: 13, flexShrink: 1, textAlign: 'right' },
   createSection: { gap: 10 },
-  startOverLink: { minHeight: 36, alignItems: 'center', justifyContent: 'center' },
+  startOverLink: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   startOverText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '600' },
   sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
   sheetBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },

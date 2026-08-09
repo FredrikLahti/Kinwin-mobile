@@ -25,14 +25,14 @@ test('describeChallengeRule: Build daily', () => {
   assert.equal(summary, 'Floss, every day');
 });
 
-test('describeChallengeRule: Limit — Social media: maximum 3 hours per week', () => {
+test('describeChallengeRule: Limit — Social media: up to 3 hours per week', () => {
   const summary = describeChallengeRule({
     behaviorDirection: 'cut',
     behaviorText: 'Social media',
     measurementMode: 'time',
     rhythm: { ...BLANK_RHYTHM, type: 'maximum_per_period', targetValue: '3', period: 'week', timeUnit: 'hours' },
   });
-  assert.equal(summary, 'Social media: maximum 3 hours per week');
+  assert.equal(summary, 'Social media: up to 3 hours per week');
 });
 
 test('describeChallengeRule: Limit with a custom amount unit', () => {
@@ -42,7 +42,7 @@ test('describeChallengeRule: Limit with a custom amount unit', () => {
     measurementMode: 'amount',
     rhythm: { ...BLANK_RHYTHM, type: 'maximum_per_period', targetValue: '2', period: 'week', amountUnit: 'meals' },
   });
-  assert.equal(summary, 'Fast food: maximum 2 meals per week');
+  assert.equal(summary, 'Fast food: up to 2 meals per week');
 });
 
 test('describeChallengeRule: Avoid — No smoking', () => {

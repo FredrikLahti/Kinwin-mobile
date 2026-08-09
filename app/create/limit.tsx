@@ -55,6 +55,7 @@ export default function CreateLimitScreen() {
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'rule');
 
   const preset = presetFromContext(measurementMode, rhythm.timeUnit, rhythm.amountUnit);
+  const ruleSummary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
 
   useEffect(() => {
     if (rhythm.type !== 'maximum_per_period') setRhythm((current) => ({ ...current, type: 'maximum_per_period' }));
@@ -63,9 +64,8 @@ export default function CreateLimitScreen() {
   // The completion definition (still required server-side) is derived
   // directly from the limit itself rather than asked separately.
   useEffect(() => {
-    const summary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
-    if (summary) setDefinitionText(summary);
-  }, [behaviorDirection, behaviorText, measurementMode, rhythm, setDefinitionText]);
+    if (ruleSummary) setDefinitionText(ruleSummary);
+  }, [ruleSummary, setDefinitionText]);
 
   const selectPreset = (next: UnitPreset) => {
     void playSelectionHaptic();
@@ -138,7 +138,7 @@ export default function CreateLimitScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>SET YOUR LIMIT</Text>
+        <Text style={styles.sectionLabel}>YOUR MAXIMUM</Text>
         <View style={styles.ruleRow}>
           <TextInput
             accessibilityLabel="Limit amount"
@@ -183,6 +183,12 @@ export default function CreateLimitScreen() {
         )}
         <ChoiceListV2 layout="row" onChange={selectPeriod} options={PERIODS} value={rhythm.period} />
       </View>
+
+      {ruleSummary.length > 0 && (
+        <View style={styles.summary}>
+          <Text style={styles.summaryText}>{ruleSummary}</Text>
+        </View>
+      )}
     </CreateFlowScreenV2>
   );
 }
@@ -215,4 +221,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceRaised, color: theme.colors.ivory, fontSize: 15,
     paddingHorizontal: 16, paddingVertical: 0,
   },
+  summary: {
+    borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
+    paddingHorizontal: 16, paddingVertical: 14, borderRadius: theme.radius.precise,
+  },
+  summaryText: { color: theme.colors.ivory, fontSize: 17, fontWeight: '700' },
 });
