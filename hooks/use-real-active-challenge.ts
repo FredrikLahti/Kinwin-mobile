@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
 import { buildActiveChallengeViewModel, ActiveChallengeViewModel } from '@/lib/challenge-ux-preview/view-model';
-import { ActiveChallengeData, fetchActiveChallenge } from '@/lib/supabase/active-challenge-repository';
+import { ActiveChallengeData, fetchActiveChallenge, finalizeChallenge } from '@/lib/supabase/active-challenge-repository';
 import { IsoDateTime } from '@/domain/challenge/types';
 
 export type RealActiveChallengeState =
@@ -50,6 +50,19 @@ export function useRealActiveChallenge() {
       now: new Date().toISOString() as IsoDateTime,
     });
     setState({ status: 'ready', data: result.data, view });
+
+    // Opportunistic trigger, not a source of truth: this client's own view
+    // already believes the challenge is done, so ask the server to check
+    // for real and persist it (see finalizeChallenge's own doc comment).
+    // Fire-and-forget — a failure here just means the next refresh tries
+    // again, same as any other eventually-consistent background sync.
+    if (view.finalResult !== null && result.data.challenge.status === 'active') {
+      void finalizeChallenge(result.data.challenge.id).then((finalizeResult) => {
+        if (finalizeResult.ok && finalizeResult.status !== 'pending' && finalizeResult.changed) {
+          void refresh();
+        }
+      });
+    }
   }, [user]);
 
   useEffect(() => {

@@ -51,13 +51,18 @@ reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
 
--- Owner B can still manage their own profile normally.
+-- Owner B can still manage their own profile normally. A plain UPDATE, not
+-- an INSERT ... ON CONFLICT: the row already exists (created by the
+-- signup trigger), and authenticated only has column-restricted INSERT
+-- privilege on (id, display_name) -- an INSERT listing kin_code (even a
+-- value that would never actually be persisted, since this always hits
+-- the conflict branch) fails with a column-level permission error before
+-- the conflict is ever resolved.
 do $$
 declare
   persisted text;
 begin
-  insert into public.profiles (id, display_name) values ('22222222-2222-2222-2222-222222222222', 'Owner B')
-    on conflict (id) do update set display_name = excluded.display_name;
+  update public.profiles set display_name = 'Owner B' where id = '22222222-2222-2222-2222-222222222222';
   select display_name into persisted from public.profiles where id = '22222222-2222-2222-2222-222222222222';
   perform test.assert_equals('non_owner_manages_own_profile', persisted, 'Owner B');
 end;

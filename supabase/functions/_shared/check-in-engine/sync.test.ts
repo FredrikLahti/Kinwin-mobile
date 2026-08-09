@@ -29,6 +29,9 @@ const PAIRS: readonly { readonly source: string; readonly copy: string }[] = [
   { source: 'domain/challenge/check-in/reduction.ts', copy: 'supabase/functions/_shared/check-in-engine/check-in/reduction.ts' },
   { source: 'domain/challenge/check-in/stop-reduction.ts', copy: 'supabase/functions/_shared/check-in-engine/check-in/stop-reduction.ts' },
   { source: 'domain/challenge/check-in/append-plan.ts', copy: 'supabase/functions/_shared/check-in-engine/check-in/append-plan.ts' },
+  { source: 'domain/challenge/check-in/period-state.ts', copy: 'supabase/functions/_shared/check-in-engine/check-in/period-state.ts' },
+  { source: 'domain/challenge/check-in/cut-back-continuity.ts', copy: 'supabase/functions/_shared/check-in-engine/check-in/cut-back-continuity.ts' },
+  { source: 'domain/challenge/results.ts', copy: 'supabase/functions/_shared/check-in-engine/results.ts' },
 ];
 
 /** The one mechanical transform every copy applies to its source: add an explicit `.ts` to every relative import specifier. */

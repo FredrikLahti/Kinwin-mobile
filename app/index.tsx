@@ -44,22 +44,6 @@ export default function HomeScreen() {
               label="Start"
               onPress={() => router.push('/create/intro' as Href)}
             />
-            <Pressable
-              accessibilityHint="Opens the internal Kin social prototype, using local preview data only"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.push('/social-preview' as Href)}
-            >
-              <Text style={styles.socialPreviewLink}>Kin social preview (internal prototype)</Text>
-            </Pressable>
-            <Pressable
-              accessibilityHint="Opens the internal social onboarding UX prototype, using local preview data only"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.push('/social-onboarding-preview' as Href)}
-            >
-              <Text style={styles.socialPreviewLink}>Social onboarding UX preview (internal prototype)</Text>
-            </Pressable>
           </View>
         </View>
       </ScrollView>
@@ -133,13 +117,5 @@ const styles = StyleSheet.create({
   },
   action: {
     gap: 8,
-  },
-  socialPreviewLink: {
-    minHeight: 20,
-    color: '#62625D',
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: 'center',
-    textDecorationLine: 'underline',
   },
 });
