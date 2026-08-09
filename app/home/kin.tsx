@@ -1,27 +1,187 @@
 import { Feather } from '@expo/vector-icons';
-import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
-import { PreviewTagV2 } from '@/components/v2/preview-tag';
+import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { SegmentedControlV2 } from '@/components/v2/segmented-control';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
-import { demoKinActivity, demoKinPeople } from '@/fixtures/ux-v2-preview';
+import { useAuth } from '@/contexts/auth-context';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playSelectionHaptic } from '@/lib/haptics';
+import { describeActivityEvent } from '@/lib/home/activity-summary';
+import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
+import {
+  ActivityItem,
+  KinConnection,
+  REACTION_KINDS,
+  ReactionKind,
+  acceptKinRequest,
+  blockKin,
+  cancelKinRequest,
+  clearMyReaction,
+  declineKinRequest,
+  fetchKinActivity,
+  fetchKinConnections,
+  fetchMyKinCode,
+  redeemKinCode,
+  removeKin,
+  setMyReaction,
+} from '@/lib/supabase/kin-repository';
 
 type Tab = 'activity' | 'people';
 
-export default function KinV2() {
-  const router = useRouter();
-  const [tab, setTab] = useState<Tab>('activity');
-  const [reacted, setReacted] = useState<Record<string, boolean>>({});
+const REACTION_LABELS: Record<ReactionKind, string> = {
+  respect: 'Respect', nice: 'Nice', worth_it: 'Worth it', ouch: 'Ouch', brutal: 'Brutal',
+};
 
-  const toggleReaction = (id: string) => {
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+export default function KinV2() {
+  const { user } = useAuth();
+  const reducedMotion = useReducedMotion();
+  const [tab, setTab] = useState<Tab>('activity');
+  const [loading, setLoading] = useState(true);
+  const [connections, setConnections] = useState<readonly KinConnection[]>([]);
+  const [activity, setActivity] = useState<readonly ActivityItem[]>([]);
+  const [addKinOpen, setAddKinOpen] = useState(false);
+  const [manageTarget, setManageTarget] = useState<KinConnection | null>(null);
+  const [myCode, setMyCode] = useState<string | null>(null);
+  const [codeInput, setCodeInput] = useState('');
+  const [redeemFeedback, setRedeemFeedback] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+
+  const setBusy = (id: string, busy: boolean) => {
+    setBusyIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    const [connectionsResult, activityResult] = await Promise.all([fetchKinConnections(user.id), fetchKinActivity(user.id)]);
+    if (connectionsResult.ok) setConnections(connectionsResult.connections);
+    if (activityResult.ok) setActivity(activityResult.items);
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!addKinOpen || !user || myCode) return;
+    void fetchMyKinCode(user.id).then((result) => {
+      if (result.ok) setMyCode(result.kinCode);
+    });
+  }, [addKinOpen, user, myCode]);
+
+  const accepted = connections.filter((c) => c.status === 'accepted');
+  const incoming = connections.filter((c) => c.status === 'pending' && c.direction === 'incoming');
+  const outgoing = connections.filter((c) => c.status === 'pending' && c.direction === 'outgoing');
+
+  const shareMyCode = async () => {
     void playSelectionHaptic();
-    setReacted((current) => ({ ...current, [id]: !current[id] }));
+    if (!myCode) return;
+    await Share.share({ message: `Add me as your Kin on Kinwin. My code: ${myCode}` });
+  };
+
+  const submitCode = async () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    void playSelectionHaptic();
+    setRedeemFeedback(null);
+    const result = await redeemKinCode(code);
+    if (!result.ok) {
+      setRedeemFeedback(result.kind === 'rejected' ? (result.message ?? 'That code did not work.') : 'Something went wrong. Try again.');
+      return;
+    }
+    setCodeInput('');
+    if (result.status === 'requested') setRedeemFeedback('Request sent.');
+    else if (result.status === 'already_pending') setRedeemFeedback('You already have a pending request with them.');
+    else setRedeemFeedback('You are already Kin.');
+    void refresh();
+  };
+
+  const respondToRequest = async (connection: KinConnection, action: 'accept' | 'decline' | 'cancel') => {
+    void playSelectionHaptic();
+    setBusy(connection.connectionId, true);
+    const result = action === 'accept' ? await acceptKinRequest(connection.connectionId)
+      : action === 'decline' ? await declineKinRequest(connection.connectionId)
+      : await cancelKinRequest(connection.connectionId);
+    setBusy(connection.connectionId, false);
+    if (!result.ok) {
+      Alert.alert('Could not complete that', result.kind === 'rejected' ? (result.message ?? '') : 'Please try again.');
+      return;
+    }
+    void refresh();
+  };
+
+  const confirmRemove = (connection: KinConnection) => {
+    Alert.alert('Remove Kin', `Remove ${connection.otherDisplayName} as Kin? They can send a new request later.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive', onPress: () => {
+          void (async () => {
+            setBusy(connection.connectionId, true);
+            const result = await removeKin(connection.connectionId);
+            setBusy(connection.connectionId, false);
+            setManageTarget(null);
+            if (!result.ok) { Alert.alert('Could not remove', result.kind === 'rejected' ? (result.message ?? '') : ''); return; }
+            void refresh();
+          })();
+        },
+      },
+    ]);
+  };
+
+  const confirmBlock = (connection: KinConnection) => {
+    Alert.alert('Block Kin', `Block ${connection.otherDisplayName}? They will not be able to reconnect with you.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block', style: 'destructive', onPress: () => {
+          void (async () => {
+            setBusy(connection.connectionId, true);
+            const result = await blockKin(connection.otherUserId);
+            setBusy(connection.connectionId, false);
+            setManageTarget(null);
+            if (!result.ok) { Alert.alert('Could not block', result.kind === 'rejected' ? (result.message ?? '') : ''); return; }
+            void refresh();
+          })();
+        },
+      },
+    ]);
+  };
+
+  const toggleReaction = async (item: ActivityItem, kind: ReactionKind) => {
+    if (!user) return;
+    void playSelectionHaptic();
+    const isMine = item.myReaction === kind;
+    setActivity((current) => current.map((entry) => {
+      if (entry.id !== item.id) return entry;
+      const counts = { ...entry.reactionCounts };
+      if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
+      if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
+      return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
+    }));
+    if (isMine) await clearMyReaction(user.id, item.id);
+    else await setMyReaction(user.id, item.id, kind);
   };
 
   return (
@@ -31,17 +191,15 @@ export default function KinV2() {
         <View style={styles.header}>
           <Text style={styles.wordmark}>KIN</Text>
           <Pressable
-            accessibilityHint="Switches to the People list"
+            accessibilityHint="Add someone as your Kin"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={() => { void playSelectionHaptic(); setTab('people'); }}
+            onPress={() => { void playSelectionHaptic(); setAddKinOpen(true); }}
             style={({ pressed }) => [styles.addAction, pressed && styles.addActionPressed]}
           >
             <Feather color={theme.colors.crimsonBright} name="user-plus" size={18} />
           </Pressable>
         </View>
-
-        <PreviewTagV2 />
 
         <View style={styles.segmented}>
           <SegmentedControlV2
@@ -51,69 +209,211 @@ export default function KinV2() {
           />
         </View>
 
-        {tab === 'activity' ? (
-          <View style={styles.list}>
-            {demoKinActivity.map((item) => (
-              <View key={item.id} style={styles.activityCard}>
-                <View style={styles.activityHeader}>
-                  <AvatarV2 size={40} />
-                  <View style={styles.activityCopy}>
-                    <Text style={styles.activityName}>{item.name}</Text>
-                    <Text style={styles.activityBehavior}>{item.behavior}</Text>
-                  </View>
-                  {item.detail && <Text style={styles.activityDetail}>{item.detail}</Text>}
-                </View>
-                <Text style={styles.activityEvent}>{item.event}</Text>
-                <View style={styles.activityActions}>
-                  <Pressable
-                    accessibilityHint="Reacts to this event"
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: Boolean(reacted[item.id]) }}
-                    onPress={() => toggleReaction(item.id)}
-                    style={({ pressed }) => [
-                      styles.actionButton,
-                      reacted[item.id] && styles.actionButtonActive,
-                      pressed && styles.actionButtonPressed,
-                    ]}
-                  >
-                    <Text style={[styles.actionLabel, reacted[item.id] && styles.actionLabelActive]}>
-                      {reacted[item.id] ? 'Reacted' : 'React'}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityHint="Opens comments"
-                    accessibilityRole="button"
-                    onPress={() => router.push('/home/coming-soon?title=Comments' as Href)}
-                    style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
-                  >
-                    <Text style={styles.actionLabel}>Comment</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-          </View>
+        {loading ? (
+          <View style={styles.loadingBody}><ActivityIndicator color={theme.colors.warmGrey} /></View>
         ) : (
-          <View style={styles.list}>
-            <View style={styles.rowGroup}>
-              {demoKinPeople.map((person) => (
-                <View key={person.id} style={styles.personRow}>
-                  <AvatarV2 size={40} />
-                  <Text style={styles.personName}>{person.name}</Text>
-                </View>
-              ))}
-            </View>
-            <Pressable
-              accessibilityHint="Opens adding a new Kin"
-              accessibilityRole="button"
-              onPress={() => router.push('/home/coming-soon?title=Add Kin' as Href)}
-              style={({ pressed }) => [styles.addKinButton, pressed && styles.addKinButtonPressed]}
-            >
-              <Feather color={theme.colors.crimsonBright} name="user-plus" size={16} />
-              <Text style={styles.addKinLabel}>Add Kin</Text>
-            </Pressable>
-          </View>
+          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+            {tab === 'activity' ? (
+              <>
+                {incoming.map((connection) => (
+                  <View key={connection.connectionId} style={styles.requestCard}>
+                    <AvatarV2 size={36} />
+                    <View style={styles.requestCopy}>
+                      <Text style={styles.requestName}>{connection.otherDisplayName}</Text>
+                      <Text style={styles.requestSubtext}>Wants to be your Kin</Text>
+                    </View>
+                    <View style={styles.requestActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={busyIds.has(connection.connectionId)}
+                        onPress={() => void respondToRequest(connection, 'decline')}
+                        style={({ pressed }) => [styles.requestButton, pressed && styles.requestButtonPressed]}
+                      >
+                        <Text style={styles.requestButtonLabel}>Decline</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={busyIds.has(connection.connectionId)}
+                        onPress={() => void respondToRequest(connection, 'accept')}
+                        style={({ pressed }) => [styles.requestButton, styles.requestButtonPrimary, pressed && styles.requestButtonPressed]}
+                      >
+                        <Text style={styles.requestButtonPrimaryLabel}>Accept</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+
+                {activity.length === 0 && incoming.length === 0 && (
+                  <View style={styles.emptyBody}>
+                    <Text style={styles.emptyTitle}>No activity yet</Text>
+                    <Text style={styles.emptyText}>
+                      {accepted.length === 0 ? 'Add your people to see what they’re up to.' : 'When your Kin start, finish, or miss a challenge, it shows up here.'}
+                    </Text>
+                  </View>
+                )}
+
+                {activity.map((item) => (
+                  <View key={item.id} style={styles.activityCard}>
+                    <View style={styles.activityHeader}>
+                      <AvatarV2 size={40} />
+                      <View style={styles.activityCopy}>
+                        <Text style={styles.activityName}>{item.ownerDisplayName}</Text>
+                        <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
+                      </View>
+                      <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
+                    </View>
+                    <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
+                      {describeActivityEvent(item)}
+                    </Text>
+                    <View style={styles.reactionRow}>
+                      {REACTION_KINDS.map((kind) => {
+                        const mine = item.myReaction === kind;
+                        const count = item.reactionCounts[kind] ?? 0;
+                        return (
+                          <Pressable
+                            accessibilityHint={`Reacts with ${REACTION_LABELS[kind]}`}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: mine }}
+                            key={kind}
+                            onPress={() => void toggleReaction(item, kind)}
+                            style={({ pressed }) => [styles.reactionChip, mine && styles.reactionChipActive, pressed && styles.reactionChipPressed]}
+                          >
+                            <Text style={[styles.reactionLabel, mine && styles.reactionLabelActive]}>
+                              {REACTION_LABELS[kind]}{count > 0 ? ` ${count}` : ''}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </>
+            ) : (
+              <>
+                {accepted.length === 0 && outgoing.length === 0 ? (
+                  <View style={styles.emptyBody}>
+                    <Text style={styles.emptyTitle}>Add your people</Text>
+                    <Text style={styles.emptyText}>Share your code or enter theirs to connect.</Text>
+                    <Pressable
+                      accessibilityHint="Opens adding a new Kin"
+                      accessibilityRole="button"
+                      onPress={() => { void playSelectionHaptic(); setAddKinOpen(true); }}
+                      style={({ pressed }) => [styles.addKinButton, pressed && styles.addKinButtonPressed]}
+                    >
+                      <Feather color={theme.colors.crimsonBright} name="user-plus" size={16} />
+                      <Text style={styles.addKinLabel}>Add Kin</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    {accepted.length > 0 && (
+                      <View style={styles.rowGroup}>
+                        {accepted.map((connection) => (
+                          <Pressable
+                            accessibilityHint="Manage this Kin"
+                            accessibilityRole="button"
+                            key={connection.connectionId}
+                            onPress={() => setManageTarget(connection)}
+                            style={({ pressed }) => [styles.personRow, pressed && styles.personRowPressed]}
+                          >
+                            <AvatarV2 size={40} />
+                            <Text style={styles.personName}>{connection.otherDisplayName}</Text>
+                            <Feather color={theme.colors.warmGrey} name="more-horizontal" size={18} />
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+
+                    {outgoing.length > 0 && (
+                      <View style={styles.rowGroup}>
+                        {outgoing.map((connection) => (
+                          <View key={connection.connectionId} style={styles.personRow}>
+                            <AvatarV2 size={40} />
+                            <Text style={styles.personName}>{connection.otherDisplayName}</Text>
+                            <Text style={styles.pendingTag}>Pending</Text>
+                            <Pressable
+                              accessibilityHint="Cancels this request"
+                              accessibilityRole="button"
+                              disabled={busyIds.has(connection.connectionId)}
+                              hitSlop={8}
+                              onPress={() => void respondToRequest(connection, 'cancel')}
+                              style={styles.cancelRequestButton}
+                            >
+                              <Feather color={theme.colors.warmGrey} name="x" size={16} />
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    <Pressable
+                      accessibilityHint="Opens adding a new Kin"
+                      accessibilityRole="button"
+                      onPress={() => { void playSelectionHaptic(); setAddKinOpen(true); }}
+                      style={({ pressed }) => [styles.addKinButton, pressed && styles.addKinButtonPressed]}
+                    >
+                      <Feather color={theme.colors.crimsonBright} name="user-plus" size={16} />
+                      <Text style={styles.addKinLabel}>Add Kin</Text>
+                    </Pressable>
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
         )}
       </View>
+
+      <BottomSheetV2 onClose={() => { setAddKinOpen(false); setRedeemFeedback(null); }} reducedMotion={reducedMotion} visible={addKinOpen}>
+        <Text style={styles.sheetTitle}>Add Kin</Text>
+
+        {myCode && (
+          <View style={styles.sheetSection}>
+            <Text style={styles.sheetLabel}>YOUR CODE</Text>
+            <View style={styles.codeRow}>
+              <Text style={styles.codeText}>{myCode}</Text>
+              <Pressable accessibilityHint="Shares your code" accessibilityRole="button" hitSlop={8} onPress={() => void shareMyCode()} style={styles.shareCodeButton}>
+                <Feather color={theme.colors.crimsonBright} name="share" size={16} />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.sheetSection}>
+          <Text style={styles.sheetLabel}>ENTER THEIR CODE</Text>
+          <TextInputV2
+            autoCapitalize="characters"
+            autoCorrect={false}
+            onChangeText={setCodeInput}
+            placeholder="ABCD1234"
+            placeholderTextColor={theme.colors.warmGrey}
+            style={styles.codeInput}
+            value={codeInput}
+          />
+          {redeemFeedback && <Text style={styles.sheetFeedback}>{redeemFeedback}</Text>}
+        </View>
+
+        <PrimaryButtonV2
+          accessibilityHint="Sends a Kin request to that code's owner"
+          disabled={codeInput.trim().length === 0}
+          label="Send request"
+          onPress={() => void submitCode()}
+          reducedMotion={reducedMotion}
+        />
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setManageTarget(null)} reducedMotion={reducedMotion} visible={manageTarget !== null}>
+        {manageTarget && (
+          <>
+            <Text style={styles.sheetTitle}>{manageTarget.otherDisplayName}</Text>
+            <Pressable accessibilityRole="button" onPress={() => confirmRemove(manageTarget)} style={styles.sheetAction}>
+              <Text style={styles.sheetActionLabel}>Remove Kin</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => confirmBlock(manageTarget)} style={styles.sheetAction}>
+              <Text style={[styles.sheetActionLabel, styles.sheetActionDestructive]}>Block</Text>
+            </Pressable>
+          </>
+        )}
+      </BottomSheetV2>
     </SafeAreaView>
   );
 }
@@ -132,7 +432,28 @@ const styles = StyleSheet.create({
   },
   addActionPressed: { backgroundColor: theme.colors.surfaceRaised },
   segmented: { marginTop: 4 },
-  list: { marginTop: theme.spacing.small, gap: theme.spacing.small },
+  loadingBody: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  list: { marginTop: theme.spacing.small, gap: theme.spacing.small, paddingBottom: theme.spacing.large },
+  emptyBody: { alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 40, paddingHorizontal: 12 },
+  emptyTitle: { color: theme.colors.ivory, fontSize: 16, fontWeight: '700' },
+  emptyText: { color: theme.colors.ivoryMuted, fontSize: 13, textAlign: 'center', marginBottom: 8 },
+  requestCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, padding: theme.spacing.small,
+  },
+  requestCopy: { flex: 1 },
+  requestName: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  requestSubtext: { color: theme.colors.ivoryMuted, fontSize: 12 },
+  requestActions: { flexDirection: 'row', gap: 8 },
+  requestButton: {
+    minHeight: 34, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center',
+    borderRadius: theme.radius.precise, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+  },
+  requestButtonPrimary: { borderColor: theme.colors.rosewood, backgroundColor: theme.colors.rosewood },
+  requestButtonPressed: { opacity: 0.8 },
+  requestButtonLabel: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '700' },
+  requestButtonPrimaryLabel: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
   activityCard: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, padding: theme.spacing.small, gap: 8,
@@ -141,18 +462,20 @@ const styles = StyleSheet.create({
   activityCopy: { flex: 1 },
   activityName: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
   activityBehavior: { color: theme.colors.ivoryMuted, fontSize: 12 },
-  activityDetail: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
-  activityEvent: { color: theme.colors.ivoryMuted, fontSize: 13 },
-  activityActions: { flexDirection: 'row', gap: 8 },
-  actionButton: {
-    flex: 1, minHeight: 36, alignItems: 'center', justifyContent: 'center',
+  activityTime: { color: theme.colors.warmGrey, fontSize: 11 },
+  activityEvent: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
+  activityEventFailure: { color: theme.colors.crimsonBright },
+  activityEventSuccess: { color: theme.colors.sage },
+  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  reactionChip: {
+    minHeight: 30, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center',
     borderRadius: theme.radius.precise, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
     backgroundColor: theme.colors.surfaceRaised,
   },
-  actionButtonActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
-  actionButtonPressed: { opacity: 0.75 },
-  actionLabel: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '700' },
-  actionLabelActive: { color: theme.colors.crimsonBright },
+  reactionChipActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  reactionChipPressed: { opacity: 0.75 },
+  reactionLabel: { color: theme.colors.ivoryMuted, fontSize: 11, fontWeight: '700' },
+  reactionLabelActive: { color: theme.colors.crimsonBright },
   rowGroup: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, overflow: 'hidden',
@@ -161,7 +484,10 @@ const styles = StyleSheet.create({
     minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
   },
-  personName: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
+  personRowPressed: { backgroundColor: theme.colors.surfaceRaised },
+  personName: { flex: 1, color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
+  pendingTag: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700' },
+  cancelRequestButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   addKinButton: {
     minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.crimson,
@@ -169,4 +495,23 @@ const styles = StyleSheet.create({
   },
   addKinButtonPressed: { opacity: 0.85 },
   addKinLabel: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '700' },
+  sheetTitle: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700' },
+  sheetSection: { gap: 8 },
+  sheetLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
+  codeRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 14, minHeight: 48,
+  },
+  codeText: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700', letterSpacing: 3 },
+  shareCodeButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  codeInput: {
+    color: theme.colors.ivory, fontSize: 16, fontWeight: '700', letterSpacing: 2,
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 14, minHeight: 48,
+  },
+  sheetFeedback: { color: theme.colors.ivoryMuted, fontSize: 12 },
+  sheetAction: { minHeight: 48, justifyContent: 'center', borderTopWidth: 1, borderTopColor: theme.colors.structureLine },
+  sheetActionLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
+  sheetActionDestructive: { color: theme.colors.crimsonBright },
 });

@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
@@ -12,9 +13,11 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
+import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
+import { ActivityItem, fetchKinActivity } from '@/lib/supabase/kin-repository';
 
 const HERO_STATUS_TONE_STYLE = StyleSheet.create({
   neutral: { color: theme.colors.ivoryMuted },
@@ -40,6 +43,7 @@ export default function HomeV2() {
   const [pendingLoading, setPendingLoading] = useState(true);
   const [startOverSheetOpen, setStartOverSheetOpen] = useState(false);
   const [startingOver, setStartingOver] = useState(false);
+  const [kinActivity, setKinActivity] = useState<readonly ActivityItem[]>([]);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
 
@@ -54,8 +58,20 @@ export default function HomeV2() {
     setPendingLoading(false);
   }, [user]);
 
+  // Small, restrained module only — capped at 3 items, no "load more". If
+  // there is nothing to show, the whole section is simply absent (see
+  // docs/PRODUCT_DECISIONS.md's Home hierarchy note): never a giant empty
+  // "your Kin's activity will appear here" block competing with the user's
+  // own challenge for attention.
+  const loadKinActivity = useCallback(async () => {
+    if (!user) { setKinActivity([]); return; }
+    const result = await fetchKinActivity(user.id, 3);
+    setKinActivity(result.ok ? result.items : []);
+  }, [user]);
+
   useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
+  useFocusEffect(useCallback(() => { void loadKinActivity(); }, [loadKinActivity]));
 
   const createChallenge = () => {
     if (pendingCommitment) {
@@ -212,6 +228,28 @@ export default function HomeV2() {
               </Pressable>
             </View>
           )}
+
+          {kinActivity.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.kinSectionHeader}>
+                <Text style={styles.sectionLabel}>FROM YOUR KIN</Text>
+                <Pressable accessibilityHint="Opens the Kin tab" accessibilityRole="button" hitSlop={6} onPress={() => { void playSelectionHaptic(); router.push('/home/kin' as Href); }} style={styles.kinSeeAll}>
+                  <Text style={styles.kinSeeAllText}>See all</Text>
+                </Pressable>
+              </View>
+              <View style={styles.rowGroup}>
+                {kinActivity.map((item) => (
+                  <View key={item.id} style={styles.kinRow}>
+                    <AvatarV2 size={32} />
+                    <View style={styles.kinRowCopy}>
+                      <Text numberOfLines={1} style={styles.kinRowName}>{item.ownerDisplayName}</Text>
+                      <Text numberOfLines={1} style={styles.kinRowEvent}>{describeActivityEvent(item)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
         {!isLoading && real.status !== 'ready' && (
@@ -295,6 +333,21 @@ const styles = StyleSheet.create({
   wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
   greeting: { marginTop: theme.spacing.small, color: theme.colors.ivory, fontSize: 22, fontWeight: '600' },
   section: { marginTop: theme.spacing.medium },
+  sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 },
+  kinSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  kinSeeAll: { minHeight: 28, justifyContent: 'center' },
+  kinSeeAllText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
+  rowGroup: {
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, overflow: 'hidden',
+  },
+  kinRow: {
+    minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
+  },
+  kinRowCopy: { flex: 1 },
+  kinRowName: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
+  kinRowEvent: { color: theme.colors.ivoryMuted, fontSize: 12 },
   heroCard: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.oxblood,
     backgroundColor: theme.colors.surfaceRaised, padding: theme.spacing.medium, gap: 6,

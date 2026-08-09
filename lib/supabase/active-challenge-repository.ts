@@ -153,6 +153,36 @@ export async function fetchActiveChallenge(userId: string): Promise<FetchActiveC
   return { ok: true, data: { challenge, periods, events } };
 }
 
+export type FinalizeChallengeResult =
+  | { readonly ok: true; readonly status: 'completed_success' | 'completed_failure'; readonly changed: boolean }
+  | { readonly ok: true; readonly status: 'pending' }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'network' | 'unknown'; readonly message?: string };
+
+/**
+ * Calls the trusted `finalize-challenge` Edge Function (see
+ * supabase/functions/finalize-challenge/index.ts), which re-derives
+ * success/failure server-side from real persisted state and never trusts
+ * the client's own belief that a challenge is done. Meant to be called
+ * opportunistically — a trigger, not a source of truth — right after this
+ * client's own local view model first observes `finalResult !== null`;
+ * safe to call again on an already-finalized challenge, which just
+ * returns `changed: false`.
+ */
+export async function finalizeChallenge(challengeId: string): Promise<FinalizeChallengeResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { data, error } = await supabase.functions.invoke('finalize-challenge', { body: { challengeId } });
+  if (error) return { ok: false, ...classifyError(error) };
+
+  const result = data as { status?: string; evaluable?: boolean; alreadyFinalized?: boolean } | null;
+  if (!result?.status) return { ok: false, kind: 'unknown', message: 'The server did not confirm finalization.' };
+  if (result.status === 'pending') return { ok: true, status: 'pending' };
+  if (result.status === 'completed_success' || result.status === 'completed_failure') {
+    return { ok: true, status: result.status, changed: result.alreadyFinalized !== true };
+  }
+  return { ok: false, kind: 'unknown', message: 'Unexpected finalize-challenge response.' };
+}
+
 export type SubmitCheckInResult =
   | { readonly ok: true; readonly status: 'inserted' | 'idempotent_replay'; readonly eventId: string }
   | { readonly ok: false; readonly kind: 'rejected'; readonly reason: string }

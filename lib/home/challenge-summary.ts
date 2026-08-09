@@ -26,12 +26,16 @@ export type ChallengeIdentity = {
 };
 
 /**
- * Build/Limit/Avoid-aware challenge identity for Home and challenge detail —
- * derived from the persisted, structured `ChallengeRule`/`behavior` fields,
- * never by re-parsing a display string. Avoid never invents a completion
- * count ("0 of 1"); its rule is maintaining zero, so it gets a single line.
+ * Build/Limit/Avoid-aware challenge identity for Home, challenge detail, and
+ * Kin activity cards — derived from the persisted, structured
+ * `ChallengeRule`/`behavior` fields, never by re-parsing a display string.
+ * Avoid never invents a completion count ("0 of 1"); its rule is
+ * maintaining zero, so it gets a single line. Takes only `behavior` (not
+ * the full snapshot) so it can also run directly against a
+ * social_activity payload, which carries the same `behavior` shape
+ * verbatim but nothing else about the challenge.
  */
-export function describeChallengeIdentity(challenge: ActivatedChallengeSnapshot): ChallengeIdentity {
+export function describeChallengeIdentity(challenge: Pick<ActivatedChallengeSnapshot, 'behavior'>): ChallengeIdentity {
   const description = challenge.behavior.description.trim();
   const rule = challenge.behavior.rule;
 
@@ -68,7 +72,7 @@ export function formatRecipientsCompact(names: readonly string[]): string {
   return `${names[0]}, ${names[1]} +${names.length - 2}`;
 }
 
-function describeExperienceCategory(category: ActivatedChallengeSnapshot['consequenceCategory']): string {
+export function describeExperienceCategory(category: ActivatedChallengeSnapshot['consequenceCategory']): string {
   switch (category) {
     case 'dinner': return 'Dinner';
     case 'adventure': return 'Adventure';
@@ -78,7 +82,7 @@ function describeExperienceCategory(category: ActivatedChallengeSnapshot['conseq
   }
 }
 
-function formatMoney(minorUnits: number, currency: string): string {
+export function formatMoney(minorUnits: number, currency: string): string {
   try {
     return (minorUnits / 100).toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 });
   } catch {
