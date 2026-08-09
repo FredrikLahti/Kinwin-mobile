@@ -61,28 +61,28 @@ export default function CreateRecipientsScreen() {
 
   const updateOtherName = (name: string) => setRewardOrganizer({ type: 'other', name });
 
-  const continueToReview = () => {
+  const continueToConsequence = () => {
     if (!canContinue) return;
     Keyboard.dismiss();
-    router.push('/create/review');
+    router.push('/create/consequence');
   };
 
   return (
     <CreateFlowScreenV2
-      backHint="Returns to the consequence"
-      currentStep={6}
+      backHint="Returns to duration"
+      currentStep={5}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to review' : 'Name your recipients and choose an organizer before continuing'}
+          accessibilityHint={canContinue ? 'Continues to the consequence' : 'Name your recipients and choose an organizer before continuing'}
           disabled={!canContinue}
           label="Continue"
-          onPress={continueToReview}
+          onPress={continueToConsequence}
           reducedMotion={reducedMotion}
         />
       }
       headline="Who gets the reward?"
       onBack={() => router.back()}
-      progressLabel="Step 6 of 7: loved ones"
+      progressLabel="Step 5 of 7: loved ones"
       totalSteps={7}
     >
       <View style={styles.section}>

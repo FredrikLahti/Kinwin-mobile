@@ -49,10 +49,10 @@ export default function CreateDurationScreen() {
     setDurationWeeks(nextDuration);
   };
 
-  const continueToConsequence = () => {
+  const continueToRecipients = () => {
     if (!canContinue) return;
     Keyboard.dismiss();
-    router.push('/create/consequence');
+    router.push('/create/recipients');
   };
 
   return (
@@ -61,10 +61,10 @@ export default function CreateDurationScreen() {
       currentStep={4}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to the consequence' : 'Choose a duration from 2 to 12 weeks before continuing'}
+          accessibilityHint={canContinue ? 'Continues to loved ones' : 'Choose a duration from 2 to 12 weeks before continuing'}
           disabled={!canContinue}
           label="Continue"
-          onPress={continueToConsequence}
+          onPress={continueToRecipients}
           reducedMotion={reducedMotion}
         />
       }

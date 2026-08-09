@@ -182,7 +182,7 @@ export default function PendingCommitmentScreen() {
               {commitment.authorizationStatus === 'authorized' ? (
                 <>
                   <PrimaryButtonV2
-                    accessibilityHint="Activates this challenge — tracking starts today"
+                    accessibilityHint="Activates this challenge. Tracking starts today."
                     disabled={activation.status === 'activating'}
                     label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
                     onPress={() => void activate(commitment)}

@@ -163,6 +163,57 @@ test('prepare_challenge_from_draft: trusted server boundary for pending commitme
     assert.equal(data!.draft_status, 'archived');
   });
 
+  // Regression test for the "archived challenge_drafts rows are immutable"
+  // bug reported from the real app: after a successful prepare, the client
+  // (app/create/review.tsx) held onto the now-archived draft's id in
+  // OnboardingContext. Navigating backward into the creation flow and
+  // forward again reached Review a second time and re-submitted the same
+  // draft id through saveChallengeDraft's UPDATE path, which the DB
+  // correctly rejects — but the client wasn't handling that rejection, so
+  // the raw database message reached the user. This exercises the exact
+  // client code path (planDraftMutation + the real update call
+  // saveChallengeDraft issues) against the real archived row, confirming
+  // both that the database keeps rejecting it and that the error carries
+  // the "archived" wording review.tsx's saveDraft() now specifically
+  // detects to redirect the user to their real pending commitment instead
+  // of showing a raw database error.
+  await t.test('re-saving the archived source draft through the client repository is rejected, not silently allowed', async () => {
+    const localRecipientId = 'recipient-local-1';
+    const recipientIds = resolveRecipientIds([{ id: localRecipientId, name: 'Anna' }], () => randomUUID());
+    const mapped = mapOnboardingDraft(buildOnboardingData(localRecipientId), {
+      draftId: draftId as ChallengeDraftId,
+      ownerId: userIdA as UserId,
+      recipientIds,
+    });
+    assert.equal(mapped.ok, true, 'fixture must still map to a valid draft');
+    if (!mapped.ok) throw new Error('unreachable');
+
+    const plan = planDraftMutation(draftId, draftId, userIdA, mapped.value);
+    assert.equal(plan.kind, 'update');
+    if (plan.kind !== 'update') throw new Error('unreachable');
+
+    const { error } = await ownerA.from('challenge_drafts').update(plan.row).eq('id', plan.id);
+    assert.ok(error, 'expected updating the archived draft to be rejected');
+    assert.match(
+      error!.message.toLowerCase(),
+      /archived/,
+      `expected the archived-immutability error; got: ${error?.message}`,
+    );
+
+    const { data: draft, error: readError } = await ownerA
+      .from('challenge_drafts')
+      .select('draft_status, draft_payload')
+      .eq('id', draftId)
+      .single();
+    assert.equal(readError, null, `draft readback failed: ${readError?.message}`);
+    assert.equal(draft!.draft_status, 'archived', 'the rejected update must not have changed draft_status');
+    assert.equal(
+      (draft!.draft_payload as { goal?: string }).goal,
+      'Sleep better',
+      'the rejected update must not have changed the archived draft_payload',
+    );
+  });
+
   await t.test('repeating the request returns the same challenge, never a duplicate', async () => {
     const { data, error } = await ownerA.rpc('prepare_challenge_from_draft', { draft_id: draftId });
     assert.equal(error, null, `repeat prepare_challenge_from_draft failed: ${error?.message}`);

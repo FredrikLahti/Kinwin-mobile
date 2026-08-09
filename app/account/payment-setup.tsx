@@ -246,7 +246,7 @@ export default function PaymentSetupScreen() {
           {state.kind === 'none' && (
             <View style={styles.section}>
               <Text style={styles.body}>
-                This commitment could not be found — it may have already been canceled.
+                This commitment could not be found. It may have already been canceled.
               </Text>
               <Pressable
                 accessibilityHint="Returns to your pending commitment"
@@ -296,8 +296,8 @@ export default function PaymentSetupScreen() {
             <View style={styles.section}>
               <Text style={styles.errorText}>
                 {state.reason === 'native_required'
-                  ? 'Payment setup requires the Kinwin app on a phone or tablet. This screen is shown for visual review only — the payment form cannot open here.'
-                  : 'Payment setup is not configured in this build yet. The rest of Kinwin remains usable — try again once it is configured.'}
+                  ? 'Payment setup requires the Kinwin app on a phone or tablet. This screen is shown for visual review only. The payment form cannot open here.'
+                  : 'Payment setup is not configured in this build yet. The rest of Kinwin remains usable. Try again once it is configured.'}
               </Text>
             </View>
           )}
@@ -310,8 +310,8 @@ export default function PaymentSetupScreen() {
             <View style={styles.section}>
               <Text accessibilityLiveRegion="polite" style={styles.body}>
                 {state.timedOut
-                  ? 'Still verifying with Stripe. This can take a little longer than usual — you can check again, or leave and come back later; your progress is saved.'
-                  : 'Confirming your card was saved — this usually takes a few seconds.'}
+                  ? 'Still verifying with Stripe. This can take a little longer than usual. You can check again, or leave and come back later. Your progress is saved.'
+                  : 'Confirming your card was saved. This usually takes a few seconds.'}
               </Text>
               {state.timedOut && (
                 <Pressable

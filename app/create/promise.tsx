@@ -14,9 +14,9 @@ const DEFINITION_MAX_LENGTH = 140;
 const CUT_MODES: MeasurementMode[] = ['count', 'time', 'amount'];
 
 const DIRECTIONS: { label: string; value: BehaviorDirection }[] = [
-  { label: 'Build', value: 'build' },
-  { label: 'Reduce', value: 'cut' },
-  { label: 'Stop', value: 'stop' },
+  { label: 'Build a habit', value: 'build' },
+  { label: 'Do less', value: 'cut' },
+  { label: 'Stop completely', value: 'stop' },
 ];
 
 const BEHAVIOR_PLACEHOLDER: Record<BehaviorDirection, string> = {
@@ -32,7 +32,7 @@ const MEASUREMENT_CHOICES: { label: string; value: MeasurementMode }[] = [
 ];
 
 const DEFINITION_TITLES: Record<MeasurementMode, string> = {
-  completion: 'What counts as done?',
+  completion: 'When can you mark this as completed?',
   count: 'What counts as one time?',
   time: 'What should be timed?',
   amount: 'What are you tracking?',
@@ -40,10 +40,10 @@ const DEFINITION_TITLES: Record<MeasurementMode, string> = {
 };
 
 const DEFINITION_PLACEHOLDER: Record<MeasurementMode, string> = {
-  completion: 'At least 30 minutes of strength training',
+  completion: 'After 20 minutes of walking',
   count: 'One check-in message sent',
   time: 'Time spent on social apps',
-  amount: 'Cigarettes, drinks, dollars…',
+  amount: 'Cigarettes, drinks, dollars',
   abstinence: 'Any use of a nicotine vape',
 };
 
@@ -93,16 +93,16 @@ export default function CreatePromiseScreen() {
       currentStep={2}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to rhythm' : 'Choose a direction and describe your promise before continuing'}
+          accessibilityHint={canContinue ? 'Continues to rhythm' : 'Choose a habit type and describe the behavior before continuing'}
           disabled={!canContinue}
           label="Continue"
           onPress={continueToRhythm}
           reducedMotion={reducedMotion}
         />
       }
-      headline="What will you do?"
+      headline="How do you want to change?"
       onBack={() => router.back()}
-      progressLabel="Step 2 of 7: promise"
+      progressLabel="Step 2 of 7: behavior"
       totalSteps={7}
     >
       <ChoiceListV2
@@ -114,9 +114,9 @@ export default function CreatePromiseScreen() {
 
       {behaviorDirection && (
         <View style={[styles.field, focusedField === 'behavior' && styles.fieldFocused]}>
-          <Text style={styles.fieldCaption}>Your promise</Text>
+          <Text style={styles.fieldCaption}>What will you do?</Text>
           <TextInput
-            accessibilityLabel="Your promise"
+            accessibilityLabel="What will you do?"
             autoCapitalize="sentences"
             autoFocus
             maxLength={BEHAVIOR_MAX_LENGTH}
