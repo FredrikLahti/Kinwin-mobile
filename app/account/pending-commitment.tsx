@@ -16,6 +16,7 @@ import {
   fetchPendingCommitment,
   PendingCommitment,
 } from '@/lib/supabase/challenge-repository';
+import { activateChallenge } from '@/lib/supabase/active-challenge-repository';
 import { calculateSuccessRule } from '@/lib/success-rule';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
@@ -26,15 +27,26 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   wellness: 'Wellness',
 };
 
+// Makes an already-authorized commitment's status unmistakable about *why*
+// activating it below won't ask for a card again — a real, dated prior
+// authorization, not a bypass.
+function formatAuthorizedDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 // Every state a signed-in user can be in on this screen. 'summary' is the
-// only one that can reach 'confirmCancel'/'paymentPlaceholder'/'canceling';
-// those three all carry the same commitment back so the screen never loses
-// it while the user is deciding.
+// only one that can reach 'confirmCancel'/'canceling'; those both carry the
+// same commitment back so the screen never loses it while the user is
+// deciding. Payment setup itself is a dedicated route
+// (app/account/payment-setup.tsx), not a state here.
 type ScreenState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'none' }
   | { readonly kind: 'summary'; readonly commitment: PendingCommitment }
-  | { readonly kind: 'paymentPlaceholder'; readonly commitment: PendingCommitment }
   | { readonly kind: 'confirmCancel'; readonly commitment: PendingCommitment }
   | { readonly kind: 'canceling'; readonly commitment: PendingCommitment }
   | { readonly kind: 'canceled' }
@@ -46,6 +58,11 @@ export default function PendingCommitmentScreen() {
   const { user } = useAuth();
   const onboarding = useOnboarding();
   const [state, setState] = useState<ScreenState>({ kind: 'loading' });
+  // Separate from `state` (rather than a new ScreenState kind) because
+  // activation happens from the same 'summary' screen the founder is
+  // already looking at — there is no separate confirm step the way
+  // cancellation has one, so this only needs a lightweight in-place status.
+  const [activation, setActivation] = useState<{ status: 'idle' | 'activating' | 'error'; message?: string }>({ status: 'idle' });
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -64,16 +81,31 @@ export default function PendingCommitmentScreen() {
   // step exists, never shows a stale commitment.
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const openPaymentPlaceholder = () => {
+  const continueSetup = () => {
     if (state.kind !== 'summary') return;
     void playSelectionHaptic();
-    setState({ kind: 'paymentPlaceholder', commitment: state.commitment });
+    router.push('/account/payment-setup' as Href);
   };
 
-  const backToSummary = (commitment: PendingCommitment) => {
-    void playSelectionHaptic();
-    setState({ kind: 'summary', commitment });
-  };
+  // The device's own IANA timezone is the one piece of information
+  // activation needs that nothing earlier in the flow has ever collected —
+  // see supabase/migrations/20260811000000_full_activation.sql. The server
+  // independently validates it against its own tzdata and, separately,
+  // re-verifies real payment authorization before it will activate anything
+  // — this call cannot itself bypass either check.
+  const activate = useCallback(async (commitment: PendingCommitment) => {
+    if (!user) return;
+    void playImportantHaptic();
+    setActivation({ status: 'activating' });
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const result = await activateChallenge(commitment.challengeId, timezone);
+    if (!result.ok) {
+      const message = 'message' in result ? result.message : 'Sign in to activate your challenge.';
+      setActivation({ status: 'error', message });
+      return;
+    }
+    router.replace('/home' as Href);
+  }, [router, user]);
 
   const askToCancel = () => {
     if (state.kind !== 'summary') return;
@@ -170,18 +202,30 @@ export default function PendingCommitmentScreen() {
             </View>
           )}
 
-          {(state.kind === 'summary' || state.kind === 'paymentPlaceholder' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
+          {(state.kind === 'summary' || state.kind === 'confirmCancel' || state.kind === 'canceling') && (
             <CommitmentSummary commitment={state.commitment} />
           )}
 
-          {state.kind === 'summary' && (
+          {state.kind === 'summary' && state.commitment.authorizationStatus === 'authorized' && (
             <View style={styles.actions}>
               <AnimatedPrimaryButton
-                accessibilityHint="Shows what happens next toward payment and activation"
-                label="Continue setup"
-                onPress={openPaymentPlaceholder}
+                accessibilityHint="Activates this challenge for real — tracking starts today"
+                disabled={activation.status === 'activating'}
+                label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
+                onPress={() => void activate(state.commitment)}
                 reducedMotion={reducedMotion}
               />
+              {activation.status === 'error' && (
+                <Text accessibilityLiveRegion="polite" style={styles.errorText}>{activation.message}</Text>
+              )}
+              <Pressable
+                accessibilityHint="Opens payment setup to review or change your saved payment method"
+                accessibilityRole="button"
+                onPress={continueSetup}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>Review payment method</Text>
+              </Pressable>
               <Pressable
                 accessibilityHint="Asks for confirmation before canceling this pending commitment"
                 accessibilityRole="button"
@@ -193,20 +237,21 @@ export default function PendingCommitmentScreen() {
             </View>
           )}
 
-          {state.kind === 'paymentPlaceholder' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>NEXT: PAYMENT SETUP</Text>
-              <Text style={styles.body}>
-                Payment setup is the next step and is not built yet. No payment method has been
-                collected, no charge has been authorized, and this challenge has not been activated.
-              </Text>
+          {state.kind === 'summary' && state.commitment.authorizationStatus !== 'authorized' && (
+            <View style={styles.actions}>
+              <AnimatedPrimaryButton
+                accessibilityHint="Opens payment setup to save a payment method for this commitment"
+                label="Continue setup"
+                onPress={continueSetup}
+                reducedMotion={reducedMotion}
+              />
               <Pressable
-                accessibilityHint="Returns to the pending commitment summary"
+                accessibilityHint="Asks for confirmation before canceling this pending commitment"
                 accessibilityRole="button"
-                onPress={() => backToSummary(state.commitment)}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+                onPress={askToCancel}
+                style={({ pressed }) => [styles.dangerButton, pressed && styles.dangerButtonPressed]}
               >
-                <Text style={styles.textButtonLabel}>Back to summary</Text>
+                <Text style={styles.dangerButtonLabel}>Cancel commitment</Text>
               </Pressable>
             </View>
           )}
@@ -306,7 +351,14 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
       />
       <SummaryRow label="CONSEQUENCE CATEGORY" value={categoryLabel} />
       <SummaryRow label="STAKE" value={stakeLabel} />
-      <SummaryRow label="CURRENT STATUS" value="Pending — payment setup and final activation are still required." />
+      <SummaryRow
+        label="CURRENT STATUS"
+        value={
+          commitment.authorizationStatus === 'authorized'
+            ? `Payment method saved${commitment.authorizedAt ? ` on ${formatAuthorizedDate(commitment.authorizedAt)}` : ''}. No charge has been made — activating below reuses this saved method rather than asking again.`
+            : 'Pending — payment setup and final activation are still required.'
+        }
+      />
     </View>
   );
 }

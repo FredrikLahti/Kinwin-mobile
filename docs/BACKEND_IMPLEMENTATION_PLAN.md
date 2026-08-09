@@ -334,7 +334,7 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 - **Must remain impossible from the client:** Writing its own `membership_status` or
   `access_mode` (already proven — no grant).
 
-## 8. Payment authorization and charging — payment-method setup implemented; charging not yet
+## 8. Payment authorization and charging — payment-method setup (including client PaymentSheet) implemented; charging not yet
 
 - **Trusted boundary:** Stripe test-mode integration, entirely server-side, via two
   Supabase Edge Functions (`supabase/functions/create-consequence-setup-intent`,
@@ -353,12 +353,15 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   Adds `private.stripe_customers` (one Stripe Customer per Kinwin owner),
   `private.consequence_setup_attempts` (durable per-SetupIntent history), and
   `private.stripe_webhook_events` (idempotency ledger keyed by Stripe's own event id).
-- **Client responsibilities:** None yet — this package is backend-only. A future
-  package collects the payment method via Stripe's React Native PaymentSheet using the
-  client secret this phase's `create-consequence-setup-intent` returns; the app still
-  never handles raw card data itself. See `docs/PRODUCT_DECISIONS.md`'s "Consequence
-  payment setup (Stripe test mode)" section for the exact consent copy data that future
-  client must show before opening PaymentSheet — not yet built.
+- **Client responsibilities (done):** `app/account/payment-setup.tsx` shows the required
+  consent copy, then collects the payment method via Stripe's React Native PaymentSheet
+  using the client secret `create-consequence-setup-intent` returns — the app itself
+  never handles raw card data. A successful PaymentSheet result alone is never treated
+  as authorization: the screen enters a bounded `verifying` poll of the server-owned
+  consequence state and only shows "ready" once `authorization_status` is `authorized`.
+  See `docs/PAYMENT_SETUP.md`'s "Client (PaymentSheet)" section and
+  `docs/PRODUCT_DECISIONS.md`'s "Consequence payment setup (Stripe test mode)" section
+  for the consent copy data list this implements.
 - **Server responsibilities (this phase, done):** Create or reuse exactly one Stripe
   Customer per owner (Stripe idempotency key, concurrency-safe without a database
   lock); create a SetupIntent (cards only, `usage: 'off_session'`, metadata limited to

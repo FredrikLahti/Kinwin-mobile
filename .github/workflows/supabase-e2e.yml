@@ -117,15 +117,23 @@ jobs:
       # shell quoting, so appending it verbatim would set e.g. SUPABASE_URL
       # to the literal string `"http://127.0.0.1:54321"`, quote characters
       # included — sed strips exactly that one matching pair per line.
+      # SERVICE_ROLE_KEY is local-dev-only (same well-known value for every
+      # fresh `supabase start`, never a secret) — needed only by
+      # full-activation-and-check-in.e2e.ts, which is the first suite that
+      # has to simulate "a verified Stripe webhook already authorized this
+      # consequence" directly (no RPC lets even an authenticated owner set
+      # authorization_status themselves, by design), rather than re-driving
+      # the real webhook flow consequence-setup-stripe.e2e.ts already covers.
       - name: Export local Supabase connection details
         run: |
           supabase status -o env \
             --override-name api.url=SUPABASE_URL \
             --override-name auth.anon_key=SUPABASE_ANON_KEY \
+            --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
 
-      - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, and consequence-setup-stripe end-to-end suite against real GoTrue/PostgREST/Edge Runtime
+      - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, consequence-setup-stripe, and full-activation-and-check-in end-to-end suite against real GoTrue/PostgREST/Edge Runtime
         run: npm run test:e2e
 
       - name: Stop local Supabase

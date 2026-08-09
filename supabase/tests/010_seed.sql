@@ -68,8 +68,8 @@ insert into public.challenges (
 insert into public.challenge_recipients (id, challenge_id, display_name, sort_order, recipient_role) values
   ('cccccccc-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'Anna', 0, 'recipient_organizer');
 
-insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, target_payload) values
-  ('dddddddd-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 1, 'day', now(), now() + interval '1 day', jsonb_build_object('type', 'completion_target', 'target', 1));
+insert into public.challenge_periods (id, challenge_id, period_number, period_kind, starts_at, ends_at, reporting_closes_at, target_payload) values
+  ('dddddddd-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 1, 'day', now(), now() + interval '1 day', now() + interval '2 days', jsonb_build_object('type', 'completion_target', 'target', 1));
 
 insert into public.check_in_events (id, challenge_id, owner_id, period_id, event_type, event_payload, source, client_recorded_at) values
   ('eeeeeeee-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'dddddddd-0000-0000-0000-000000000001', 'build_completion', jsonb_build_object('behaviorCompleted', true), 'ios', now());

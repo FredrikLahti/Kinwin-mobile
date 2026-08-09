@@ -46,6 +46,11 @@ verify_jwt = true
 [functions.stripe-consequence-webhook]
 verify_jwt = false
 
+# Requires a real, verified Supabase user JWT — derives the caller from it,
+# never from the request body. See supabase/functions/append-check-in-event/index.ts.
+[functions.append-check-in-event]
+verify_jwt = true
+
 [analytics]
 enabled = false
 

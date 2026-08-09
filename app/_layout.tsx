@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
@@ -7,17 +9,35 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ChallengePreviewProvider } from '@/contexts/challenge-preview-context';
 import { OnboardingProvider, useOnboarding } from '@/contexts/onboarding-context';
+import { UXV2PreviewProvider } from '@/contexts/ux-v2-preview-context';
+import { StripeProvider } from '@/lib/stripe/native-stripe';
+import { readStripeConfig } from '@/lib/stripe/config';
+import { resolveStripeUrlScheme } from '@/lib/stripe/stripe-url-scheme';
 
 export default function RootLayout() {
+  const stripeConfig = readStripeConfig();
+  // Expo Go does not own the app's "kinwin" scheme (see
+  // lib/stripe/stripe-url-scheme.ts) — a fixed scheme only round-trips a
+  // card redirect/3D-Secure step in a standalone/custom-dev-client build.
+  const stripeUrlScheme = resolveStripeUrlScheme({ appOwnership: Constants.appOwnership, createURL: Linking.createURL });
   return (
-    <AuthProvider>
-      <OnboardingProvider>
-        <ChallengePreviewProvider>
-          <AuthGate />
-        </ChallengePreviewProvider>
-        <StatusBar style="auto" />
-      </OnboardingProvider>
-    </AuthProvider>
+    // A missing publishable key never blocks the rest of the app: the real
+    // StripeProvider only calls native init when publishableKey is truthy
+    // (see @stripe/stripe-react-native's own source), and the web build of
+    // this component ignores it entirely — payment-setup.tsx is what
+    // actually reports "not configured" honestly.
+    <StripeProvider publishableKey={stripeConfig?.publishableKey ?? ''} urlScheme={stripeUrlScheme}>
+      <AuthProvider>
+        <OnboardingProvider>
+          <ChallengePreviewProvider>
+            <UXV2PreviewProvider>
+              <AuthGate />
+            </UXV2PreviewProvider>
+          </ChallengePreviewProvider>
+          <StatusBar style="auto" />
+        </OnboardingProvider>
+      </AuthProvider>
+    </StripeProvider>
   );
 }
 
@@ -55,6 +75,7 @@ function AuthGate() {
       <Stack.Screen name="auth" />
       <Stack.Protected guard={status === 'signed_in'}>
         <Stack.Screen name="account" />
+        <Stack.Screen name="home" />
       </Stack.Protected>
       <Stack.Screen
         name="onboarding"
