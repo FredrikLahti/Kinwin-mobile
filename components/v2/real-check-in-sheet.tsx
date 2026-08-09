@@ -1,9 +1,10 @@
 import * as Crypto from 'expo-crypto';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { SecondaryButtonV2 } from '@/components/v2/secondary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ChallengePeriod } from '@/domain/challenge/periods';
 import { CheckInFact, ClientOperationId } from '@/domain/challenge/check-in/types';
@@ -128,7 +129,7 @@ export function RealCheckInSheetV2({ challenge, onClose, onSubmitted, period }: 
         ) : (
           <>
             <View style={styles.inputRow}>
-              <TextInput
+              <TextInputV2
                 accessibilityLabel="Number of completions"
                 inputMode="numeric"
                 keyboardType="number-pad"
@@ -154,7 +155,7 @@ export function RealCheckInSheetV2({ challenge, onClose, onSubmitted, period }: 
         <Text accessibilityRole="header" style={styles.headline}>How many {unit} this {period.periodKind === 'week' ? 'week' : 'period'}?</Text>
         <Text style={styles.supporting}>Maximum {maximum} {unit}.</Text>
         <View style={styles.inputRow}>
-          <TextInput
+          <TextInputV2
             accessibilityLabel={`Current total in ${unit}`}
             inputMode="decimal"
             keyboardType="decimal-pad"

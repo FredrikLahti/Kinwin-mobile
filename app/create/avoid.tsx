@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, View } from 'react-native';
 
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -69,7 +70,7 @@ export default function CreateAvoidScreen() {
       totalSteps={totalSteps}
     >
       <View style={[styles.field, focused && styles.fieldFocused]}>
-        <TextInput
+        <TextInputV2
           accessibilityLabel="What do you want to avoid?"
           autoCapitalize="sentences"
           autoFocus

@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ChoiceListV2 } from '@/components/v2/choice-list';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { RhythmPeriod, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -121,7 +122,7 @@ export default function CreateLimitScreen() {
       totalSteps={totalSteps}
     >
       <View style={[styles.field, focused && styles.fieldFocused]}>
-        <TextInput
+        <TextInputV2
           accessibilityLabel="What do you want to limit?"
           autoCapitalize="sentences"
           autoFocus
@@ -140,7 +141,7 @@ export default function CreateLimitScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>YOUR MAXIMUM</Text>
         <View style={styles.ruleRow}>
-          <TextInput
+          <TextInputV2
             accessibilityLabel="Limit amount"
             keyboardType="number-pad"
             maxLength={5}
@@ -169,7 +170,7 @@ export default function CreateLimitScreen() {
           })}
         </View>
         {preset === 'other' && (
-          <TextInput
+          <TextInputV2
             accessibilityLabel="Custom unit"
             autoCapitalize="none"
             maxLength={20}

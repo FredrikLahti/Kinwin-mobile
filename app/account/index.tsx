@@ -7,12 +7,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinTheme as theme } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
@@ -135,7 +135,7 @@ export default function AccountScreen() {
 
           <View style={styles.field}>
             <Text style={styles.label}>DISPLAY NAME (OPTIONAL)</Text>
-            <TextInput
+            <TextInputV2
               accessibilityLabel="Display name"
               onChangeText={(value) => { setDisplayName(value); setNameSaved(false); }}
               placeholder="What should we call you?"
