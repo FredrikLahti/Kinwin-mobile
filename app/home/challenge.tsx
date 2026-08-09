@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { formatClockTime } from '@/lib/challenge-ux-preview/view-model';
-import { describeChallengeIdentity, describeConsequence } from '@/lib/home/challenge-summary';
+import { describeChallengeIdentity, describeConsequence, describeDurationPosition, describeProgress } from '@/lib/home/challenge-summary';
 import { playSelectionHaptic } from '@/lib/haptics';
 
 function formatDate(iso: string): string {
@@ -49,6 +49,8 @@ export default function ActiveChallengeDetailScreen() {
   const consequence = describeConsequence(challenge);
   const focusPeriod = periods.find((period) => period.id === real.view.focusPeriodId) ?? null;
   const recipientNames = challenge.recipients.map((r) => r.name.trim()).filter(Boolean);
+  const durationPosition = describeDurationPosition(focusPeriod, real.view.progress.periodsTotal);
+  const progressLine = describeProgress(challenge, real.view.currentPeriodStatus, real.view.progress, focusPeriod);
 
   const shareInvite = async () => {
     void playSelectionHaptic();
@@ -82,19 +84,20 @@ export default function ActiveChallengeDetailScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>DURATION</Text>
-          <Text style={styles.body}>{challenge.duration.value} weeks</Text>
+          <Text style={styles.body}>{durationPosition ?? `${challenge.duration.value} weeks`}</Text>
           <Text style={styles.bodyMuted}>{formatDate(challenge.startsAt)} to {formatDate(challenge.plannedEndsAt)}</Text>
+          {real.view.finalResult === null && Boolean(real.view.timeRemaining) && (
+            <Text style={styles.bodyMuted}>{real.view.timeRemaining}</Text>
+          )}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>PROGRESS</Text>
-          <Text style={styles.body}>
-            {real.view.progress.periodsClosed} of {real.view.progress.periodsTotal} periods closed
-            {real.view.progress.periodsClosed > 0 ? `, ${real.view.progress.periodsMet} met` : ''}
-          </Text>
-          <Text style={styles.bodyMuted}>{real.view.progress.requirementLabel}</Text>
-          {real.view.progress.streakLabel && <Text style={styles.bodyMuted}>{real.view.progress.streakLabel}</Text>}
-        </View>
+        {progressLine && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>PROGRESS</Text>
+            <Text style={styles.body}>{progressLine}</Text>
+            {real.view.progress.streakLabel && <Text style={styles.bodyMuted}>{real.view.progress.streakLabel}</Text>}
+          </View>
+        )}
 
         {focusPeriod && real.view.finalResult === null && (
           <View style={styles.section}>
