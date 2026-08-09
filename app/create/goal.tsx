@@ -7,6 +7,7 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { playSelectionHaptic } from '@/lib/haptics';
 
 const GOAL_MAX_LENGTH = 120;
@@ -15,8 +16,9 @@ const EXAMPLES = ['Feel stronger', 'Sleep better', 'Eat healthier', 'Use my time
 export default function CreateGoalScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { goal, setGoal } = useOnboarding();
+  const { behaviorDirection, goal, setGoal } = useOnboarding();
   const [focused, setFocused] = useState(false);
+  const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'goal');
 
   const canContinue = goal.trim().length >= 3;
 
@@ -25,29 +27,29 @@ export default function CreateGoalScreen() {
     setGoal(example);
   };
 
-  const continueToPromise = () => {
+  const continueToType = () => {
     if (!canContinue) return;
     Keyboard.dismiss();
-    router.push('/create/promise');
+    router.push('/create/type');
   };
 
   return (
     <CreateFlowScreenV2
       backHint="Returns to Home"
-      currentStep={1}
+      currentStep={currentStep}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to your behavior' : 'Enter a goal of at least 3 characters'}
+          accessibilityHint={canContinue ? 'Continues to your challenge type' : 'Enter a goal of at least 3 characters'}
           disabled={!canContinue}
           label="Continue"
-          onPress={continueToPromise}
+          onPress={continueToType}
           reducedMotion={reducedMotion}
         />
       }
       headline="What’s your goal?"
       onBack={() => router.back()}
-      progressLabel="Step 1 of 7: goal"
-      totalSteps={7}
+      progressLabel={`Step ${currentStep} of ${totalSteps}: goal`}
+      totalSteps={totalSteps}
     >
       <View style={[styles.field, focused && styles.fieldFocused]}>
         <TextInput
@@ -60,7 +62,7 @@ export default function CreateGoalScreen() {
           onFocus={() => setFocused(true)}
           placeholder="My goal"
           placeholderTextColor={theme.colors.warmGrey}
-          selectionColor={theme.colors.crimsonBright}
+          selectionColor={theme.colors.oxblood}
           style={styles.input}
           value={goal}
         />
@@ -97,7 +99,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface,
     paddingHorizontal: 18, paddingVertical: 10,
   },
-  fieldFocused: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.surfaceRaised },
+  fieldFocused: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.surfaceRaised },
   input: { color: theme.colors.ivory, fontSize: 21, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
   counter: { marginTop: 6, color: theme.colors.warmGrey, fontSize: 11, textAlign: 'right' },
   examples: { gap: 10 },
@@ -107,7 +109,7 @@ const styles = StyleSheet.create({
     minHeight: 40, justifyContent: 'center', borderRadius: 999, borderWidth: 1,
     borderColor: theme.colors.structureLineStrong, paddingHorizontal: 14,
   },
-  exampleChipSelected: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  exampleChipSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
   exampleChipPressed: { backgroundColor: theme.colors.surfaceFocused },
   exampleText: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   exampleTextSelected: { color: theme.colors.ivory },

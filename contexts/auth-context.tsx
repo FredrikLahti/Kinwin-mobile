@@ -21,7 +21,7 @@ export type AuthErrorKind =
 
 export type AuthResult = { readonly ok: true } | { readonly ok: false; readonly kind: AuthErrorKind; readonly message: string };
 
-export type Profile = { readonly id: string; readonly displayName: string | null };
+export type Profile = { readonly id: string; readonly displayName: string | null; readonly showChallengeIntro: boolean };
 
 type AuthStatus = 'loading' | 'signed_out' | 'signed_in';
 
@@ -35,6 +35,7 @@ type AuthContextValue = {
   readonly signIn: (email: string, password: string) => Promise<AuthResult>;
   readonly signOut: () => Promise<void>;
   readonly updateDisplayName: (displayName: string) => Promise<AuthResult>;
+  readonly updateShowChallengeIntro: (show: boolean) => Promise<AuthResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -66,14 +67,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, display_name')
+      .select('id, display_name, show_challenge_intro')
       .eq('id', userId)
       .maybeSingle();
     if (error || !data) {
       setProfile(null);
       return;
     }
-    setProfile({ id: data.id, displayName: data.display_name });
+    setProfile({ id: data.id, displayName: data.display_name, showChallengeIntro: data.show_challenge_intro });
   }, []);
 
   useEffect(() => {
@@ -145,7 +146,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { kind, message } = classifySupabaseError(error.message);
       return { ok: false, kind, message };
     }
-    setProfile({ id: session.user.id, displayName: trimmed.length > 0 ? trimmed : null });
+    setProfile((current) => ({
+      id: session.user.id,
+      displayName: trimmed.length > 0 ? trimmed : null,
+      showChallengeIntro: current?.showChallengeIntro ?? true,
+    }));
+    return { ok: true };
+  }, [session]);
+
+  const updateShowChallengeIntro = useCallback(async (show: boolean): Promise<AuthResult> => {
+    if (!supabase || !session) return { ok: false, kind: 'not_configured', message: 'You are not signed in.' };
+    const { error } = await supabase
+      .from('profiles')
+      .update({ show_challenge_intro: show })
+      .eq('id', session.user.id);
+    if (error) {
+      const { kind, message } = classifySupabaseError(error.message);
+      return { ok: false, kind, message };
+    }
+    setProfile((current) => (current ? { ...current, showChallengeIntro: show } : current));
     return { ok: true };
   }, [session]);
 
@@ -159,7 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     updateDisplayName,
-  }), [isConfigured, status, session, profile, signUp, signIn, signOut, updateDisplayName]);
+    updateShowChallengeIntro,
+  }), [isConfigured, status, session, profile, signUp, signIn, signOut, updateDisplayName, updateShowChallengeIntro]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

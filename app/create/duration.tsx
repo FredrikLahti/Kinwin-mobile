@@ -7,19 +7,27 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { playSelectionHaptic } from '@/lib/haptics';
 import { calculateSuccessRule } from '@/lib/success-rule';
 
 const PRIMARY_DURATIONS = [2, 4, 6, 8] as const;
 
+const BACK_HINT: Record<'build' | 'cut' | 'stop', string> = {
+  build: 'Returns to frequency',
+  cut: 'Returns to your limit',
+  stop: 'Returns to what you are avoiding',
+};
+
 export default function CreateDurationScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
-  const { durationWeeks, setDurationWeeks } = onboarding;
+  const { behaviorDirection, durationWeeks, setDurationWeeks } = onboarding;
   const [customOpen, setCustomOpen] = useState(
     Boolean(durationWeeks && !PRIMARY_DURATIONS.includes(durationWeeks as never)),
   );
+  const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'duration');
 
   const rule = calculateSuccessRule(onboarding);
   const durationIsValid = Boolean(durationWeeks && Number.isInteger(durationWeeks) && durationWeeks >= 2 && durationWeeks <= 12);
@@ -57,8 +65,8 @@ export default function CreateDurationScreen() {
 
   return (
     <CreateFlowScreenV2
-      backHint="Returns to rhythm"
-      currentStep={4}
+      backHint={behaviorDirection ? BACK_HINT[behaviorDirection] : 'Returns to the previous step'}
+      currentStep={currentStep}
       footer={
         <PrimaryButtonV2
           accessibilityHint={canContinue ? 'Continues to loved ones' : 'Choose a duration from 2 to 12 weeks before continuing'}
@@ -70,8 +78,8 @@ export default function CreateDurationScreen() {
       }
       headline="For how long?"
       onBack={() => router.back()}
-      progressLabel="Step 4 of 7: duration"
-      totalSteps={7}
+      progressLabel={`Step ${currentStep} of ${totalSteps}: duration`}
+      totalSteps={totalSteps}
     >
       <View style={styles.durationRow}>
         {PRIMARY_DURATIONS.map((duration) => {
@@ -149,25 +157,25 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface,
   },
-  durationChoiceSelected: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  durationChoiceSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
   durationNumber: { color: theme.colors.ivoryMuted, fontSize: 24, fontWeight: '700' },
   durationNumberSelected: { color: theme.colors.ivory },
   durationUnit: { color: theme.colors.warmGrey, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
-  durationUnitSelected: { color: theme.colors.crimsonBright },
+  durationUnitSelected: { color: theme.colors.ivory },
   customAction: {
     minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     paddingHorizontal: 16,
   },
-  customActionOpen: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.surface },
+  customActionOpen: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.surface },
   customActionText: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '600' },
-  customActionSymbol: { color: theme.colors.crimsonBright, fontSize: 20 },
+  customActionSymbol: { color: theme.colors.ivory, fontSize: 20 },
   customControl: {
     minHeight: 66, flexDirection: 'row', borderRadius: theme.radius.controlled, borderWidth: 1,
     borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surfaceRaised, overflow: 'hidden',
   },
   customControlAction: { width: 64, alignItems: 'center', justifyContent: 'center' },
-  customControlSymbol: { color: theme.colors.crimsonBright, fontSize: 22, fontWeight: '300' },
+  customControlSymbol: { color: theme.colors.ivory, fontSize: 22, fontWeight: '300' },
   customValue: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderLeftWidth: 1, borderRightWidth: 1, borderColor: theme.colors.structureLine,
@@ -176,9 +184,9 @@ const styles = StyleSheet.create({
   customUnit: { color: theme.colors.ivoryMuted, fontSize: 13 },
   disabledControl: { opacity: 0.35 },
   summary: {
-    borderLeftWidth: 2, borderLeftColor: theme.colors.crimson, backgroundColor: theme.colors.surface,
+    borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
     paddingHorizontal: 16, paddingVertical: 14, borderRadius: theme.radius.precise,
   },
-  summaryLabel: { color: theme.colors.crimsonBright, fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
+  summaryLabel: { color: theme.colors.ivoryMuted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
   summaryText: { marginTop: 5, color: theme.colors.ivory, fontSize: 15, lineHeight: 21 },
 });

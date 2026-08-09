@@ -402,13 +402,13 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.controlled, paddingHorizontal: 15, paddingVertical: 12, gap: 12,
   },
-  acknowledgementSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.surfaceRaised },
+  acknowledgementSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.surfaceRaised },
   acknowledgementPressed: { backgroundColor: theme.colors.surfaceFocused },
   acknowledgementMark: {
     width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: 4, backgroundColor: theme.colors.ink,
   },
-  acknowledgementMarkSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.oxbloodDeep },
-  acknowledgementCheck: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '800' },
+  acknowledgementMarkSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
+  acknowledgementCheck: { color: theme.colors.ivory, fontSize: 14, fontWeight: '800' },
   acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600' },
 });

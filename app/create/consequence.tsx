@@ -8,6 +8,7 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { getStepInfo } from '@/lib/challenge-creation/steps';
 
 const MAX_STAKE_INPUT_LENGTH = 7;
 
@@ -24,6 +25,7 @@ export default function CreateConsequenceScreen() {
   const reducedMotion = useReducedMotion();
   const inputRef = useRef<TextInput>(null);
   const {
+    behaviorDirection,
     experienceCategory,
     recipients,
     setExperienceCategory,
@@ -32,6 +34,7 @@ export default function CreateConsequenceScreen() {
     stakeAmount,
     stakeAmountInput,
   } = useOnboarding();
+  const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'consequence');
 
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
   const experienceSectionLabel =
@@ -56,7 +59,7 @@ export default function CreateConsequenceScreen() {
   return (
     <CreateFlowScreenV2
       backHint="Returns to loved ones"
-      currentStep={6}
+      currentStep={currentStep}
       footer={
         <PrimaryButtonV2
           accessibilityHint={canContinue ? 'Continues to review' : 'Choose an experience and enter a stake greater than zero'}
@@ -68,8 +71,8 @@ export default function CreateConsequenceScreen() {
       }
       headline="What’s at stake?"
       onBack={() => router.back()}
-      progressLabel="Step 6 of 7: consequence"
-      totalSteps={7}
+      progressLabel={`Step ${currentStep} of ${totalSteps}: consequence`}
+      totalSteps={totalSteps}
     >
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>{experienceSectionLabel}</Text>
@@ -88,7 +91,7 @@ export default function CreateConsequenceScreen() {
             onChangeText={updateStakeAmount}
             placeholder="0"
             placeholderTextColor={theme.colors.warmGrey}
-            selectionColor={theme.colors.crimsonBright}
+            selectionColor={theme.colors.oxblood}
             style={styles.amountInput}
             value={stakeAmountInput}
           />

@@ -5,8 +5,11 @@ export default function CreateLayout() {
     <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom', gestureEnabled: true }}>
       <Stack.Screen name="intro" />
       <Stack.Screen name="goal" />
-      <Stack.Screen name="promise" />
-      <Stack.Screen name="rhythm" />
+      <Stack.Screen name="type" />
+      <Stack.Screen name="build" />
+      <Stack.Screen name="frequency" />
+      <Stack.Screen name="limit" />
+      <Stack.Screen name="avoid" />
       <Stack.Screen name="duration" />
       <Stack.Screen name="recipients" />
       <Stack.Screen name="consequence" />

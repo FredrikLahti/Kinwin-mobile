@@ -2,16 +2,16 @@ import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rout
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
-import { RecipientPreviewV2 } from '@/components/v2/recipient-preview';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 import { applyResolvedRecipientIds } from '@/domain/challenge/recipient-ids';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { getStepInfo } from '@/lib/challenge-creation/steps';
+import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
@@ -27,32 +27,33 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   wellness: 'Wellness',
 };
 
-function formatNames(names: string[]) {
-  if (names.length === 0) return 'your recipients';
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
-}
-
-function articleFor(word: string) {
-  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+// Compact and scales cleanly to any recipient count, unlike a prose
+// sentence ("Mom, Dad, and Elsa gets...") whose grammar has to change with
+// the count. "Mom, Dad +1" reads the same shape whether there are 2 or 4.
+function formatRecipientsCompact(names: string[]): string {
+  if (names.length === 0) return 'Your recipients';
+  if (names.length <= 2) return names.join(', ');
+  return `${names[0]}, ${names[1]} +${names.length - 2}`;
 }
 
 export default function CreateReviewScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
-  const { profile, status: authStatus, user } = useAuth();
+  const { status: authStatus, user } = useAuth();
   const { resumeSave } = useLocalSearchParams<{ resumeSave?: string }>();
   const {
+    behaviorDirection,
     behaviorText,
     durationWeeks,
     experienceCategory,
     goal,
     invitationMessage,
     invitationMessageCustomized,
+    measurementMode,
     recipients,
     rewardOrganizer,
+    rhythm,
     savedDraftId,
     setInvitationMessage,
     setMembershipChoice,
@@ -67,9 +68,9 @@ export default function CreateReviewScreen() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [checkingExisting, setCheckingExisting] = useState(true);
   const resumedRef = useRef(false);
+  const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'review');
 
   // A previously prepared commitment archives its source draft on the
   // server, permanently. If this screen is reached again after that (e.g.
@@ -96,23 +97,20 @@ export default function CreateReviewScreen() {
   }, [router, user]));
 
   const successRule = calculateSuccessRule(onboarding);
+  const ruleSummary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
-  const recipientNamesText = formatNames(recipientNames);
+  const recipientsCompact = formatRecipientsCompact(recipientNames);
   const organizerName =
     rewardOrganizer?.type === 'recipient'
       ? recipients.find((recipient) => recipient.id === rewardOrganizer.recipientId)?.name.trim()
       : rewardOrganizer?.name.trim();
   const categoryLabel = experienceCategory ? CATEGORY_LABELS[experienceCategory] : null;
   const formattedStake = stakeAmount ? `$${stakeAmount.toLocaleString('en-US')}` : null;
-  const senderName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'They';
 
-  const challengeText = successRule?.challengeSummary ? successRule.challengeSummary.replaceAll(' · ', ', ') : behaviorText.trim() || 'the challenge I have defined';
-  const categoryText = experienceCategory ? CATEGORY_LABELS[experienceCategory].toLowerCase() : 'shared';
-  const stakeText = stakeAmount ? `my $${stakeAmount.toLocaleString('en-US')} stake` : 'my stake';
   const recipientPronoun = recipientNames.length === 1 ? 'you' : 'you all';
   const suggestedMessage =
-    `Hi! I am starting a Kinwin challenge: ${challengeText}.\n\n` +
-    `If I do not keep it, ${recipientPronoun} could receive a ${categoryText} experience funded by ${stakeText}. ` +
+    `Hi! I am starting a Kinwin challenge: ${ruleSummary || behaviorText.trim() || 'a challenge I have defined'}.\n\n` +
+    `If I do not keep it, ${recipientPronoun} could receive a ${categoryLabel ? categoryLabel.toLowerCase() : 'shared'} experience funded by ${formattedStake ? `my ${formattedStake} stake` : 'my stake'}. ` +
     `${organizerName || 'The adult organizer'} will organize it, and I will not take part. You will not be asked to pay for anything.\n\n` +
     `I will send the Kinwin link myself, so it arrives from a name you trust.`;
 
@@ -262,11 +260,6 @@ export default function CreateReviewScreen() {
     void saveDraft();
   };
 
-  const openPreview = () => {
-    void playSelectionHaptic();
-    setPreviewOpen(true);
-  };
-
   const busy = saveState === 'saving' || saveState === 'preparing';
 
   if (checkingExisting) return null;
@@ -274,7 +267,7 @@ export default function CreateReviewScreen() {
   return (
     <CreateFlowScreenV2
       backHint="Returns to the consequence"
-      currentStep={7}
+      currentStep={currentStep}
       footer={
         <View style={styles.footerStack}>
           {saveState === 'error' && (
@@ -305,12 +298,12 @@ export default function CreateReviewScreen() {
       }
       headline="Review your challenge"
       onBack={() => router.back()}
-      progressLabel="Step 7 of 7: review"
-      totalSteps={7}
+      progressLabel={`Step ${currentStep} of ${totalSteps}: review`}
+      totalSteps={totalSteps}
     >
       <View style={styles.recap}>
         {goal.trim().length > 0 && <Text style={styles.goalText}>{goal.trim()}</Text>}
-        <Text style={styles.recapText}>{successRule?.overall ?? 'Complete the earlier steps.'}</Text>
+        <Text style={styles.recapText}>{ruleSummary || 'Complete the earlier steps.'}</Text>
       </View>
 
       <View style={styles.outcomes}>
@@ -319,29 +312,25 @@ export default function CreateReviewScreen() {
           <Text style={styles.outcomeValue}>Pay nothing</Text>
         </View>
         <View style={[styles.outcomeRow, styles.outcomeRowLast]}>
-          <Text style={styles.outcomeLabel}>Missed challenge</Text>
-          <Text style={styles.outcomeValue}>
-            {formattedStake && categoryLabel
-              ? `${recipientNamesText} get ${articleFor(categoryLabel)} ${categoryLabel.toLowerCase()} experience worth ${formattedStake}`
-              : `${recipientNamesText} get the reward`}
-          </Text>
+          <Text style={styles.outcomeLabel}>If missed</Text>
+          <View style={styles.missedDetails}>
+            <Text style={styles.missedRecipients}>{recipientsCompact}</Text>
+            <Text style={styles.missedCategory}>{categoryLabel ? `${categoryLabel} experience` : 'Reward'}</Text>
+            {formattedStake && <Text style={styles.missedStake}>{formattedStake}</Text>}
+          </View>
         </View>
       </View>
 
       <View style={styles.summaryTable}>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>RECIPIENTS</Text>
-          <Text style={styles.summaryValue}>{recipientNamesText}</Text>
+          <Text style={styles.summaryValue}>{recipientNames.join(', ') || 'Not set'}</Text>
         </View>
         <View style={[styles.summaryRow, styles.summaryRowLast]}>
           <Text style={styles.summaryLabel}>ORGANIZER</Text>
           <Text style={styles.summaryValue}>{organizerName || 'Not set'}</Text>
         </View>
       </View>
-
-      <Pressable accessibilityHint="Shows what your recipients will see" accessibilityRole="button" onPress={openPreview} style={styles.previewLink}>
-        <Text style={styles.previewLinkText}>Preview what they’ll see</Text>
-      </Pressable>
 
       <Pressable
         accessibilityHint="Confirms you will not participate in the recipients' experience if the challenge fails"
@@ -361,51 +350,43 @@ export default function CreateReviewScreen() {
       <View style={styles.membershipRow}>
         <Text style={styles.membershipText}>Confirming starts a 7 day free Kinwin membership trial, then $9.99 per month. Cancel anytime.</Text>
       </View>
-
-      <BottomSheetV2 onClose={() => setPreviewOpen(false)} reducedMotion={reducedMotion} visible={previewOpen}>
-        <RecipientPreviewV2
-          categoryLabel={categoryLabel ?? 'shared'}
-          challengeSummary={successRule?.challengeSummary ?? 'Challenge details are incomplete.'}
-          recipientNamesText={recipientNamesText}
-          senderName={senderName}
-          stakeLabel={formattedStake ?? 'the stake'}
-        />
-      </BottomSheetV2>
     </CreateFlowScreenV2>
   );
 }
 
 const styles = StyleSheet.create({
   recap: {
-    borderLeftWidth: 2, borderLeftColor: theme.colors.crimson, backgroundColor: theme.colors.surface,
+    borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.precise, paddingHorizontal: 16, paddingVertical: 14,
   },
   goalText: { color: theme.colors.ivory, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   recapText: { marginTop: 5, color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   outcomes: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
-  outcomeRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
+  outcomeRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14, paddingVertical: 10 },
   outcomeRowLast: { borderBottomWidth: 0 },
   outcomeLabel: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   outcomeValue: { flex: 1, marginLeft: 12, color: theme.colors.ivory, fontSize: 13, fontWeight: '700', textAlign: 'right' },
+  missedDetails: { flex: 1, marginLeft: 12, alignItems: 'flex-end', gap: 2 },
+  missedRecipients: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
+  missedCategory: { color: theme.colors.ivoryMuted, fontSize: 12 },
+  missedStake: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
   summaryTable: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
   summaryRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
   summaryRowLast: { borderBottomWidth: 0 },
   summaryLabel: { color: theme.colors.warmGrey, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   summaryValue: { flex: 1, marginLeft: 12, color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600', textAlign: 'right' },
-  previewLink: { minHeight: 32, justifyContent: 'center' },
-  previewLinkText: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   acknowledgement: {
     minHeight: 68, flexDirection: 'row', alignItems: 'center', borderRadius: theme.radius.controlled,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
     paddingHorizontal: 14, paddingVertical: 12, gap: 12,
   },
-  acknowledgementSelected: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  acknowledgementSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
   checkbox: {
     width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 4,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.ink,
   },
-  checkboxSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.oxbloodDeep },
-  checkmark: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '800' },
+  checkboxSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
+  checkmark: { color: theme.colors.ivory, fontSize: 14, fontWeight: '800' },
   acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600', lineHeight: 19 },
   membershipRow: { borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 12 },
   membershipText: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },

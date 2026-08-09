@@ -7,6 +7,7 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { createRecipientDraft, RecipientDraft, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { playSelectionHaptic } from '@/lib/haptics';
 
 const MAX_RECIPIENTS = 4;
@@ -16,8 +17,9 @@ export default function CreateRecipientsScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const otherNameRef = useRef<TextInput>(null);
-  const { recipients, rewardOrganizer, setRecipients, setRewardOrganizer } = useOnboarding();
+  const { behaviorDirection, recipients, rewardOrganizer, setRecipients, setRewardOrganizer } = useOnboarding();
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'recipients');
 
   const visibleNamesAreValid = recipients.every((recipient) => recipient.name.trim().length > 0 && recipient.name.length <= MAX_NAME_LENGTH);
   const recipientsAreValid = recipients.length >= 1 && recipients.length <= MAX_RECIPIENTS && visibleNamesAreValid;
@@ -70,7 +72,7 @@ export default function CreateRecipientsScreen() {
   return (
     <CreateFlowScreenV2
       backHint="Returns to duration"
-      currentStep={5}
+      currentStep={currentStep}
       footer={
         <PrimaryButtonV2
           accessibilityHint={canContinue ? 'Continues to the consequence' : 'Name your recipients and choose an organizer before continuing'}
@@ -82,8 +84,8 @@ export default function CreateRecipientsScreen() {
       }
       headline="Who gets the reward?"
       onBack={() => router.back()}
-      progressLabel="Step 5 of 7: loved ones"
-      totalSteps={7}
+      progressLabel={`Step ${currentStep} of ${totalSteps}: loved ones`}
+      totalSteps={totalSteps}
     >
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>RECIPIENTS</Text>
@@ -113,7 +115,7 @@ export default function CreateRecipientsScreen() {
                 onFocus={() => setFocusedId(recipient.id)}
                 placeholder="Their name"
                 placeholderTextColor={theme.colors.warmGrey}
-                selectionColor={theme.colors.crimsonBright}
+                selectionColor={theme.colors.oxblood}
                 style={styles.recipientInput}
                 value={recipient.name}
               />
@@ -162,7 +164,7 @@ export default function CreateRecipientsScreen() {
             onChangeText={updateOtherName}
             placeholder="Their name"
             placeholderTextColor={theme.colors.warmGrey}
-            selectionColor={theme.colors.crimsonBright}
+            selectionColor={theme.colors.oxblood}
             style={styles.otherNameInput}
             value={rewardOrganizer.name}
           />
@@ -180,23 +182,23 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8,
   },
-  recipientRowFocused: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.surfaceRaised },
+  recipientRowFocused: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.surfaceRaised },
   recipientHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  recipientLabel: { color: theme.colors.crimsonBright, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  recipientLabel: { color: theme.colors.ivoryMuted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   removeText: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '600' },
   recipientInput: { marginTop: 4, minHeight: 32, color: theme.colors.ivory, fontSize: 18, fontWeight: '500', paddingHorizontal: 0, paddingVertical: 0 },
   addAction: { minHeight: 44, justifyContent: 'center' },
-  addText: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '700' },
+  addText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
   organizerList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   organizerChoice: {
     minHeight: 44, justifyContent: 'center', borderRadius: 999, borderWidth: 1,
     borderColor: theme.colors.structureLineStrong, paddingHorizontal: 16,
   },
-  organizerChoiceSelected: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  organizerChoiceSelected: { borderColor: theme.colors.oxblood, backgroundColor: theme.colors.oxbloodDeep },
   organizerLabel: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '600' },
   organizerLabelSelected: { color: theme.colors.ivory },
   otherNameInput: {
-    minHeight: 46, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.crimson,
+    minHeight: 46, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.oxblood,
     backgroundColor: theme.colors.surfaceRaised, color: theme.colors.ivory, fontSize: 17,
     paddingHorizontal: 16, paddingVertical: 0,
   },

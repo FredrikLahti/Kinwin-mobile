@@ -55,8 +55,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: theme.radius.controlled,
   },
+  // Primary actions are never destructive-looking: warm ivory fill, dark
+  // text. Crimson is reserved for cancel/delete/destructive confirmation —
+  // see constants/theme-v2.ts's locked color semantics.
   enabled: {
-    backgroundColor: theme.colors.crimson,
+    backgroundColor: theme.colors.ivory,
   },
   disabled: {
     backgroundColor: theme.colors.surfaceRaised,
@@ -64,7 +67,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.structureLineStrong,
   },
   label: {
-    color: theme.colors.ivory,
+    color: theme.colors.ink,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
