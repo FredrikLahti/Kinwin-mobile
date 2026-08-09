@@ -10,9 +10,14 @@ insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'owner-a@example.test'),
   ('22222222-2222-2222-2222-222222222222', 'owner-b@example.test');
 
-insert into public.profiles (id, display_name) values
-  ('11111111-1111-1111-1111-111111111111', 'Owner A'),
-  ('22222222-2222-2222-2222-222222222222', 'Owner B')
+-- kin_code is provided here only to satisfy profiles' NOT NULL constraint
+-- on the candidate row Postgres builds for ON CONFLICT DO UPDATE -- the
+-- conflict always resolves against the trigger-created row above, and the
+-- update clause only ever touches display_name, so these placeholder codes
+-- are never actually persisted.
+insert into public.profiles (id, display_name, kin_code) values
+  ('11111111-1111-1111-1111-111111111111', 'Owner A', 'SEEDAAAA'),
+  ('22222222-2222-2222-2222-222222222222', 'Owner B', 'SEEDBBBB')
 on conflict (id) do update set display_name = excluded.display_name;
 
 insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (

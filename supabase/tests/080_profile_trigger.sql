@@ -39,7 +39,10 @@ begin
   select count(*) into profile_count from public.profiles where id = repeat_id;
   perform test.assert_equals('trigger_creates_profile_once', profile_count, 1::bigint);
 
-  insert into public.profiles (id) values (repeat_id) on conflict (id) do nothing;
+  -- kin_code placeholder only to satisfy the NOT NULL candidate-row check --
+  -- see 010_seed.sql's identical comment; never actually persisted here,
+  -- since the row already exists and this always hits the conflict branch.
+  insert into public.profiles (id, kin_code) values (repeat_id, 'SEEDCCCC') on conflict (id) do nothing;
   select count(*) into profile_count from public.profiles where id = repeat_id;
   perform test.assert_equals('repeating_the_trigger_insert_pattern_does_not_duplicate', profile_count, 1::bigint);
 end;

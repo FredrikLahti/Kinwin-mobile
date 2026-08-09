@@ -56,7 +56,9 @@ do $$
 declare
   persisted text;
 begin
-  insert into public.profiles (id, display_name) values ('22222222-2222-2222-2222-222222222222', 'Owner B')
+  -- kin_code placeholder only to satisfy the NOT NULL candidate-row check --
+  -- see 010_seed.sql's identical comment; never actually persisted here.
+  insert into public.profiles (id, display_name, kin_code) values ('22222222-2222-2222-2222-222222222222', 'Owner B', 'SEEDBBBB')
     on conflict (id) do update set display_name = excluded.display_name;
   select display_name into persisted from public.profiles where id = '22222222-2222-2222-2222-222222222222';
   perform test.assert_equals('non_owner_manages_own_profile', persisted, 'Owner B');
