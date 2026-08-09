@@ -10,7 +10,7 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playSelectionHaptic } from '@/lib/haptics';
 
 const GOAL_MAX_LENGTH = 120;
-const EXAMPLES = ['Feel stronger', 'Sleep better', 'Use my time better'] as const;
+const EXAMPLES = ['Feel stronger', 'Sleep better', 'Eat healthier', 'Use my time better'] as const;
 
 export default function CreateGoalScreen() {
   const router = useRouter();
@@ -37,7 +37,7 @@ export default function CreateGoalScreen() {
       currentStep={1}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to your promise' : 'Enter a goal of at least 3 characters'}
+          accessibilityHint={canContinue ? 'Continues to your behavior' : 'Enter a goal of at least 3 characters'}
           disabled={!canContinue}
           label="Continue"
           onPress={continueToPromise}
@@ -58,7 +58,7 @@ export default function CreateGoalScreen() {
           onBlur={() => setFocused(false)}
           onChangeText={setGoal}
           onFocus={() => setFocused(true)}
-          placeholder="Feel stronger"
+          placeholder="My goal"
           placeholderTextColor={theme.colors.warmGrey}
           selectionColor={theme.colors.crimsonBright}
           style={styles.input}

@@ -25,12 +25,17 @@ export default function CreateConsequenceScreen() {
   const inputRef = useRef<TextInput>(null);
   const {
     experienceCategory,
+    recipients,
     setExperienceCategory,
     setStakeAmount,
     setStakeAmountInput,
     stakeAmount,
     stakeAmountInput,
   } = useOnboarding();
+
+  const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
+  const experienceSectionLabel =
+    recipientNames.length === 1 ? `EXPERIENCE FOR ${recipientNames[0].toUpperCase()}` : 'THEIR EXPERIENCE';
 
   const canContinue = Boolean(experienceCategory && stakeAmount && stakeAmount > 0);
 
@@ -41,33 +46,33 @@ export default function CreateConsequenceScreen() {
     setStakeAmount(numericAmount && numericAmount > 0 ? numericAmount : null);
   };
 
-  const continueToRecipients = () => {
+  const continueToReview = () => {
     if (!canContinue) return;
     Keyboard.dismiss();
     inputRef.current?.blur();
-    router.push('/create/recipients');
+    router.push('/create/review');
   };
 
   return (
     <CreateFlowScreenV2
-      backHint="Returns to duration"
-      currentStep={5}
+      backHint="Returns to loved ones"
+      currentStep={6}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to loved ones' : 'Choose an experience and enter a stake greater than zero'}
+          accessibilityHint={canContinue ? 'Continues to review' : 'Choose an experience and enter a stake greater than zero'}
           disabled={!canContinue}
           label="Continue"
-          onPress={continueToRecipients}
+          onPress={continueToReview}
           reducedMotion={reducedMotion}
         />
       }
       headline="What’s at stake?"
       onBack={() => router.back()}
-      progressLabel="Step 5 of 7: consequence"
+      progressLabel="Step 6 of 7: consequence"
       totalSteps={7}
     >
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>SHARED EXPERIENCE</Text>
+        <Text style={styles.sectionLabel}>{experienceSectionLabel}</Text>
         <ChoiceListV2 onChange={setExperienceCategory} options={EXPERIENCE_CATEGORIES} value={experienceCategory} />
       </View>
 

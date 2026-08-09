@@ -170,7 +170,7 @@ export default function AccountScreen() {
             <Pressable
               accessibilityHint={
                 hasPendingCommitment
-                  ? 'Opens your existing pending commitment instead — only one is allowed at a time'
+                  ? 'Opens your existing pending commitment. Only one is allowed at a time.'
                   : 'Starts a new onboarding draft'
               }
               accessibilityRole="button"

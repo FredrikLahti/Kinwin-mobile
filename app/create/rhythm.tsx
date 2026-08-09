@@ -152,7 +152,7 @@ export default function CreateRhythmScreen() {
 
   return (
     <CreateFlowScreenV2
-      backHint="Returns to your promise"
+      backHint="Returns to behavior"
       currentStep={3}
       footer={
         <PrimaryButtonV2
@@ -259,7 +259,7 @@ export default function CreateRhythmScreen() {
         <View style={styles.continuousState}>
           <Text style={styles.continuousTitle}>Continuous</Text>
           <Text style={styles.continuousCopy}>
-            This promise applies every day throughout the challenge. There are no planned off-days.
+            This applies every day throughout the challenge. There are no planned off-days.
           </Text>
         </View>
       )}

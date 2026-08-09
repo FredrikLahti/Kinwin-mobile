@@ -13,10 +13,12 @@ import { playImportantHaptic } from '@/lib/haptics';
 const SEEN_KEY = 'kinwin.seenChallengeIntro';
 
 const STEPS = [
-  'You make a promise.',
-  'You choose what’s at stake.',
-  'Succeed — nothing is charged.',
-  'Miss it — someone you care about gets the reward. You sit it out.',
+  'Create a challenge around a habit you want to follow.',
+  'Choose people you care about.',
+  'Pick a reward and an amount that is at stake.',
+  'Complete the challenge and you pay nothing.',
+  'Miss it and the stake becomes their reward.',
+  'You do not take part in that reward yourself.',
 ];
 
 export default function CreateIntroScreen() {

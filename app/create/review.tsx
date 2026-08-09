@@ -1,11 +1,11 @@
-import { Href, useLocalSearchParams, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
-import { RecipientPromisePage } from '@/components/share/recipient-promise-page';
+import { RecipientPreviewV2 } from '@/components/v2/recipient-preview';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
@@ -15,9 +15,9 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
-import { prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
+import { fetchPendingCommitment, prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
 
-type SaveState = 'idle' | 'signed_out' | 'saving' | 'preparing' | 'prepared' | 'error';
+type SaveState = 'idle' | 'signed_out' | 'saving' | 'preparing' | 'error';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   adventure: 'Adventure',
@@ -34,11 +34,15 @@ function formatNames(names: string[]) {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
+function articleFor(word: string) {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
 export default function CreateReviewScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
-  const { status: authStatus, user } = useAuth();
+  const { profile, status: authStatus, user } = useAuth();
   const { resumeSave } = useLocalSearchParams<{ resumeSave?: string }>();
   const {
     behaviorText,
@@ -51,7 +55,6 @@ export default function CreateReviewScreen() {
     rewardOrganizer,
     savedDraftId,
     setInvitationMessage,
-    setInvitationMessageCustomized,
     setMembershipChoice,
     setRecipients,
     setRewardOrganizer,
@@ -65,7 +68,32 @@ export default function CreateReviewScreen() {
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [checkingExisting, setCheckingExisting] = useState(true);
   const resumedRef = useRef(false);
+
+  // A previously prepared commitment archives its source draft on the
+  // server, permanently. If this screen is reached again after that (e.g.
+  // the user backed up into an earlier creation step and stepped forward
+  // again — see the regression test for the exact repro), it must resume
+  // the real pending commitment rather than let the user "confirm" a stale,
+  // now-immutable draft a second time.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    if (!user) {
+      setCheckingExisting(false);
+      return;
+    }
+    setCheckingExisting(true);
+    void fetchPendingCommitment(user.id).then((result) => {
+      if (cancelled) return;
+      if (result.ok && result.commitment) {
+        router.replace('/account/pending-commitment' as Href);
+        return;
+      }
+      setCheckingExisting(false);
+    });
+    return () => { cancelled = true; };
+  }, [router, user]));
 
   const successRule = calculateSuccessRule(onboarding);
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
@@ -76,17 +104,22 @@ export default function CreateReviewScreen() {
       : rewardOrganizer?.name.trim();
   const categoryLabel = experienceCategory ? CATEGORY_LABELS[experienceCategory] : null;
   const formattedStake = stakeAmount ? `$${stakeAmount.toLocaleString('en-US')}` : null;
+  const senderName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'They';
 
-  const challengeText = successRule?.challengeSummary ? successRule.challengeSummary.replaceAll(' · ', ', ') : behaviorText.trim() || 'the challenge I’ve defined';
+  const challengeText = successRule?.challengeSummary ? successRule.challengeSummary.replaceAll(' · ', ', ') : behaviorText.trim() || 'the challenge I have defined';
   const categoryText = experienceCategory ? CATEGORY_LABELS[experienceCategory].toLowerCase() : 'shared';
   const stakeText = stakeAmount ? `my $${stakeAmount.toLocaleString('en-US')} stake` : 'my stake';
   const recipientPronoun = recipientNames.length === 1 ? 'you' : 'you all';
   const suggestedMessage =
-    `Hi! I’m starting a Kinwin challenge: ${challengeText}.\n\n` +
-    `If I don’t keep my promise, ${recipientPronoun} could receive a shared ${categoryText} experience funded by ${stakeText}. ` +
-    `${organizerName || 'The adult organizer'} will organize it, and I’ll sit it out. You won’t be asked to pay for anything.\n\n` +
-    `I’ll send the Kinwin link myself, so it arrives from a name you trust.`;
+    `Hi! I am starting a Kinwin challenge: ${challengeText}.\n\n` +
+    `If I do not keep it, ${recipientPronoun} could receive a ${categoryText} experience funded by ${stakeText}. ` +
+    `${organizerName || 'The adult organizer'} will organize it, and I will not take part. You will not be asked to pay for anything.\n\n` +
+    `I will send the Kinwin link myself, so it arrives from a name you trust.`;
 
+  // Kept silently populated even though this screen no longer shows an
+  // editable message field (that moved to the post-confirm Share screen) —
+  // the server still requires a non-empty invitationMessage to prepare
+  // this draft.
   useEffect(() => {
     if (!invitationMessageCustomized && invitationMessage !== suggestedMessage) {
       setInvitationMessage(suggestedMessage);
@@ -116,6 +149,19 @@ export default function CreateReviewScreen() {
       invitationMessage.trim().length >= 3,
   );
 
+  const advanceToShare = useCallback(() => {
+    void playImportantHaptic();
+    // The draft this id pointed to is now archived server-side and can
+    // never be reused — clearing it here is what makes it safe if the user
+    // somehow lands back on this screen later (the focus guard above is the
+    // primary defense; this is what makes a slipped-through resubmission
+    // insert a fresh draft instead of hitting the archived-row immutability
+    // trigger). onboarding.resetDraft() happens later, once the Share
+    // screen is done with these fields.
+    setSavedDraftId(null);
+    router.replace('/create/share' as Href);
+  }, [router, setSavedDraftId]);
+
   const runPrepare = useCallback(async (draftId: string, ownerId: string) => {
     setSaveState('preparing');
     setSaveErrorMessage(null);
@@ -134,8 +180,8 @@ export default function CreateReviewScreen() {
       return;
     }
     setLastFailedStep(null);
-    setSaveState('prepared');
-  }, []);
+    advanceToShare();
+  }, [advanceToShare]);
 
   const saveDraft = useCallback(async () => {
     if (authStatus !== 'signed_in' || !user) {
@@ -165,6 +211,15 @@ export default function CreateReviewScreen() {
           setSaveErrorMessage('Sign in to save your progress.');
           break;
         default:
+          // Last-resort net: an existing commitment being prepared under a
+          // different tab/session, or any other path that slipped past the
+          // focus guard above, surfaces as exactly this immutability error
+          // — resume the real commitment instead of showing a raw database
+          // message.
+          if (result.message.toLowerCase().includes('archived')) {
+            router.replace('/account/pending-commitment' as Href);
+            return;
+          }
           setSaveErrorMessage(result.message);
       }
       return;
@@ -177,7 +232,7 @@ export default function CreateReviewScreen() {
   }, [
     authStatus, behaviorText, durationWeeks, experienceCategory, goal, invitationMessage, onboarding.currency,
     onboarding.behaviorDirection, onboarding.definitionText, onboarding.measurementMode, onboarding.rhythm,
-    recipients, rewardOrganizer, runPrepare, savedDraftId, setMembershipChoice, setRecipients, setRewardOrganizer,
+    recipients, router, rewardOrganizer, runPrepare, savedDraftId, setMembershipChoice, setRecipients, setRewardOrganizer,
     setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
   ]);
 
@@ -193,20 +248,8 @@ export default function CreateReviewScreen() {
     setSitOutAcknowledged((current) => !current);
   };
 
-  const updateMessage = (message: string) => {
-    setInvitationMessage(message);
-    setInvitationMessageCustomized(true);
-  };
-
-  const useSuggestedMessage = () => {
-    void playSelectionHaptic();
-    setInvitationMessage(suggestedMessage);
-    setInvitationMessageCustomized(false);
-  };
-
   const confirmCommitment = () => {
     if (!draftIsValid) return;
-    void playImportantHaptic();
     void saveDraft();
   };
 
@@ -219,11 +262,6 @@ export default function CreateReviewScreen() {
     void saveDraft();
   };
 
-  const goToPendingCommitment = () => {
-    void playImportantHaptic();
-    router.replace('/account/pending-commitment' as Href);
-  };
-
   const openPreview = () => {
     void playSelectionHaptic();
     setPreviewOpen(true);
@@ -231,46 +269,39 @@ export default function CreateReviewScreen() {
 
   const busy = saveState === 'saving' || saveState === 'preparing';
 
+  if (checkingExisting) return null;
+
   return (
     <CreateFlowScreenV2
-      backHint="Returns to loved ones"
+      backHint="Returns to the consequence"
       currentStep={7}
       footer={
-        saveState === 'prepared' ? (
+        <View style={styles.footerStack}>
+          {saveState === 'error' && (
+            <View style={styles.errorRow}>
+              <Text style={styles.errorText}>{saveErrorMessage ?? 'Something went wrong.'}</Text>
+              <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" onPress={retrySave}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          )}
+          {saveState === 'signed_out' && (
+            <Pressable
+              accessibilityHint="Opens sign in, then returns here to save your commitment"
+              accessibilityRole="button"
+              onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
+            >
+              <Text style={styles.retryText}>Sign in to save your commitment</Text>
+            </Pressable>
+          )}
           <PrimaryButtonV2
-            accessibilityHint="Opens your saved commitment to continue with payment and activation"
-            label="Continue to payment"
-            onPress={goToPendingCommitment}
+            accessibilityHint={draftIsValid ? 'Saves your commitment and continues to sharing' : 'Confirm you will not take part in the reward before continuing'}
+            disabled={!draftIsValid || busy}
+            label={busy ? 'Saving…' : 'Confirm commitment'}
+            onPress={confirmCommitment}
             reducedMotion={reducedMotion}
           />
-        ) : (
-          <View style={styles.footerStack}>
-            {saveState === 'error' && (
-              <View style={styles.errorRow}>
-                <Text style={styles.errorText}>{saveErrorMessage ?? 'Something went wrong.'}</Text>
-                <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" onPress={retrySave}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            )}
-            {saveState === 'signed_out' && (
-              <Pressable
-                accessibilityHint="Opens sign in, then returns here to save your commitment"
-                accessibilityRole="button"
-                onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
-              >
-                <Text style={styles.retryText}>Sign in to save your commitment</Text>
-              </Pressable>
-            )}
-            <PrimaryButtonV2
-              accessibilityHint={draftIsValid ? 'Saves your commitment and prepares payment setup' : 'Acknowledge the sit-out promise and write an invitation message before continuing'}
-              disabled={!draftIsValid || busy}
-              label={busy ? 'Saving…' : 'Confirm commitment'}
-              onPress={confirmCommitment}
-              reducedMotion={reducedMotion}
-            />
-          </View>
-        )
+        </View>
       }
       headline="Review your challenge"
       onBack={() => router.back()}
@@ -290,7 +321,9 @@ export default function CreateReviewScreen() {
         <View style={[styles.outcomeRow, styles.outcomeRowLast]}>
           <Text style={styles.outcomeLabel}>Missed challenge</Text>
           <Text style={styles.outcomeValue}>
-            {formattedStake ? `${recipientNamesText} get ${formattedStake}` : `${recipientNamesText} get the reward`}
+            {formattedStake && categoryLabel
+              ? `${recipientNamesText} get ${articleFor(categoryLabel)} ${categoryLabel.toLowerCase()} experience worth ${formattedStake}`
+              : `${recipientNamesText} get the reward`}
           </Text>
         </View>
       </View>
@@ -300,17 +333,13 @@ export default function CreateReviewScreen() {
           <Text style={styles.summaryLabel}>RECIPIENTS</Text>
           <Text style={styles.summaryValue}>{recipientNamesText}</Text>
         </View>
-        <View style={styles.summaryRow}>
+        <View style={[styles.summaryRow, styles.summaryRowLast]}>
           <Text style={styles.summaryLabel}>ORGANIZER</Text>
           <Text style={styles.summaryValue}>{organizerName || 'Not set'}</Text>
         </View>
-        <View style={[styles.summaryRow, styles.summaryRowLast]}>
-          <Text style={styles.summaryLabel}>EXPERIENCE</Text>
-          <Text style={styles.summaryValue}>{categoryLabel || 'Not set'} · {formattedStake || 'Not set'}</Text>
-        </View>
       </View>
 
-      <Pressable accessibilityHint="Opens a preview of what your recipients will see" accessibilityRole="button" onPress={openPreview} style={styles.previewLink}>
+      <Pressable accessibilityHint="Shows what your recipients will see" accessibilityRole="button" onPress={openPreview} style={styles.previewLink}>
         <Text style={styles.previewLinkText}>Preview what they’ll see</Text>
       </Pressable>
 
@@ -329,47 +358,18 @@ export default function CreateReviewScreen() {
         </Text>
       </Pressable>
 
-      <View style={styles.section}>
-        <View style={styles.messageHeader}>
-          <Text style={styles.sectionLabel}>YOUR MESSAGE TO THEM</Text>
-          {invitationMessageCustomized && (
-            <Pressable accessibilityHint="Replaces your edits with the current suggested draft" accessibilityRole="button" onPress={useSuggestedMessage}>
-              <Text style={styles.resetText}>Use suggested</Text>
-            </Pressable>
-          )}
-        </View>
-        <TextInput
-          accessibilityLabel="Invitation message"
-          maxLength={1000}
-          multiline
-          onChangeText={updateMessage}
-          placeholder="Write a personal invitation message"
-          placeholderTextColor={theme.colors.warmGrey}
-          selectionColor={theme.colors.crimsonBright}
-          style={styles.messageInput}
-          textAlignVertical="top"
-          value={invitationMessage}
-        />
-        <Text style={styles.messageHelper}>Sent from your own messaging app—not by Kinwin.</Text>
-      </View>
-
       <View style={styles.membershipRow}>
-        <Text style={styles.membershipText}>Confirming starts a 7-day free Kinwin membership trial, then $9.99/month. Cancel anytime.</Text>
+        <Text style={styles.membershipText}>Confirming starts a 7 day free Kinwin membership trial, then $9.99 per month. Cancel anytime.</Text>
       </View>
 
       <BottomSheetV2 onClose={() => setPreviewOpen(false)} reducedMotion={reducedMotion} visible={previewOpen}>
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.previewScroll}>
-          <RecipientPromisePage
-            categoryLabel={categoryLabel ?? 'Experience'}
-            challengeSummary={successRule?.challengeSummary ?? 'Challenge details are incomplete.'}
-            goal={goal.trim() || 'Their larger goal will appear here.'}
-            organizerIsRecipient={rewardOrganizer?.type === 'recipient'}
-            organizerName={organizerName || 'The selected adult organizer'}
-            recipientNames={recipientNames}
-            stakeLabel={formattedStake ?? 'The stake'}
-            successRule={successRule?.overall ?? 'The success rule is not yet available.'}
-          />
-        </ScrollView>
+        <RecipientPreviewV2
+          categoryLabel={categoryLabel ?? 'shared'}
+          challengeSummary={successRule?.challengeSummary ?? 'Challenge details are incomplete.'}
+          recipientNamesText={recipientNamesText}
+          senderName={senderName}
+          stakeLabel={formattedStake ?? 'the stake'}
+        />
       </BottomSheetV2>
     </CreateFlowScreenV2>
   );
@@ -388,14 +388,14 @@ const styles = StyleSheet.create({
   outcomeLabel: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   outcomeValue: { flex: 1, marginLeft: 12, color: theme.colors.ivory, fontSize: 13, fontWeight: '700', textAlign: 'right' },
   summaryTable: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
-  summaryRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
+  summaryRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
   summaryRowLast: { borderBottomWidth: 0 },
   summaryLabel: { color: theme.colors.warmGrey, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   summaryValue: { flex: 1, marginLeft: 12, color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600', textAlign: 'right' },
-  previewLink: { minHeight: 36, justifyContent: 'center' },
+  previewLink: { minHeight: 32, justifyContent: 'center' },
   previewLinkText: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   acknowledgement: {
-    minHeight: 76, flexDirection: 'row', alignItems: 'center', borderRadius: theme.radius.controlled,
+    minHeight: 68, flexDirection: 'row', alignItems: 'center', borderRadius: theme.radius.controlled,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
     paddingHorizontal: 14, paddingVertical: 12, gap: 12,
   },
@@ -407,21 +407,10 @@ const styles = StyleSheet.create({
   checkboxSelected: { borderColor: theme.colors.crimsonBright, backgroundColor: theme.colors.oxbloodDeep },
   checkmark: { color: theme.colors.crimsonBright, fontSize: 14, fontWeight: '800' },
   acknowledgementText: { flex: 1, color: theme.colors.ivory, fontSize: 13, fontWeight: '600', lineHeight: 19 },
-  section: { gap: 8 },
-  sectionLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
-  messageHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  resetText: { color: theme.colors.crimsonBright, fontSize: 12, fontWeight: '700' },
-  messageInput: {
-    minHeight: 140, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
-    backgroundColor: theme.colors.surface, color: theme.colors.ivory, fontSize: 14, lineHeight: 20,
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
-  messageHelper: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
-  membershipRow: { borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 14 },
+  membershipRow: { borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 12 },
   membershipText: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
   footerStack: { gap: 10 },
   errorRow: { gap: 4 },
   errorText: { color: '#E37D6A', fontSize: 12, lineHeight: 17 },
   retryText: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
-  previewScroll: { maxHeight: 560 },
 });
