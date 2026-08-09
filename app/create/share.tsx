@@ -2,13 +2,14 @@ import * as Clipboard from 'expo-clipboard';
 import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RecipientPreviewV2 } from '@/components/v2/recipient-preview';
 import { SecondaryButtonV2 } from '@/components/v2/secondary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
@@ -84,7 +85,7 @@ export default function CreateShareScreen() {
           <Text accessibilityRole="header" style={styles.headline}>Invite {recipientNamesText || 'them'}</Text>
           <Text style={styles.supportingCopy}>Sent from your own messaging app, not by Kinwin.</Text>
 
-          <TextInput
+          <TextInputV2
             accessibilityLabel="Invitation message"
             maxLength={1000}
             multiline

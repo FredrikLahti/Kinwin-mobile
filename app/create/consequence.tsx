@@ -5,6 +5,7 @@ import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChoiceListV2 } from '@/components/v2/choice-list';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -83,7 +84,7 @@ export default function CreateConsequenceScreen() {
         <Text style={styles.stakeLabel}>Total stake</Text>
         <View style={styles.amountRow}>
           <Text aria-hidden style={styles.currencySymbol}>$</Text>
-          <TextInput
+          <TextInputV2
             ref={inputRef}
             accessibilityLabel="Total stake in dollars"
             keyboardType="number-pad"

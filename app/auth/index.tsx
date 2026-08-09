@@ -8,12 +8,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinTheme as theme } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -148,7 +148,7 @@ export default function AuthScreen() {
             <View style={styles.form}>
               <View style={styles.field}>
                 <Text style={styles.label}>EMAIL</Text>
-                <TextInput
+                <TextInputV2
                   accessibilityLabel="Email"
                   autoCapitalize="none"
                   autoComplete="email"
@@ -163,7 +163,7 @@ export default function AuthScreen() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>PASSWORD</Text>
-                <TextInput
+                <TextInputV2
                   accessibilityLabel="Password"
                   autoCapitalize="none"
                   autoComplete={mode === 'sign_in' ? 'password' : 'password-new'}

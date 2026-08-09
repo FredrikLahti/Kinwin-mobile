@@ -68,7 +68,6 @@ export default function CreateReviewScreen() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
-  const [checkingExisting, setCheckingExisting] = useState(true);
   const resumedRef = useRef(false);
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'review');
 
@@ -77,21 +76,21 @@ export default function CreateReviewScreen() {
   // the user backed up into an earlier creation step and stepped forward
   // again — see the regression test for the exact repro), it must resume
   // the real pending commitment rather than let the user "confirm" a stale,
-  // now-immutable draft a second time.
+  // now-immutable draft a second time. This check runs in the background
+  // rather than blocking the initial render (which used to show a blank
+  // frame while it was in flight, unlike every other create screen — all
+  // of which render synchronously from in-memory draft state): the rare
+  // case where it fires mid-render is still safe, since saveDraft()'s own
+  // "archived" error handling below redirects the same way if the user
+  // manages to tap Confirm before this resolves.
   useFocusEffect(useCallback(() => {
     let cancelled = false;
-    if (!user) {
-      setCheckingExisting(false);
-      return;
-    }
-    setCheckingExisting(true);
+    if (!user) return;
     void fetchPendingCommitment(user.id).then((result) => {
       if (cancelled) return;
       if (result.ok && result.commitment) {
         router.replace('/account/pending-commitment' as Href);
-        return;
       }
-      setCheckingExisting(false);
     });
     return () => { cancelled = true; };
   }, [router, user]));
@@ -261,8 +260,6 @@ export default function CreateReviewScreen() {
   };
 
   const busy = saveState === 'saving' || saveState === 'preparing';
-
-  if (checkingExisting) return null;
 
   return (
     <CreateFlowScreenV2

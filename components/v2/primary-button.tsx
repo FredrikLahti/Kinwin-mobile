@@ -55,11 +55,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: theme.radius.controlled,
   },
-  // Primary actions are never destructive-looking: muted brass/antique-gold
-  // fill, dark text. Crimson is reserved for cancel/delete/destructive
+  // Primary actions are never destructive-looking: muted rosewood fill,
+  // warm ivory text. Crimson is reserved for cancel/delete/destructive
   // confirmation — see constants/theme-v2.ts's locked color semantics.
   enabled: {
-    backgroundColor: theme.colors.brass,
+    backgroundColor: theme.colors.rosewood,
   },
   disabled: {
     backgroundColor: theme.colors.surfaceRaised,
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.structureLineStrong,
   },
   label: {
-    color: theme.colors.ink,
+    color: theme.colors.ivory,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,

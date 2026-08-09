@@ -4,6 +4,7 @@ import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { createRecipientDraft, RecipientDraft, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -114,18 +115,16 @@ export default function CreateRecipientsScreen() {
                   </Pressable>
                 )}
               </View>
-              <TextInput
+              <TextInputV2
                 accessibilityLabel={`Person ${index + 1}`}
                 autoCapitalize="words"
                 maxLength={MAX_NAME_LENGTH}
                 onBlur={() => setFocusedId(null)}
                 onChangeText={(name) => updateRecipientName(recipient.id, name)}
                 onFocus={() => setFocusedId(recipient.id)}
-                onSubmitEditing={() => Keyboard.dismiss()}
                 placeholder="Their name"
                 placeholderTextColor={theme.colors.warmGrey}
                 ref={(el) => { recipientInputRefs.current[recipient.id] = el; }}
-                returnKeyType="done"
                 selectionColor={theme.colors.oxblood}
                 style={styles.recipientInput}
                 value={recipient.name}
@@ -167,16 +166,14 @@ export default function CreateRecipientsScreen() {
           </Pressable>
         </View>
         {rewardOrganizer?.type === 'other' && (
-          <TextInput
+          <TextInputV2
             ref={otherNameRef}
             accessibilityLabel="Organizer's name"
             autoCapitalize="words"
             maxLength={MAX_NAME_LENGTH}
             onChangeText={updateOtherName}
-            onSubmitEditing={() => Keyboard.dismiss()}
             placeholder="Their name"
             placeholderTextColor={theme.colors.warmGrey}
-            returnKeyType="done"
             selectionColor={theme.colors.oxblood}
             style={styles.otherNameInput}
             value={rewardOrganizer.name}
