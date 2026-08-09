@@ -4,14 +4,14 @@
 -- no other role can read or write another owner's preference.
 set role service_role;
 
+-- auth.users has an on-insert trigger (20260804000000_profile_on_signup.sql)
+-- that creates the matching public.profiles row, so no explicit profiles
+-- insert is needed here.
 do $$
 begin
   insert into auth.users (id, email) values
     ('91111111-0000-0000-0000-000000000001', 'intro-pref-owner@example.test'),
     ('91111111-0000-0000-0000-000000000002', 'intro-pref-other@example.test');
-  insert into public.profiles (id) values
-    ('91111111-0000-0000-0000-000000000001'),
-    ('91111111-0000-0000-0000-000000000002');
 end;
 $$;
 
