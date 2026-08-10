@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,6 +18,8 @@ import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import {
   ActivityItem,
   KinConnection,
+  KinCurrentChallenge,
+  KinSearchResult,
   REACTION_KINDS,
   ReactionKind,
   acceptKinRequest,
@@ -27,9 +29,12 @@ import {
   declineKinRequest,
   fetchKinActivity,
   fetchKinConnections,
+  fetchKinCurrentChallenges,
   fetchMyKinCode,
   redeemKinCode,
   removeKin,
+  searchKin,
+  sendKinRequest,
   setMyReaction,
 } from '@/lib/supabase/kin-repository';
 
@@ -58,12 +63,20 @@ export default function KinV2() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<readonly KinConnection[]>([]);
   const [activity, setActivity] = useState<readonly ActivityItem[]>([]);
+  const [currentChallenges, setCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
   const [addKinOpen, setAddKinOpen] = useState(false);
   const [manageTarget, setManageTarget] = useState<KinConnection | null>(null);
   const [myCode, setMyCode] = useState<string | null>(null);
   const [codeInput, setCodeInput] = useState('');
   const [redeemFeedback, setRedeemFeedback] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [showCodeFallback, setShowCodeFallback] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<readonly KinSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
+  const searchRequestId = useRef(0);
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds((current) => {
@@ -75,9 +88,14 @@ export default function KinV2() {
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const [connectionsResult, activityResult] = await Promise.all([fetchKinConnections(user.id), fetchKinActivity(user.id)]);
+    const [connectionsResult, activityResult, currentResult] = await Promise.all([
+      fetchKinConnections(user.id),
+      fetchKinActivity(user.id),
+      fetchKinCurrentChallenges(user.id),
+    ]);
     if (connectionsResult.ok) setConnections(connectionsResult.connections);
     if (activityResult.ok) setActivity(activityResult.items);
+    if (currentResult.ok) setCurrentChallenges(currentResult.challenges);
     setLoading(false);
   }, [user]);
 
@@ -92,9 +110,45 @@ export default function KinV2() {
     });
   }, [addKinOpen, user, myCode]);
 
+  // Debounced person search — the primary Add-Kin flow. A request id guard
+  // discards a stale response that resolves after a newer keystroke's
+  // search already landed, so results can never flicker back to an older
+  // query's answer.
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearching(false);
+      setSearchError(null);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    const requestId = ++searchRequestId.current;
+    const timeout = setTimeout(() => {
+      void searchKin(query).then((result) => {
+        if (searchRequestId.current !== requestId) return;
+        setSearching(false);
+        if (!result.ok) {
+          setSearchError('Could not search right now.');
+          setSearchResults([]);
+          return;
+        }
+        setSearchResults(result.results);
+      });
+    }, 350);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
+
   const accepted = connections.filter((c) => c.status === 'accepted');
   const incoming = connections.filter((c) => c.status === 'pending' && c.direction === 'incoming');
   const outgoing = connections.filter((c) => c.status === 'pending' && c.direction === 'outgoing');
+
+  // A challenge already surfaced by a real event (Started/Completed/
+  // Missed) in the fetched activity window isn't repeated as "current" —
+  // current state is only shown when no event already tells that story.
+  const eventChallengeIds = new Set(activity.map((item) => item.challengeId).filter((id): id is string => id !== null));
+  const visibleCurrentChallenges = currentChallenges.filter((c) => !eventChallengeIds.has(c.challengeId));
 
   const shareMyCode = async () => {
     void playSelectionHaptic();
@@ -116,6 +170,21 @@ export default function KinV2() {
     if (result.status === 'requested') setRedeemFeedback('Request sent.');
     else if (result.status === 'already_pending') setRedeemFeedback('You already have a pending request with them.');
     else setRedeemFeedback('You are already Kin.');
+    void refresh();
+  };
+
+  const handleSendRequest = async (result: KinSearchResult) => {
+    void playSelectionHaptic();
+    setSendingRequestTo(result.userId);
+    const outcome = await sendKinRequest(result.userId);
+    setSendingRequestTo(null);
+    if (!outcome.ok) {
+      Alert.alert('Could not send that request', outcome.kind === 'rejected' ? (outcome.message ?? '') : 'Please try again.');
+      return;
+    }
+    setSearchResults((current) => current.map((entry) => (
+      entry.userId === result.userId ? { ...entry, connectionStatus: 'pending', connectionDirection: 'outgoing' } : entry
+    )));
     void refresh();
   };
 
@@ -243,12 +312,29 @@ export default function KinV2() {
                   </View>
                 ))}
 
-                {activity.length === 0 && incoming.length === 0 && (
+                {activity.length === 0 && incoming.length === 0 && visibleCurrentChallenges.length === 0 && (
                   <View style={styles.emptyBody}>
                     <Text style={styles.emptyTitle}>No activity yet</Text>
                     <Text style={styles.emptyText}>
                       {accepted.length === 0 ? 'Add your people to see what they’re up to.' : 'When your Kin start, finish, or miss a challenge, it shows up here.'}
                     </Text>
+                  </View>
+                )}
+
+                {visibleCurrentChallenges.length > 0 && (
+                  <View style={styles.currentlySection}>
+                    <Text style={styles.sectionLabel}>CURRENTLY</Text>
+                    <View style={styles.rowGroup}>
+                      {visibleCurrentChallenges.map((c) => (
+                        <View key={c.challengeId} style={styles.currentRow}>
+                          <AvatarV2 size={36} />
+                          <View style={styles.currentRowCopy}>
+                            <Text style={styles.currentRowName}>{c.ownerDisplayName}</Text>
+                            <Text style={styles.currentRowBehavior}>{describeChallengeIdentity({ behavior: c.behavior }).headline}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 )}
 
@@ -293,7 +379,7 @@ export default function KinV2() {
                 {accepted.length === 0 && outgoing.length === 0 ? (
                   <View style={styles.emptyBody}>
                     <Text style={styles.emptyTitle}>Add your people</Text>
-                    <Text style={styles.emptyText}>Share your code or enter theirs to connect.</Text>
+                    <Text style={styles.emptyText}>Search by name or email to connect.</Text>
                     <Pressable
                       accessibilityHint="Opens adding a new Kin"
                       accessibilityRole="button"
@@ -363,42 +449,104 @@ export default function KinV2() {
         )}
       </View>
 
-      <BottomSheetV2 onClose={() => { setAddKinOpen(false); setRedeemFeedback(null); }} reducedMotion={reducedMotion} visible={addKinOpen}>
+      <BottomSheetV2
+        onClose={() => { setAddKinOpen(false); setSearchQuery(''); setSearchResults([]); setRedeemFeedback(null); setShowCodeFallback(false); }}
+        reducedMotion={reducedMotion}
+        visible={addKinOpen}
+      >
         <Text style={styles.sheetTitle}>Add Kin</Text>
 
-        {myCode && (
-          <View style={styles.sheetSection}>
-            <Text style={styles.sheetLabel}>YOUR CODE</Text>
-            <View style={styles.codeRow}>
-              <Text style={styles.codeText}>{myCode}</Text>
-              <Pressable accessibilityHint="Shares your code" accessibilityRole="button" hitSlop={8} onPress={() => void shareMyCode()} style={styles.shareCodeButton}>
-                <Feather color={theme.colors.crimsonBright} name="share" size={16} />
-              </Pressable>
-            </View>
-          </View>
-        )}
-
         <View style={styles.sheetSection}>
-          <Text style={styles.sheetLabel}>ENTER THEIR CODE</Text>
           <TextInputV2
-            autoCapitalize="characters"
+            autoCapitalize="none"
             autoCorrect={false}
-            onChangeText={setCodeInput}
-            placeholder="ABCD1234"
+            onChangeText={setSearchQuery}
+            placeholder="Search by name or email"
             placeholderTextColor={theme.colors.warmGrey}
-            style={styles.codeInput}
-            value={codeInput}
+            style={styles.searchInput}
+            value={searchQuery}
           />
-          {redeemFeedback && <Text style={styles.sheetFeedback}>{redeemFeedback}</Text>}
+
+          {searching && (
+            <View style={styles.searchLoadingRow}><ActivityIndicator color={theme.colors.warmGrey} size="small" /></View>
+          )}
+          {searchError && <Text style={styles.sheetFeedback}>{searchError}</Text>}
+          {!searching && !searchError && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+            <Text style={styles.sheetFeedback}>No one found.</Text>
+          )}
+
+          {searchResults.length > 0 && (
+            <View style={styles.rowGroup}>
+              {searchResults.map((result) => (
+                <View key={result.userId} style={styles.searchResultRow}>
+                  <AvatarV2 size={36} />
+                  <Text numberOfLines={1} style={styles.searchResultName}>{result.displayName}</Text>
+                  {result.connectionStatus === 'none' && (
+                    <Pressable
+                      accessibilityHint={`Sends ${result.displayName} a Kin request`}
+                      accessibilityRole="button"
+                      disabled={sendingRequestTo === result.userId}
+                      onPress={() => void handleSendRequest(result)}
+                      style={({ pressed }) => [styles.searchAddButton, pressed && styles.searchAddButtonPressed]}
+                    >
+                      <Text style={styles.searchAddButtonLabel}>Add</Text>
+                    </Pressable>
+                  )}
+                  {result.connectionStatus === 'pending' && result.connectionDirection === 'outgoing' && (
+                    <Text style={styles.searchStateLabel}>Requested</Text>
+                  )}
+                  {result.connectionStatus === 'pending' && result.connectionDirection === 'incoming' && (
+                    <Text style={styles.searchStateLabel}>Incoming request</Text>
+                  )}
+                  {result.connectionStatus === 'accepted' && <Text style={styles.searchStateLabel}>Already Kin</Text>}
+                  {result.connectionStatus === 'blocked' && <Text style={styles.searchStateLabel}>Unavailable</Text>}
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
-        <PrimaryButtonV2
-          accessibilityHint="Sends a Kin request to that code's owner"
-          disabled={codeInput.trim().length === 0}
-          label="Send request"
-          onPress={() => void submitCode()}
-          reducedMotion={reducedMotion}
-        />
+        {!showCodeFallback ? (
+          <Pressable accessibilityRole="button" onPress={() => { void playSelectionHaptic(); setShowCodeFallback(true); }} style={styles.codeFallbackLink}>
+            <Text style={styles.codeFallbackLinkText}>Or share your Kin code instead</Text>
+          </Pressable>
+        ) : (
+          <>
+            {myCode && (
+              <View style={styles.sheetSection}>
+                <Text style={styles.sheetLabel}>YOUR CODE</Text>
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeText}>{myCode}</Text>
+                  <Pressable accessibilityHint="Shares your code" accessibilityRole="button" hitSlop={8} onPress={() => void shareMyCode()} style={styles.shareCodeButton}>
+                    <Feather color={theme.colors.crimsonBright} name="share" size={16} />
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetLabel}>OR ENTER THEIR CODE</Text>
+              <TextInputV2
+                autoCapitalize="characters"
+                autoCorrect={false}
+                onChangeText={setCodeInput}
+                placeholder="ABCD1234"
+                placeholderTextColor={theme.colors.warmGrey}
+                style={styles.codeInput}
+                value={codeInput}
+              />
+              {redeemFeedback && <Text style={styles.sheetFeedback}>{redeemFeedback}</Text>}
+            </View>
+
+            <PrimaryButtonV2
+              accessibilityHint="Sends a Kin request to that code's owner"
+              disabled={codeInput.trim().length === 0}
+              label="Send request"
+              onPress={() => void submitCode()}
+              reducedMotion={reducedMotion}
+            />
+          </>
+        )}
       </BottomSheetV2>
 
       <BottomSheetV2 onClose={() => setManageTarget(null)} reducedMotion={reducedMotion} visible={manageTarget !== null}>
@@ -514,4 +662,33 @@ const styles = StyleSheet.create({
   sheetAction: { minHeight: 48, justifyContent: 'center', borderTopWidth: 1, borderTopColor: theme.colors.structureLine },
   sheetActionLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
   sheetActionDestructive: { color: theme.colors.crimsonBright },
+  sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3, marginBottom: 6 },
+  currentlySection: { gap: 4 },
+  currentRow: {
+    minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
+  },
+  currentRowCopy: { flex: 1 },
+  currentRowName: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
+  currentRowBehavior: { color: theme.colors.ivoryMuted, fontSize: 12 },
+  searchInput: {
+    color: theme.colors.ivory, fontSize: 15, fontWeight: '600',
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 14, minHeight: 48, marginBottom: 8,
+  },
+  searchLoadingRow: { alignItems: 'flex-start', paddingVertical: 4 },
+  searchResultRow: {
+    minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
+  },
+  searchResultName: { flex: 1, color: theme.colors.ivory, fontSize: 14, fontWeight: '600' },
+  searchAddButton: {
+    minHeight: 32, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
+    borderRadius: theme.radius.precise, backgroundColor: theme.colors.rosewood,
+  },
+  searchAddButtonPressed: { opacity: 0.85 },
+  searchAddButtonLabel: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
+  searchStateLabel: { color: theme.colors.warmGrey, fontSize: 12, fontWeight: '600' },
+  codeFallbackLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },
+  codeFallbackLinkText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
 });
