@@ -85,7 +85,7 @@ export async function fetchActiveChallenge(userId: string): Promise<FetchActiveC
     .from('challenges')
     .select('id, source_draft_id, schema_version, activated_at, timezone, starts_at, planned_ends_at, activation_snapshot, challenge_status')
     .eq('owner_id', userId)
-    .eq('challenge_status', 'active')
+    .in('challenge_status', ['active', 'awaiting_resolution'])
     .order('activated_at', { ascending: false })
     .limit(1)
     .maybeSingle();

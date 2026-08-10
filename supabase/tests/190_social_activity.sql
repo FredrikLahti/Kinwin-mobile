@@ -204,7 +204,14 @@ select test.assert_fails('authenticated_cannot_call_finalize_challenge_result',
   '42501');
 reset role;
 
+-- finalize_challenge_result now requires the challenge to already be
+-- awaiting_resolution (20260820000000_challenge_completion_lifecycle.sql)
+-- -- a direct status update stands in for a real reconciliation here,
+-- same as this file already sets challenge_status = 'active' directly
+-- above rather than going through activate_challenge_draft; reconciliation
+-- itself is exercised separately in 230_challenge_completion_lifecycle.sql.
 set role service_role;
+update public.challenges set challenge_status = 'awaiting_resolution' where id = '93333333-0000-0000-0000-000000000001';
 do $$
 declare
   v_result jsonb;

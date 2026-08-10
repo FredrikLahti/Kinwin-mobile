@@ -22,6 +22,7 @@ export type PeriodUnit = 'day' | 'week' | 'challenge';
 export type ChallengeStatus =
   | 'pending_activation'
   | 'active'
+  | 'awaiting_resolution'
   | 'completion_mode'
   | 'completed_success'
   | 'completed_failure'

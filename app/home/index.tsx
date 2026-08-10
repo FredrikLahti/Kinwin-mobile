@@ -132,7 +132,16 @@ export default function HomeV2() {
     ? real.data.periods.find((period) => period.id === real.view.focusPeriodId) ?? null
     : null;
   const isUpcoming = real.status === 'ready' && real.view.currentPeriodStatus.kind === 'upcoming';
-  const isComplete = real.status === 'ready' && real.view.finalResult !== null;
+  // Client-computed finalResult and the server's own awaiting_resolution
+  // status are two independent signals for "no longer ordinary active" —
+  // either can arrive first (finalResult on a not-yet-reconciled row, or
+  // awaiting_resolution on a genuinely not_evaluable edge case), so treat
+  // either as enough to leave the ordinary in-progress hero. This never
+  // implies the outcome is finalized: the challenge row here is still
+  // whatever fetchActiveChallenge returned (active or awaiting_resolution),
+  // never a truly terminal completed_success/completed_failure row.
+  const isComplete =
+    real.status === 'ready' && (real.view.finalResult !== null || real.data.challenge.status === 'awaiting_resolution');
   const identity = real.status === 'ready' ? describeChallengeIdentity(real.data.challenge) : null;
 
   // Recent real events first; only fill remaining slots with current Kin
@@ -176,8 +185,19 @@ export default function HomeV2() {
 
                 {isComplete ? (
                   <>
-                    <Text style={[styles.heroStatus, HERO_STATUS_TONE_STYLE[real.view.finalResult!.status === 'success' ? 'success' : 'failure']]}>
-                      {real.view.finalResult!.status === 'success' ? 'Challenge complete. You kept it.' : 'Challenge complete.'}
+                    <Text
+                      style={[
+                        styles.heroStatus,
+                        HERO_STATUS_TONE_STYLE[
+                          real.view.finalResult === null ? 'neutral' : real.view.finalResult.status === 'success' ? 'success' : 'failure'
+                        ],
+                      ]}
+                    >
+                      {real.view.finalResult === null
+                        ? 'Challenge complete.'
+                        : real.view.finalResult.status === 'success'
+                          ? 'Challenge complete. You kept it.'
+                          : 'Challenge complete.'}
                     </Text>
                     <View style={styles.heroAction}>
                       <PrimaryButtonV2 accessibilityHint="Opens the full challenge detail" label="View details" onPress={openDetail} reducedMotion={reducedMotion} />
@@ -294,16 +314,6 @@ export default function HomeV2() {
           </View>
         )}
 
-        {!isLoading && real.status === 'ready' && isComplete && (
-          <View style={styles.createSection}>
-            <PrimaryButtonV2
-              accessibilityHint={pendingCommitment ? 'Opens your unfinished commitment' : 'Starts setting up a new challenge'}
-              label={pendingCommitment ? 'Continue setup' : '+ Create challenge'}
-              onPress={createChallenge}
-              reducedMotion={reducedMotion}
-            />
-          </View>
-        )}
       </View>
 
       <BottomSheetV2 onClose={() => setCheckInOpen(false)} reducedMotion={reducedMotion} visible={checkInOpen}>
