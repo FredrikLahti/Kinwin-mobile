@@ -611,10 +611,20 @@ grant execute on function public.activate_challenge_draft(uuid, text) to authent
 -- time filter so a Kin never sees a challenge as "current" even in the
 -- narrow window before the write-side reconciliation has actually run.
 -- Never writes; the real persisted transition still only happens via
--- reconcile_challenge_lifecycle (called from finalize-challenge).
+-- reconcile_challenge_lifecycle (called from finalize-challenge). Only
+-- excludes a row when there is positive evidence its window has closed
+-- (a real period exists whose reporting_closes_at has passed) -- a
+-- genuinely active challenge always has real generated periods (see
+-- private.generate_challenge_periods, called at activation), so the "no
+-- periods at all" case never happens outside of missing/malformed data,
+-- which this view must never interpret as "already ended".
 create or replace view private.canonical_current_challenges as
 select distinct on (owner_id) c.*
 from public.challenges c
 where c.challenge_status = 'active'
-  and now() <= (select max(p.reporting_closes_at) from public.challenge_periods p where p.challenge_id = c.id)
+  and not exists (
+    select 1 from public.challenge_periods p
+    where p.challenge_id = c.id
+    having max(p.reporting_closes_at) < now()
+  )
 order by c.owner_id, c.activated_at desc;
