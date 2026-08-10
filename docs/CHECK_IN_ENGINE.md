@@ -1,5 +1,7 @@
 # Check-in engine
 
+> Production lifecycle note: migration `20260821000000_server_scheduled_challenge_completion.sql` and the service-only `scheduled-finalize-challenges` Edge Function run this deterministic evaluator on a 15-minute server schedule after the final persisted reporting deadline. App launch is no longer required for eventual terminal success/failure. This remains outcome determination only; payment and reward fulfillment are separate and are not invoked. See `docs/SCHEDULED_CHALLENGE_COMPLETION.md`.
+
 This document describes the pure domain model in `domain/challenge/check-in/` and the
 challenge-level evaluator in `domain/challenge/results.ts`. It is the write-up referenced from
 those files' code comments.
