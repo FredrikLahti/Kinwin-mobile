@@ -8,7 +8,8 @@ import { createClient } from '@supabase/supabase-js';
 const url = process.env.SUPABASE_URL;
 const anonKey = process.env.SUPABASE_ANON_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !anonKey || !serviceKey) throw new Error('local Supabase environment is required');
+const secretKey = process.env.SECRET_KEY;
+if (!url || !anonKey || !serviceKey || !secretKey) throw new Error('local Supabase environment is required');
 
 const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -112,7 +113,10 @@ test('scheduled worker finalizes success/failure without user JWT and remains id
   const unauthorized = await invokeWorker(anonKey);
   assert.equal(unauthorized.status, 401);
 
-  const first = await invokeWorker(serviceKey);
+  const legacyServiceRoleCredential = await invokeWorker(serviceKey);
+  assert.equal(legacyServiceRoleCredential.status, 401);
+
+  const first = await invokeWorker(secretKey);
   assert.equal(first.status, 200, await first.text());
 
   const { data: challenges, error: challengeError } = await admin
@@ -123,7 +127,7 @@ test('scheduled worker finalizes success/failure without user JWT and remains id
   assert.equal(challenges?.find((row) => row.id === successId)?.challenge_status, 'completed_success');
   assert.equal(challenges?.find((row) => row.id === failureId)?.challenge_status, 'completed_failure');
 
-  const second = await invokeWorker(serviceKey);
+  const second = await invokeWorker(secretKey);
   assert.equal(second.status, 200, await second.text());
   const { data: events, error: eventError } = await admin
     .from('social_activity')
