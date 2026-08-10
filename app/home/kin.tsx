@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
@@ -59,6 +60,7 @@ function relativeTime(iso: string): string {
 export default function KinV2() {
   const { user } = useAuth();
   const reducedMotion = useReducedMotion();
+  const params = useLocalSearchParams<{ tab?: string }>();
   const [tab, setTab] = useState<Tab>('activity');
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<readonly KinConnection[]>([]);
@@ -102,6 +104,17 @@ export default function KinV2() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The Kin tab stays mounted across visits (it lives inside the same
+  // Tabs navigator as Home/Me — see app/home/_layout.tsx), so its local
+  // `tab` state otherwise just keeps whatever the user last picked,
+  // regardless of how they got here. A `tab` route param lets a caller
+  // (Home's "See all") explicitly request a section instead of relying on
+  // stale local state — this only fires when the param itself changes, so
+  // it never fights normal manual segmented-control taps afterward.
+  useEffect(() => {
+    if (params.tab === 'activity' || params.tab === 'people') setTab(params.tab);
+  }, [params.tab]);
 
   useEffect(() => {
     if (!addKinOpen || !user || myCode) return;
@@ -321,9 +334,17 @@ export default function KinV2() {
                   </View>
                 )}
 
+                {/* Activity = everything socially relevant about my Kin.
+                    Internally that's two different kinds of truth: current
+                    state (what a Kin is doing right now, even with zero
+                    events) and historical events (Started, Completed,
+                    Missed), but the user only ever sees one screen, one
+                    concept: Activity. A Kin whose challenge predates the
+                    connection must still show up here, never hidden behind
+                    an events-only empty state. */}
                 {visibleCurrentChallenges.length > 0 && (
                   <View style={styles.currentlySection}>
-                    <Text style={styles.sectionLabel}>CURRENTLY</Text>
+                    <Text style={styles.sectionLabel}>ACTIVE CHALLENGES</Text>
                     <View style={styles.rowGroup}>
                       {visibleCurrentChallenges.map((c) => (
                         <View key={c.challengeId} style={styles.currentRow}>
@@ -335,6 +356,15 @@ export default function KinV2() {
                         </View>
                       ))}
                     </View>
+                  </View>
+                )}
+
+                {(visibleCurrentChallenges.length > 0 || activity.length > 0) && (
+                  <View style={styles.currentlySection}>
+                    <Text style={styles.sectionLabel}>RECENT ACTIVITY</Text>
+                    {activity.length === 0 && (
+                      <Text style={styles.emptyEventsText}>No recent activity.</Text>
+                    )}
                   </View>
                 )}
 
@@ -664,6 +694,7 @@ const styles = StyleSheet.create({
   sheetActionDestructive: { color: theme.colors.crimsonBright },
   sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3, marginBottom: 6 },
   currentlySection: { gap: 4 },
+  emptyEventsText: { color: theme.colors.warmGrey, fontSize: 12 },
   currentRow: {
     minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
