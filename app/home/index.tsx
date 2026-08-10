@@ -255,7 +255,7 @@ export default function HomeV2() {
             <View style={styles.section}>
               <View style={styles.kinSectionHeader}>
                 <Text style={styles.sectionLabel}>FROM YOUR KIN</Text>
-                <Pressable accessibilityHint="Opens the Kin tab" accessibilityRole="button" hitSlop={6} onPress={() => { void playSelectionHaptic(); router.push('/home/kin' as Href); }} style={styles.kinSeeAll}>
+                <Pressable accessibilityHint="Opens the Kin tab's Activity section" accessibilityRole="button" hitSlop={6} onPress={() => { void playSelectionHaptic(); router.push('/home/kin?tab=activity' as Href); }} style={styles.kinSeeAll}>
                   <Text style={styles.kinSeeAllText}>See all</Text>
                 </Pressable>
               </View>
