@@ -172,17 +172,21 @@ begin
 end;
 $$;
 
--- An active challenge cannot be canceled through this RPC.
+-- An active challenge cannot be canceled through this RPC. Reuses Owner
+-- A's already-active bbbbbbbb-…0001 (010_seed.sql) rather than a second
+-- seeded active row -- challenges_owner_one_active_idx
+-- (20260819000000_challenge_lifecycle_integrity.sql) allows at most one
+-- active challenge per owner.
 select test.assert_fails(
   'active_challenge_cancel_rejected',
-  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000004')$stmt$,
+  $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000001')$stmt$,
   '22023'
 );
 do $$
 declare
   status_val text;
 begin
-  select challenge_status into status_val from public.challenges where id = 'bbbbbbbb-0000-0000-0000-000000000004';
+  select challenge_status into status_val from public.challenges where id = 'bbbbbbbb-0000-0000-0000-000000000001';
   perform test.assert_equals('active_challenge_status_unchanged_after_rejected_cancel', status_val, 'active');
 end;
 $$;

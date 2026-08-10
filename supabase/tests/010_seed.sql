@@ -293,34 +293,12 @@ insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload
 -- already finished and canceled its own.
 
 
--- Already active (fully activated, own snapshot) — reserved for the
--- "cancellation of an active challenge is rejected" test.
-insert into public.challenges (
-  id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status,
-  timezone, activated_at, starts_at, planned_ends_at, activation_snapshot
-) values (
-  'bbbbbbbb-0000-0000-0000-000000000004',
-  '11111111-1111-1111-1111-111111111111',
-  null,
-  1, 1, 'active',
-  'Europe/Stockholm', now(), now(), now() + interval '28 days',
-  jsonb_build_object(
-    'schemaVersion', 1,
-    'id', 'bbbbbbbb-0000-0000-0000-000000000004',
-    'ownerId', '11111111-1111-1111-1111-111111111111',
-    'ruleEngineVersion', 1,
-    'goal', 'Sleep better',
-    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session'),
-    'duration', jsonb_build_object('unit', 'week', 'value', 4),
-    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
-    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
-    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
-    'consequenceCategory', 'dinner',
-    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
-    'sitOutAcknowledged', true,
-    'membershipStatusAtActivation', 'trialing'
-  )
-);
+-- 100_cancel_pending_challenge.sql's "cancellation of an active challenge
+-- is rejected" test reuses Owner A's already-active bbbbbbbb-…0001 (see
+-- above) directly rather than seeding a second active row here --
+-- challenges_owner_one_active_idx (20260819000000_challenge_lifecycle_integrity.sql)
+-- now allows at most one active challenge per owner, same reasoning as
+-- the pending-commitment note just above.
 
 -- Archived draft fixture for 110_archived_draft_immutability.sql —
 -- deliberately minimal since only draft_status matters for that test.

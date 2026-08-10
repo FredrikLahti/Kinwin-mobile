@@ -18,9 +18,12 @@ select test.assert_equals('owner_sees_own_profile', (select count(*) from public
 -- (and, after its own cleanup, end) at zero, so each of 100/120 creates its
 -- own inline instead.
 select test.assert_equals('owner_sees_own_draft', (select count(*) from public.challenge_drafts), 10::bigint);
--- Two challenges: the original activated one plus the already-active one
--- added for 100_cancel_pending_challenge.sql.
-select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 2::bigint);
+-- One challenge: the original activated one. 100_cancel_pending_challenge.sql's
+-- "cancellation of an active challenge is rejected" test reuses this same
+-- row rather than seeding a second active one -- challenges_owner_one_active_idx
+-- (20260819000000_challenge_lifecycle_integrity.sql) allows at most one
+-- active challenge per owner.
+select test.assert_equals('owner_sees_own_challenge', (select count(*) from public.challenges), 1::bigint);
 select test.assert_equals('owner_sees_own_recipients', (select count(*) from public.challenge_recipients), 1::bigint);
 select test.assert_equals('owner_sees_own_periods', (select count(*) from public.challenge_periods), 1::bigint);
 select test.assert_equals('owner_sees_own_checkins', (select count(*) from public.check_in_events), 1::bigint);
