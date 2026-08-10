@@ -4,6 +4,17 @@
 
 set role service_role;
 
+do $$
+begin
+  if to_regnamespace('cron') is not null then
+    perform test.assert_equals('cron_job_uses_current_named_secret_key',
+      (select count(*) from cron.job where jobname = 'kinwin-challenge-completion'
+        and active and command like '%kinwin_cron_secret_key%' and command not like '%Authorization%'),
+      1::bigint);
+  end if;
+end;
+$$;
+
 create or replace function pg_temp.seed_scheduled_challenge(
   p_owner uuid,
   p_challenge uuid,
