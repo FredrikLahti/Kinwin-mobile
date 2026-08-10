@@ -51,12 +51,18 @@ export function useRealActiveChallenge() {
     });
     setState({ status: 'ready', data: result.data, view });
 
-    // Opportunistic trigger, not a source of truth: this client's own view
-    // already believes the challenge is done, so ask the server to check
-    // for real and persist it (see finalizeChallenge's own doc comment).
-    // Fire-and-forget — a failure here just means the next refresh tries
-    // again, same as any other eventually-consistent background sync.
-    if (view.finalResult !== null && result.data.challenge.status === 'active') {
+    // Opportunistic trigger, not a source of truth: ask the server to check
+    // for real and persist it (see finalizeChallenge's own doc comment),
+    // either because this client's own view already believes the challenge
+    // is done, or because the server itself already recorded the reporting
+    // window as closed (awaiting_resolution) and just hasn't been given a
+    // chance to evaluate it yet. Fire-and-forget — a failure here just means
+    // the next refresh tries again, same as any other eventually-consistent
+    // background sync.
+    const shouldTryFinalize =
+      result.data.challenge.status === 'awaiting_resolution' ||
+      (view.finalResult !== null && result.data.challenge.status === 'active');
+    if (shouldTryFinalize) {
       void finalizeChallenge(result.data.challenge.id).then((finalizeResult) => {
         if (finalizeResult.ok && finalizeResult.status !== 'pending' && finalizeResult.changed) {
           void refresh();

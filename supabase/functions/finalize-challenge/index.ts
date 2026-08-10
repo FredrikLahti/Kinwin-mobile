@@ -1,27 +1,30 @@
 // Authenticated Edge Function: the trusted challenge-finalization endpoint.
-// Nothing persists evaluateChallenge's success/failure verdict back to
-// challenge_status anywhere else — Home only ever detected completion
-// client-side (a known, previously-flagged gap). This function closes it,
-// and is what makes "failure is a first-class social event" true: it is
-// the only place challenge_succeeded/challenge_failed activity is ever
-// generated, and it always re-derives the verdict itself from real
-// persisted state, never from the caller's own claim.
+// Nothing else persists evaluateChallenge's success/failure verdict back
+// to challenge_status — this function is the only place
+// challenge_succeeded/challenge_failed activity is ever generated, and it
+// always re-derives the verdict itself from real persisted state, never
+// from the caller's own claim.
+//
+// Two distinct steps now, matching
+// 20260820000000_challenge_completion_lifecycle.sql's lifecycle split:
+// (1) reconcile_challenge_lifecycle — a purely time-based, idempotent
+// check against the challenge's own real reporting_closes_at timestamps,
+// with no evaluation and no side effects beyond the status transition
+// itself — moves `active` to `awaiting_resolution` once the final
+// reporting window has genuinely closed, and is a no-op otherwise or on
+// repeat; (2) only once a challenge is `awaiting_resolution` does this
+// function go on to actually evaluate it and call
+// public.finalize_challenge_result for the atomic terminal write. A
+// challenge reconciliation finds still genuinely `active` is correctly
+// rejected here as not yet resolvable — this must never charge/fulfill a
+// consequence or generate a social event for a challenge still legitimately
+// in progress.
 //
 // Opportunistic, not scheduled: the client calls this when its own local
 // view model (lib/challenge-ux-preview/view-model.ts's finalResult) first
-// observes a challenge looks done, purely as a trigger to ask the server
-// to check for real. The server re-runs the actual, tested evaluator
-// (domain/challenge/results.ts's evaluateChallenge, reused verbatim here
-// via the byte-identical copy at ../_shared/check-in-engine/results.ts —
-// see that directory's file headers for why a copy exists at all) against
-// freshly loaded periods/events, exactly as fetchActiveChallenge
-// (lib/supabase/active-challenge-repository.ts) reconstructs them for the
-// client, and never trusts anything the request body says about the
-// result. The actual write — status transition plus the idempotent
-// activity insert — is delegated to the trusted
-// public.finalize_challenge_result RPC
-// (supabase/migrations/20260816000000_finalize_challenge_result.sql), same
-// division of labor as append-check-in-event/append_check_in_event.
+// observes a challenge looks done, or once it fetches a challenge already
+// in `awaiting_resolution`, purely as a trigger to ask the server to
+// check for real. See hooks/use-real-active-challenge.ts.
 import { withSupabase } from 'npm:@supabase/server@^1';
 
 import { evaluateChallenge, ChallengeEvaluationInput } from '../_shared/check-in-engine/results.ts';
@@ -115,8 +118,27 @@ export default {
     if (challengeRow.challenge_status === 'completed_success' || challengeRow.challenge_status === 'completed_failure') {
       return Response.json({ status: challengeRow.challenge_status, evaluable: true, alreadyFinalized: true });
     }
-    if (challengeRow.challenge_status !== 'active') {
-      return jsonError(400, 'invalid_state', 'challenge must be active to finalize');
+    if (challengeRow.challenge_status !== 'active' && challengeRow.challenge_status !== 'awaiting_resolution') {
+      return jsonError(400, 'invalid_state', 'challenge is not in a state that can be finalized');
+    }
+
+    let resolvedStatus = challengeRow.challenge_status;
+    if (resolvedStatus === 'active') {
+      const { data: reconciledStatus, error: reconcileError } = await ctx.supabaseAdmin.rpc('reconcile_challenge_lifecycle', {
+        p_challenge_id: challengeId,
+      });
+      if (reconcileError) {
+        console.error('finalize-challenge: reconciliation failed', reconcileError.message);
+        return jsonError(500, 'internal_error');
+      }
+      resolvedStatus = reconciledStatus as string;
+    }
+
+    // Reconciliation is purely time-based (has the final reporting window
+    // closed?) and found this challenge still genuinely in progress —
+    // correctly refuse to evaluate or finalize anything for it.
+    if (resolvedStatus === 'active') {
+      return Response.json({ status: 'pending', evaluable: false, reasons: ['still_in_progress'] });
     }
 
     const [consequenceResult, periodsResult, eventsResult] = await Promise.all([
@@ -153,7 +175,7 @@ export default {
       timezone: challengeRow.timezone,
       startsAt: challengeRow.starts_at,
       plannedEndsAt: challengeRow.planned_ends_at,
-      status: challengeRow.challenge_status,
+      status: resolvedStatus,
     } as unknown as ActivatedChallengeSnapshot;
 
     // deno-lint-ignore no-explicit-any
