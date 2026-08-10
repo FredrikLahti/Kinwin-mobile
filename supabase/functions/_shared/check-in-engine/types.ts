@@ -25,7 +25,8 @@ export type ChallengeStatus =
   | 'completion_mode'
   | 'completed_success'
   | 'completed_failure'
-  | 'canceled_before_activation';
+  | 'canceled_before_activation'
+  | 'superseded';
 
 export type Measurement =
   | { readonly type: 'completion'; readonly unit: 'completion' }

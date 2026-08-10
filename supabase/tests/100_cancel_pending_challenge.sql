@@ -172,7 +172,36 @@ begin
 end;
 $$;
 
--- An active challenge cannot be canceled through this RPC.
+-- An active challenge cannot be canceled through this RPC. A fresh,
+-- dedicated fixture owned by Owner B, not a second active row for Owner
+-- A: challenges_owner_one_active_idx
+-- (20260819000000_challenge_lifecycle_integrity.sql) allows at most one
+-- active challenge per owner, and Owner A's own bbbbbbbb-…0001 no longer
+-- reliably reads as 'active' by this point in the suite --
+-- 060_immutability_and_append_only.sql already moves it through
+-- completion_mode and on to completed_failure earlier in the run.
+reset role;
+set role service_role;
+insert into public.challenges (
+  id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status,
+  timezone, activated_at, starts_at, planned_ends_at, activation_snapshot
+) values (
+  'bbbbbbbb-0000-0000-0000-000000000004', '22222222-2222-2222-2222-222222222222', null, 1, 1, 'active',
+  'Europe/Stockholm', now(), now(), now() + interval '28 days',
+  jsonb_build_object(
+    'schemaVersion', 1, 'id', 'bbbbbbbb-0000-0000-0000-000000000004', 'ownerId', '22222222-2222-2222-2222-222222222222',
+    'ruleEngineVersion', 1, 'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session'),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4), 'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 1),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'), 'consequenceCategory', 'dinner',
+    'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'), 'sitOutAcknowledged', true,
+    'membershipStatusAtActivation', 'trialing'
+  )
+);
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
 select test.assert_fails(
   'active_challenge_cancel_rejected',
   $stmt$select public.cancel_pending_challenge('bbbbbbbb-0000-0000-0000-000000000004')$stmt$,
@@ -186,6 +215,11 @@ begin
   perform test.assert_equals('active_challenge_status_unchanged_after_rejected_cancel', status_val, 'active');
 end;
 $$;
+reset role;
+
+-- Back to Owner A for the rest of this file.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
 -- An unknown challenge id is rejected the same way as one owned by someone else.
 select test.assert_fails(

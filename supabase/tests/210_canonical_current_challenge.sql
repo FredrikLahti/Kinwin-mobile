@@ -1,9 +1,15 @@
 -- Regression coverage for 20260818000000_canonical_current_challenge.sql:
--- reproduces the exact real-world state found on Fredrik's hosted account
--- (multiple stale rows left at challenge_status = 'active' -- a
--- pre-existing activation-lifecycle gap this migration works around, not
--- fixes) and proves get_kin_current_challenges now agrees with what Home
--- itself would show: only the single most-recently-activated row.
+-- reproduces the real-world shape found on Fredrik's hosted account and
+-- proves get_kin_current_challenges agrees with what Home itself would
+-- show: only the single genuinely active row, never a superseded one.
+-- (20260819000000_challenge_lifecycle_integrity.sql, written after this
+-- file, made the ORIGINAL multiple-simultaneously-'active'-rows shape
+-- this file first reproduced impossible to create at all -- enforced by
+-- challenges_owner_one_active_idx -- and reclassified exactly this kind
+-- of stale row as 'superseded' on real hosted data. This file's fixture
+-- was updated to match: two superseded rows plus the one real active
+-- row, which is what the repaired hosted data and any future account
+-- actually look like now.)
 --
 -- NOT machine-verified against a real PostgreSQL server as of this revision
 -- -- see 150_full_activation.sql's header for why, and
@@ -20,15 +26,16 @@ begin
   insert into public.kin_connections (id, requester_id, recipient_id, status)
     values (gen_random_uuid(), 'b1111111-0000-0000-0000-000000000001', 'b1111111-0000-0000-0000-000000000002', 'accepted');
 
-  -- Three stale 'active' rows for X, activated hours apart -- exactly the
-  -- shape found on the real hosted account (nothing ever transitioned the
-  -- earlier ones out of 'active' when a later one was activated).
+  -- Two superseded rows plus the one real active row for X -- the shape
+  -- found on the real hosted account after
+  -- 20260819000000_challenge_lifecycle_integrity.sql's repair (see this
+  -- file's own header comment).
   insert into public.challenges (
     id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status,
     timezone, activated_at, starts_at, planned_ends_at, activation_snapshot
   ) values
     (
-      'b3333333-0000-0000-0000-000000000001', 'b1111111-0000-0000-0000-000000000001', null, 1, 1, 'active',
+      'b3333333-0000-0000-0000-000000000001', 'b1111111-0000-0000-0000-000000000001', null, 1, 1, 'superseded',
       'Europe/Stockholm', now() - interval '3 days', now() - interval '3 days', now() + interval '25 days',
       jsonb_build_object(
         'id', 'b3333333-0000-0000-0000-000000000001', 'ownerId', 'b1111111-0000-0000-0000-000000000001',
@@ -42,7 +49,7 @@ begin
       )
     ),
     (
-      'b3333333-0000-0000-0000-000000000002', 'b1111111-0000-0000-0000-000000000001', null, 1, 1, 'active',
+      'b3333333-0000-0000-0000-000000000002', 'b1111111-0000-0000-0000-000000000001', null, 1, 1, 'superseded',
       'Europe/Stockholm', now() - interval '2 days', now() - interval '2 days', now() + interval '26 days',
       jsonb_build_object(
         'id', 'b3333333-0000-0000-0000-000000000002', 'ownerId', 'b1111111-0000-0000-0000-000000000001',
@@ -96,9 +103,9 @@ end;
 $$;
 
 -- The two stale rows never appear, individually, as "current" to anyone.
-select test.assert_equals('stale_active_row_one_never_appears_as_current',
+select test.assert_equals('superseded_row_one_never_appears_as_current',
   (select count(*) from public.get_kin_current_challenges() where challenge_id = 'b3333333-0000-0000-0000-000000000001'), 0::bigint);
-select test.assert_equals('stale_active_row_two_never_appears_as_current',
+select test.assert_equals('superseded_row_two_never_appears_as_current',
   (select count(*) from public.get_kin_current_challenges() where challenge_id = 'b3333333-0000-0000-0000-000000000002'), 0::bigint);
 reset role;
 
