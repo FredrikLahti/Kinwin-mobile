@@ -100,7 +100,7 @@ async function seedEndedBuildChallenge(withCompletion: boolean) {
 async function invokeWorker(key: string) {
   return fetch(`${url}/functions/v1/scheduled-finalize-challenges`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${key}`, apikey: key, 'content-type': 'application/json' },
+    headers: { apikey: key, 'content-type': 'application/json' },
     body: JSON.stringify({ source: 'e2e' }),
   });
 }

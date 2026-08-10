@@ -4,7 +4,7 @@ Migration `20260821000000_server_scheduled_challenge_completion.sql` removes app
 
 ## Architecture
 
-Supabase Cron (`pg_cron`) runs `kinwin-challenge-completion` every 15 minutes. The job uses `pg_net` to POST to the dedicated `scheduled-finalize-challenges` Edge Function. Its service-role token is read from Supabase Vault at execution time; no token is stored in git or in the cron command itself.
+Supabase Cron (`pg_cron`) runs `kinwin-challenge-completion` every 15 minutes. The job uses `pg_net` to POST to the dedicated `scheduled-finalize-challenges` Edge Function. Its named secret API key is read from Supabase Vault at execution time; no key is stored in git or in the cron command itself.
 
 The worker:
 
@@ -21,7 +21,7 @@ Fifteen minutes keeps completion timely without imposing minute-level polling lo
 
 ## Security and idempotency
 
-`scheduled-finalize-challenges` is not a user endpoint. The Edge gateway verifies its JWT and the function additionally requires the exact injected service-role token. Worker RPCs are `SECURITY DEFINER`, have fixed empty `search_path`, and explicitly revoke execution from `PUBLIC`, `anon`, and `authenticated`; only `service_role` may execute them.
+`scheduled-finalize-challenges` is not a user endpoint. It uses Supabase's service-to-service contract: `verify_jwt = false`, a named `sb_secret_…` key in the `apikey` header, and `@supabase/server` with `auth: 'secret:default'`. This is not public access and is not a user JWT. Worker RPCs are `SECURITY DEFINER`, have fixed empty `search_path`, and explicitly revoke execution from `PUBLIC`, `anon`, and `authenticated`; only the worker's admin client (`service_role`) may execute them.
 
 Database row locks, terminal-state guards, the unresolved-challenge invariant, the worker lease, and `social_activity(owner_id, dedupe_key)` together make retries and client/worker races harmless. A completed success cannot later become failure, and vice versa.
 
@@ -43,7 +43,7 @@ This worker only determines and persists challenge truth. It does not update con
 The repository migration installs `pg_cron` and `pg_net` when available and creates the job reproducibly with `cron.schedule`. Before the first dispatch, hosted Vault must contain:
 
 - `kinwin_project_url`
-- `kinwin_cron_service_role_key`
+- `kinwin_cron_secret_key`
 
 Create or rotate these through supported Supabase tooling without printing or committing the decrypted values. Deploy the Edge Function before enabling the schedule. Verify extension versions, Vault secret names, the active `cron.job` row, `cron.job_run_details`, worker run history, and all function grants after deployment.
 

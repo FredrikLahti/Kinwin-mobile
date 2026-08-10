@@ -51,11 +51,10 @@ verify_jwt = false
 [functions.append-check-in-event]
 verify_jwt = true
 
-# Invoked only by Supabase Cron with the service-role token held in Vault.
-# The function also compares the presented token with its own injected
-# SUPABASE_SERVICE_ROLE_KEY before doing any work.
+# Invoked only by Supabase Cron with the named `default` secret API key held
+# in Vault. @supabase/server validates the `apikey` using auth: 'secret:default'.
 [functions.scheduled-finalize-challenges]
-verify_jwt = true
+verify_jwt = false
 
 [analytics]
 enabled = false
