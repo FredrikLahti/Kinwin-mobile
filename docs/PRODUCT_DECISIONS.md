@@ -110,6 +110,12 @@
   charging, final activation, check-ins, and Tremendous fulfillment remain deliberately
   out of scope for this package.
 
+## Server-scheduled challenge completion
+
+* Challenge outcome must not depend on the owner opening Kinwin. Supabase Cron invokes a dedicated service-only worker every 15 minutes; it uses persisted server-generated reporting deadlines, reconciles `active`/`completion_mode` to `awaiting_resolution`, and runs the same deterministic evaluator and atomic terminal write as the authenticated fast-path.
+* Challenge outcome (`completed_success` or `completed_failure`) is separate from consequence fulfillment. Scheduled completion never charges Stripe, creates a charge attempt, or starts Tremendous fulfillment.
+* The authenticated app trigger remains as defense in depth and for faster convergence, but server scheduling is authoritative for eventual completion. See `docs/SCHEDULED_CHALLENGE_COMPLETION.md` and migration `20260821000000_server_scheduled_challenge_completion.sql`.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”
