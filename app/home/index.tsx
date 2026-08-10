@@ -17,7 +17,11 @@ import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
-import { ActivityItem, fetchKinActivity } from '@/lib/supabase/kin-repository';
+import { ActivityItem, fetchKinActivity, fetchKinCurrentChallenges, KinCurrentChallenge } from '@/lib/supabase/kin-repository';
+
+type KinHomeItem =
+  | { readonly kind: 'event'; readonly key: string; readonly item: ActivityItem }
+  | { readonly kind: 'current'; readonly key: string; readonly item: KinCurrentChallenge };
 
 const HERO_STATUS_TONE_STYLE = StyleSheet.create({
   neutral: { color: theme.colors.ivoryMuted },
@@ -44,6 +48,7 @@ export default function HomeV2() {
   const [startOverSheetOpen, setStartOverSheetOpen] = useState(false);
   const [startingOver, setStartingOver] = useState(false);
   const [kinActivity, setKinActivity] = useState<readonly ActivityItem[]>([]);
+  const [kinCurrentChallenges, setKinCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
 
@@ -62,11 +67,15 @@ export default function HomeV2() {
   // there is nothing to show, the whole section is simply absent (see
   // docs/PRODUCT_DECISIONS.md's Home hierarchy note): never a giant empty
   // "your Kin's activity will appear here" block competing with the user's
-  // own challenge for attention.
+  // own challenge for attention. Also fetches current Kin state (what a
+  // Kin is doing right now, not just recent events) so a Kin who already
+  // had an active challenge before the relationship existed still shows
+  // up here — see get_kin_current_challenges' own migration comment.
   const loadKinActivity = useCallback(async () => {
-    if (!user) { setKinActivity([]); return; }
-    const result = await fetchKinActivity(user.id, 3);
-    setKinActivity(result.ok ? result.items : []);
+    if (!user) { setKinActivity([]); setKinCurrentChallenges([]); return; }
+    const [activityResult, currentResult] = await Promise.all([fetchKinActivity(user.id, 3), fetchKinCurrentChallenges(user.id)]);
+    setKinActivity(activityResult.ok ? activityResult.items : []);
+    setKinCurrentChallenges(currentResult.ok ? currentResult.challenges : []);
   }, [user]);
 
   useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
@@ -125,6 +134,19 @@ export default function HomeV2() {
   const isUpcoming = real.status === 'ready' && real.view.currentPeriodStatus.kind === 'upcoming';
   const isComplete = real.status === 'ready' && real.view.finalResult !== null;
   const identity = real.status === 'ready' ? describeChallengeIdentity(real.data.challenge) : null;
+
+  // Recent real events first; only fill remaining slots with current Kin
+  // state for a challenge no fetched event already covers, so the same
+  // challenge is never shown twice. Never fabricates an event — a
+  // current-state item always renders as present-tense state, not as if
+  // something just happened.
+  const eventChallengeIds = new Set(kinActivity.map((item) => item.challengeId).filter((id): id is string => id !== null));
+  const kinHomeItems: readonly KinHomeItem[] = [
+    ...kinActivity.map((item): KinHomeItem => ({ kind: 'event', key: item.id, item })),
+    ...kinCurrentChallenges
+      .filter((c) => !eventChallengeIds.has(c.challengeId))
+      .map((item): KinHomeItem => ({ kind: 'current', key: item.challengeId, item })),
+  ].slice(0, 3);
 
   const openCheckIn = () => {
     void playSelectionHaptic();
@@ -229,7 +251,7 @@ export default function HomeV2() {
             </View>
           )}
 
-          {kinActivity.length > 0 && (
+          {kinHomeItems.length > 0 && (
             <View style={styles.section}>
               <View style={styles.kinSectionHeader}>
                 <Text style={styles.sectionLabel}>FROM YOUR KIN</Text>
@@ -238,12 +260,16 @@ export default function HomeV2() {
                 </Pressable>
               </View>
               <View style={styles.rowGroup}>
-                {kinActivity.map((item) => (
-                  <View key={item.id} style={styles.kinRow}>
+                {kinHomeItems.map((entry) => (
+                  <View key={entry.key} style={styles.kinRow}>
                     <AvatarV2 size={32} />
                     <View style={styles.kinRowCopy}>
-                      <Text numberOfLines={1} style={styles.kinRowName}>{item.ownerDisplayName}</Text>
-                      <Text numberOfLines={1} style={styles.kinRowEvent}>{describeActivityEvent(item)}</Text>
+                      <Text numberOfLines={1} style={styles.kinRowName}>{entry.item.ownerDisplayName}</Text>
+                      <Text numberOfLines={1} style={styles.kinRowEvent}>
+                        {entry.kind === 'event'
+                          ? describeActivityEvent(entry.item)
+                          : `Currently doing ${describeChallengeIdentity({ behavior: entry.item.behavior }).headline}`}
+                      </Text>
                     </View>
                   </View>
                 ))}

@@ -99,6 +99,66 @@ export async function redeemKinCode(code: string): Promise<RedeemKinCodeResult> 
   return { ok: false, kind: 'unknown', message: 'The server did not confirm the request.' };
 }
 
+export type KinSearchConnectionStatus = 'none' | 'pending' | 'accepted' | 'blocked';
+
+export type KinSearchResult = {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly connectionStatus: KinSearchConnectionStatus;
+  readonly connectionDirection: 'incoming' | 'outgoing' | null;
+  readonly connectionId: string | null;
+};
+
+export type SearchKinResult =
+  | { readonly ok: true; readonly results: readonly KinSearchResult[] }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'rejected'; readonly message?: string }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * The primary Add-Kin flow: person lookup by display name (prefix) or
+ * exact email, via the server-authorized search_kin_candidates RPC (see
+ * supabase/migrations/20260817000000_kin_search_and_current_state.sql —
+ * exact email match only, never partial, and no email value is ever
+ * returned). Not a directory: results are small and carry only what's
+ * needed to identify someone and choose an action.
+ */
+export async function searchKin(query: string): Promise<SearchKinResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { data, error } = await supabase.rpc('search_kin_candidates', { p_query: query });
+  if (error) return { ok: false, kind: 'rejected', message: error.message };
+
+  const rows = (data ?? []) as readonly {
+    id: string;
+    display_name: string | null;
+    connection_status: string;
+    connection_direction: string | null;
+    connection_id: string | null;
+  }[];
+  const results: readonly KinSearchResult[] = rows.map((row) => ({
+    userId: row.id,
+    displayName: row.display_name ?? 'Kinwin user',
+    connectionStatus: row.connection_status as KinSearchConnectionStatus,
+    connectionDirection: row.connection_direction as 'incoming' | 'outgoing' | null,
+    connectionId: row.connection_id,
+  }));
+  return { ok: true, results };
+}
+
+/** Sends a Kin request directly to a known user id — the counterpart to redeemKinCode used by the search-based Add Kin flow. */
+export async function sendKinRequest(userId: string): Promise<RedeemKinCodeResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { data, error } = await supabase.rpc('send_kin_request', { p_user_id: userId });
+  if (error) return { ok: false, kind: 'rejected', message: error.message };
+
+  const result = data as { status?: string } | null;
+  if (result?.status === 'requested' || result?.status === 'already_pending' || result?.status === 'already_kin') {
+    return { ok: true, status: result.status };
+  }
+  return { ok: false, kind: 'unknown', message: 'The server did not confirm the request.' };
+}
+
 export type KinActionResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly kind: 'not_configured' | 'rejected'; readonly message?: string }
@@ -126,6 +186,8 @@ export type ActivityItem = {
   readonly id: string;
   readonly ownerId: string;
   readonly ownerDisplayName: string;
+  /** Null only for legacy rows predating this column; used to dedupe against get_kin_current_challenges (see fetchKinCurrentChallenges). */
+  readonly challengeId: string | null;
   readonly kind: ActivityKind;
   readonly behavior: ActivityBehaviorPayload;
   readonly duration: ActivityDurationPayload | null;
@@ -159,7 +221,7 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
 
   const { data: rows, error } = await supabase
     .from('social_activity')
-    .select('id, owner_id, kind, payload, created_at')
+    .select('id, owner_id, challenge_id, kind, payload, created_at')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) return { ok: false, ...classifyError(error) };
@@ -196,6 +258,7 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
       id: row.id,
       ownerId: row.owner_id,
       ownerDisplayName: nameById.get(row.owner_id) ?? 'Your Kin',
+      challengeId: row.challenge_id,
       kind: row.kind as ActivityKind,
       behavior: payload.behavior as ActivityBehaviorPayload,
       duration: (payload.duration as ActivityDurationPayload | undefined) ?? null,
@@ -212,6 +275,64 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
     };
   });
   return { ok: true, items };
+}
+
+export type KinCurrentChallenge = {
+  readonly ownerId: string;
+  readonly ownerDisplayName: string;
+  readonly challengeId: string;
+  readonly behavior: ActivityBehaviorPayload;
+  readonly duration: ActivityDurationPayload | null;
+  readonly startsAt: string;
+  readonly plannedEndsAt: string;
+};
+
+export type FetchKinCurrentChallengesResult =
+  | { readonly ok: true; readonly challenges: readonly KinCurrentChallenge[] }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * CURRENT Kin state — "what is my Kin doing right now" — never a social
+ * event. Answers the physical-test bug where a newly accepted Kin's
+ * partner already had an active challenge and no `challenge_started`
+ * event existed for it (that event only fires at the moment of
+ * activation — see get_kin_current_challenges' own migration comment for
+ * the full architecture rationale). Callers should dedupe against
+ * fetchKinActivity's results by challengeId before rendering both, so an
+ * already-surfaced event isn't redundantly repeated as "current" too.
+ */
+export async function fetchKinCurrentChallenges(userId: string): Promise<FetchKinCurrentChallengesResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (!userId) return { ok: false, kind: 'not_authenticated' };
+
+  const { data: rows, error } = await supabase.rpc('get_kin_current_challenges');
+  if (error) return { ok: false, ...classifyError(error) };
+  if (!rows || rows.length === 0) return { ok: true, challenges: [] };
+
+  const typedRows = rows as readonly {
+    owner_id: string;
+    challenge_id: string;
+    behavior: ActivityBehaviorPayload;
+    duration: ActivityDurationPayload | null;
+    starts_at: string;
+    planned_ends_at: string;
+  }[];
+  const ownerIds = Array.from(new Set(typedRows.map((row) => row.owner_id)));
+  const { data: profileRows, error: profileError } = await supabase.from('profiles').select('id, display_name').in('id', ownerIds);
+  if (profileError) return { ok: false, ...classifyError(profileError) };
+
+  const nameById = new Map((profileRows ?? []).map((profile) => [profile.id, profile.display_name as string | null]));
+  const challenges: readonly KinCurrentChallenge[] = typedRows.map((row) => ({
+    ownerId: row.owner_id,
+    ownerDisplayName: nameById.get(row.owner_id) ?? 'Your Kin',
+    challengeId: row.challenge_id,
+    behavior: row.behavior,
+    duration: row.duration,
+    startsAt: row.starts_at,
+    plannedEndsAt: row.planned_ends_at,
+  }));
+  return { ok: true, challenges };
 }
 
 export const REACTION_KINDS = ['respect', 'nice', 'worth_it', 'ouch', 'brutal'] as const;
