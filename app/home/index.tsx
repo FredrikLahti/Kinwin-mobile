@@ -1,7 +1,7 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
@@ -115,16 +115,10 @@ export default function HomeV2() {
     router.push('/create/intro' as Href);
   };
 
-  const shareActiveChallenge = async () => {
+  const openRecipientInvites = () => {
     if (real.status !== 'ready') return;
     void playSelectionHaptic();
-    const { challenge } = real.data;
-    const identity = describeChallengeIdentity(challenge);
-    const recipientNames = challenge.recipients.map((recipient) => recipient.name).join(', ') || 'them';
-    const message =
-      `Hi! I am keeping a Kinwin challenge: ${identity.headline}.\n\n` +
-      `If I don't keep it, ${recipientNames} could receive a reward funded by my stake. I will not take part.`;
-    await Share.share({ message });
+    router.push('/home/challenge' as Href);
   };
 
   const onRealCheckInSubmitted = useCallback(() => {
@@ -238,8 +232,8 @@ export default function HomeV2() {
                   <Pressable accessibilityHint="Opens the full challenge detail" accessibilityRole="button" hitSlop={6} onPress={openDetail} style={styles.heroLink}>
                     <Text style={styles.heroLinkText}>View details</Text>
                   </Pressable>
-                  <Pressable accessibilityHint="Opens your phone's share sheet with your invitation again" accessibilityRole="button" hitSlop={6} onPress={() => void shareActiveChallenge()} style={styles.heroLink}>
-                    <Text style={styles.heroLinkText}>Share invite again</Text>
+                  <Pressable accessibilityHint="Opens recipient invitation status and sharing" accessibilityRole="button" hitSlop={6} onPress={openRecipientInvites} style={styles.heroLink}>
+                    <Text style={styles.heroLinkText}>Recipient invites</Text>
                   </Pressable>
                 </View>
               </View>

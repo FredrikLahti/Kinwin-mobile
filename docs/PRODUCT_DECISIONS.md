@@ -128,6 +128,18 @@
 * Successful payment stops at `reward_fulfillment_pending`. Tremendous and reward truth
   remain a separate future package. See `docs/STRIPE_FAILURE_CHARGING.md`.
 
+## Recipient invitation access
+
+* Each locked challenge recipient has a separate, private invitation lifecycle. The
+  owner shares the link themselves and Kinwin sends no unsolicited email or SMS.
+* A 256-bit bearer token provides beta recipient access without collecting email or
+  phone number. Only its SHA-256 hash is stored. Sharing again rotates the link.
+* The recipient projection contains only the inviter name, their own name, challenge
+  goal and behavior, consequence category, sit-out promise, and invitation status.
+* Accepting or declining never gates activation, changes challenge or payment truth, or
+  creates a Kin relationship. The same accepted link remains usable for future scoped
+  reward delivery. See `docs/RECIPIENT_INVITATION_ACCESS.md`.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”

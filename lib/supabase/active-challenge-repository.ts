@@ -92,12 +92,14 @@ export async function fetchActiveChallenge(userId: string): Promise<FetchActiveC
   if (challengeError) return { ok: false, ...classifyError(challengeError) };
   if (!challengeRow || !challengeRow.activation_snapshot) return { ok: true, data: null };
 
-  const [consequenceResult, periodsResult, eventsResult] = await Promise.all([
+  const [consequenceResult, recipientsResult, periodsResult, eventsResult] = await Promise.all([
     supabase.from('consequences').select('id').eq('challenge_id', challengeRow.id).maybeSingle(),
+    supabase.from('challenge_recipients').select('id, display_name, sort_order').eq('challenge_id', challengeRow.id).order('sort_order'),
     supabase.from('challenge_periods').select('*').eq('challenge_id', challengeRow.id).order('period_number', { ascending: true }),
     supabase.from('check_in_events').select('*').eq('challenge_id', challengeRow.id),
   ]);
   if (consequenceResult.error) return { ok: false, ...classifyError(consequenceResult.error) };
+  if (recipientsResult.error) return { ok: false, ...classifyError(recipientsResult.error) };
   if (periodsResult.error) return { ok: false, ...classifyError(periodsResult.error) };
   if (eventsResult.error) return { ok: false, ...classifyError(eventsResult.error) };
   if (!consequenceResult.data) {
@@ -105,9 +107,7 @@ export async function fetchActiveChallenge(userId: string): Promise<FetchActiveC
   }
 
   const snapshotJson = challengeRow.activation_snapshot as Record<string, unknown>;
-  const recipients = (snapshotJson.recipients as readonly { id: string; name: string }[] | undefined ?? []).map(
-    (recipient) => ({ id: recipient.id, name: recipient.name, invitationId: null }),
-  );
+  const recipients = (recipientsResult.data ?? []).map((recipient) => ({ id: recipient.id, name: recipient.display_name, invitationId: null }));
 
   const challenge = {
     ...snapshotJson,
