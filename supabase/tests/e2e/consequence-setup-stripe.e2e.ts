@@ -235,10 +235,17 @@ test('stripe-consequence-webhook: signature verification over real HTTP', async 
   );
 
   await t.test('an event type this system does not act on is acknowledged without error', async () => {
-    const payload = { id: `evt_${randomUUID()}`, type: 'payment_intent.succeeded', data: { object: { id: 'pi_fake' } } };
+    const payload = { id: `evt_${randomUUID()}`, type: 'customer.created', data: { object: { id: 'cus_fake' } } };
     const validSignature = signStripeWebhookPayload(JSON.stringify(payload), STRIPE_WEBHOOK_SIGNING_SECRET as string);
     const response = await postWebhook(payload, validSignature);
     assert.equal(response.status, 200);
+  });
+
+  await t.test('a handled PaymentIntent event enters the provider retrieval path instead of being ignored', async () => {
+    const payload = { id: `evt_${randomUUID()}`, type: 'payment_intent.succeeded', data: { object: { id: 'pi_fake' } } };
+    const validSignature = signStripeWebhookPayload(JSON.stringify(payload), STRIPE_WEBHOOK_SIGNING_SECRET as string);
+    const response = await postWebhook(payload, validSignature);
+    assert.equal(response.status, 502);
   });
 });
 

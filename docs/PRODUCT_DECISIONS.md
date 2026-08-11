@@ -116,6 +116,18 @@
 * Challenge outcome (`completed_success` or `completed_failure`) is separate from consequence fulfillment. Scheduled completion never charges Stripe, creates a charge attempt, or starts Tremendous fulfillment.
 * The authenticated app trigger remains as defense in depth and for faster convergence, but server scheduling is authoritative for eventual completion. See `docs/SCHEDULED_CHALLENGE_COMPLETION.md` and migration `20260821000000_server_scheduled_challenge_completion.sql`.
 
+## Server-side Stripe failure charging
+
+* Only a persisted `completed_failure` creates one durable payment obligation. The
+  separately scheduled payment worker derives the owner, locked stake amount/currency,
+  Stripe Customer, and saved PaymentMethod from trusted server rows; no client supplies
+  financial inputs.
+* One PaymentIntent is retained for the obligation. A verified Stripe webhook is the
+  only authority that marks it paid; challenge truth remains `completed_failure` through
+  declines, authentication, card replacement, retries, and eventual payment.
+* Successful payment stops at `reward_fulfillment_pending`. Tremendous and reward truth
+  remain a separate future package. See `docs/STRIPE_FAILURE_CHARGING.md`.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”

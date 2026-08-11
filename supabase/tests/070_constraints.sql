@@ -104,28 +104,24 @@ select test.assert_fails(
 
 select test.assert_fails(
   'charge_attempt_non_positive_amount_denied',
-  $stmt$insert into private.consequence_charge_attempts (id, consequence_id, idempotency_key, attempt_number, status, amount_minor_units, currency, requested_at)
-    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', 'idem-bad-amount', 2, 'pending', 0, 'USD', now())$stmt$,
+  $stmt$insert into private.consequence_charge_attempts (id, consequence_id, owner_id, idempotency_key, attempt_number, status, amount_minor_units, currency, stripe_customer_id, stripe_payment_method_id, requested_at)
+    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'idem-bad-amount', 2, 'pending', 0, 'USD', 'cus_test123', 'pm_test123', now())$stmt$,
   '23514'
 );
 
 select test.assert_fails(
   'charge_attempt_duplicate_idempotency_key_denied',
-  $stmt$insert into private.consequence_charge_attempts (id, consequence_id, idempotency_key, attempt_number, status, amount_minor_units, currency, requested_at)
-    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', 'idem-1', 2, 'pending', 7500, 'USD', now())$stmt$,
+  $stmt$insert into private.consequence_charge_attempts (id, consequence_id, owner_id, idempotency_key, attempt_number, status, amount_minor_units, currency, stripe_customer_id, stripe_payment_method_id, requested_at)
+    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'idem-1', 2, 'pending', 7500, 'USD', 'cus_test123', 'pm_test123', now())$stmt$,
   '23505'
 );
 
-do $$
-declare
-  attempt_count bigint;
-begin
-  insert into private.consequence_charge_attempts (id, consequence_id, idempotency_key, attempt_number, status, amount_minor_units, currency, requested_at)
-    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', 'idem-2', 2, 'pending', 7500, 'USD', now());
-  select count(*) into attempt_count from private.consequence_charge_attempts where consequence_id = 'ffffffff-0000-0000-0000-000000000001';
-  perform test.assert_equals('valid_second_charge_attempt', attempt_count, 2::bigint);
-end;
-$$;
+select test.assert_fails(
+  'second_payment_obligation_for_same_consequence_denied',
+  $stmt$insert into private.consequence_charge_attempts (id, consequence_id, owner_id, idempotency_key, attempt_number, status, amount_minor_units, currency, stripe_customer_id, stripe_payment_method_id, requested_at)
+    values (gen_random_uuid(), 'ffffffff-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'idem-2', 2, 'pending', 7500, 'USD', 'cus_test123', 'pm_test123', now())$stmt$,
+  '23505'
+);
 
 select test.assert_fails(
   'fulfillment_delivered_without_timestamp_denied',

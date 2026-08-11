@@ -88,11 +88,17 @@ insert into public.invitations (id, challenge_id, owner_id, recipient_id, invita
 insert into public.memberships (id, owner_id, membership_status, access_mode, trial_ends_at) values
   ('22222222-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'trialing', 'full', now() + interval '7 days');
 
-insert into private.consequence_provider_references (consequence_id, payment_provider, customer_reference) values
-  ('ffffffff-0000-0000-0000-000000000001', 'stripe', 'cus_test123');
+insert into private.consequence_provider_references (consequence_id, payment_provider, customer_reference, payment_method_reference) values
+  ('ffffffff-0000-0000-0000-000000000001', 'stripe', 'cus_test123', 'pm_test123');
 
-insert into private.consequence_charge_attempts (id, consequence_id, idempotency_key, attempt_number, status, amount_minor_units, currency, requested_at) values
-  ('33333333-0000-0000-0000-000000000003', 'ffffffff-0000-0000-0000-000000000001', 'idem-1', 1, 'succeeded', 7500, 'USD', now());
+insert into private.consequence_charge_attempts (
+  id, consequence_id, owner_id, idempotency_key, attempt_number, status,
+  amount_minor_units, currency, stripe_customer_id, stripe_payment_method_id, requested_at
+) values (
+  '33333333-0000-0000-0000-000000000003', 'ffffffff-0000-0000-0000-000000000001',
+  '11111111-1111-1111-1111-111111111111', 'idem-1', 1, 'succeeded',
+  7500, 'USD', 'cus_test123', 'pm_test123', now()
+);
 
 insert into private.reward_fulfillments (id, consequence_id, fulfillment_provider, status, amount_minor_units, currency, requested_at) values
   ('44444444-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000001', 'tremendous', 'pending', 7500, 'USD', now());
