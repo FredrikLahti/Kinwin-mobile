@@ -1,4 +1,7 @@
 -- Durable, scoped recipient access. Raw bearer tokens are never persisted.
+-- Hosted Supabase already provides the extensions schema; the plain Postgres
+-- assertion harness does not, so keep this migration portable across both.
+create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
 
 alter table public.invitations
