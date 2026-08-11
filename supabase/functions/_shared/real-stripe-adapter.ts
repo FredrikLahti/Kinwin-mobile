@@ -11,7 +11,7 @@
 // turning that same `StripeAdapter` interface into real Stripe API calls.
 import Stripe from 'npm:stripe@^22';
 
-import type { StripeAdapter, StripeCustomer, StripeSetupIntent } from './consequence-setup/types.ts';
+import type { StripeAdapter, StripeCustomer, StripePaymentIntent, StripeSetupIntent } from './consequence-setup/types.ts';
 
 export function createRealStripeAdapter(secretKey: string): StripeAdapter {
   const stripe = new Stripe(secretKey);
@@ -40,6 +40,30 @@ export function createRealStripeAdapter(secretKey: string): StripeAdapter {
       const customerId = typeof intent.customer === 'string' ? intent.customer : (intent.customer?.id ?? '');
       return toStripeSetupIntent(intent, customerId);
     },
+    async createPaymentIntent({ customerId, paymentMethodId, amount, currency, idempotencyKey, metadata }): Promise<StripePaymentIntent> {
+      const intent = await stripe.paymentIntents.create({
+        amount, currency, customer: customerId, payment_method: paymentMethodId,
+        confirm: true, off_session: true, payment_method_types: ['card'], metadata,
+      }, { idempotencyKey });
+      return toStripePaymentIntent(intent);
+    },
+    async confirmPaymentIntent(id, { paymentMethodId }): Promise<StripePaymentIntent> {
+      return toStripePaymentIntent(await stripe.paymentIntents.confirm(id, { payment_method: paymentMethodId, off_session: true }));
+    },
+    async retrievePaymentIntent(id): Promise<StripePaymentIntent> {
+      return toStripePaymentIntent(await stripe.paymentIntents.retrieve(id));
+    },
+  };
+}
+
+function toStripePaymentIntent(intent: Stripe.PaymentIntent): StripePaymentIntent {
+  return {
+    id: intent.id,
+    status: intent.status,
+    customerId: typeof intent.customer === 'string' ? intent.customer : (intent.customer?.id ?? ''),
+    paymentMethodId: typeof intent.payment_method === 'string' ? intent.payment_method : (intent.payment_method?.id ?? null),
+    lastErrorType: intent.last_payment_error?.type ?? null,
+    lastErrorCode: intent.last_payment_error?.code ?? null,
   };
 }
 

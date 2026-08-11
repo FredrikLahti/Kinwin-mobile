@@ -18,6 +18,15 @@ export type StripeSetupIntent = {
   readonly paymentMethodId: string | null;
 };
 
+export type StripePaymentIntent = {
+  readonly id: string;
+  readonly status: string;
+  readonly customerId: string;
+  readonly paymentMethodId: string | null;
+  readonly lastErrorType: string | null;
+  readonly lastErrorCode: string | null;
+};
+
 /** Injectable Stripe boundary. The real implementation wraps `npm:stripe`; tests use an in-memory fake. */
 export interface StripeAdapter {
   createCustomer(params: { readonly idempotencyKey: string; readonly metadata: Readonly<Record<string, string>> }): Promise<StripeCustomer>;
@@ -31,6 +40,19 @@ export interface StripeAdapter {
     readonly usage: 'off_session';
   }): Promise<StripeSetupIntent>;
   retrieveSetupIntent(id: string): Promise<StripeSetupIntent>;
+}
+
+export interface StripePaymentAdapter extends StripeAdapter {
+  createPaymentIntent(params: {
+    readonly customerId: string;
+    readonly paymentMethodId: string;
+    readonly amount: number;
+    readonly currency: string;
+    readonly idempotencyKey: string;
+    readonly metadata: Readonly<Record<string, string>>;
+  }): Promise<StripePaymentIntent>;
+  confirmPaymentIntent(id: string, params: { readonly paymentMethodId: string }): Promise<StripePaymentIntent>;
+  retrievePaymentIntent(id: string): Promise<StripePaymentIntent>;
 }
 
 /** Shape returned by `private.prepare_consequence_setup`. */

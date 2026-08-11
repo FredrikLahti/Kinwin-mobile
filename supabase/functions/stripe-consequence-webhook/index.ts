@@ -18,6 +18,7 @@ import { withSupabase } from 'npm:@supabase/server@^1';
 import { isHandledSetupIntentEventType, planWebhookApplication } from '../_shared/consequence-setup/webhook-flow.ts';
 import { StripeSetupIntent } from '../_shared/consequence-setup/types.ts';
 import { createRealStripeAdapter } from '../_shared/real-stripe-adapter.ts';
+import { planPaymentWebhook } from '../_shared/consequence-payment/payment-flow.ts';
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');
 const STRIPE_WEBHOOK_SIGNING_SECRET = Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRET');
@@ -57,7 +58,8 @@ export default {
       return new Response('invalid signature', { status: 400 });
     }
 
-    if (!isHandledSetupIntentEventType(event.type)) {
+    const isPaymentEvent = ['payment_intent.succeeded', 'payment_intent.processing', 'payment_intent.payment_failed'].includes(event.type);
+    if (!isHandledSetupIntentEventType(event.type) && !isPaymentEvent) {
       // Checked before anything Stripe-related below: an unrelated event
       // type's object id is not a SetupIntent id at all (e.g. a
       // `payment_intent.succeeded` event's id is a PaymentIntent id), so
@@ -73,6 +75,20 @@ export default {
     }
 
     const adapter = createRealStripeAdapter(STRIPE_SECRET_KEY);
+    if (isPaymentEvent) {
+      try {
+        const intent = await adapter.retrievePaymentIntent(objectId);
+        const application = planPaymentWebhook(event, intent);
+        if (!application) return Response.json({ received: true });
+        const { error } = await ctx.supabaseAdmin.rpc('apply_consequence_payment_event', {
+          p_stripe_event_id: application.stripeEventId, p_event_type: application.eventType,
+          p_stripe_payment_intent_id: application.stripePaymentIntentId, p_stripe_customer_id: application.stripeCustomerId,
+          p_status: application.status, p_failure_category: application.category,
+        });
+        if (error) { console.error('stripe-consequence-webhook: payment event persistence failed', error.code); return new Response('internal error',{status:500}); }
+        return Response.json({ received:true });
+      } catch { console.error('stripe-consequence-webhook: failed to retrieve PaymentIntent'); return new Response('failed to retrieve payment intent',{status:502}); }
+    }
     let setupIntent: StripeSetupIntent;
     try {
       // Re-retrieved from Stripe rather than trusted wholesale from the
@@ -105,6 +121,15 @@ export default {
       console.error('stripe-consequence-webhook: apply_consequence_setup_event failed', error.code, error.message);
       // An unexpected server-side failure: ask Stripe to retry.
       return new Response('internal error', { status: 500 });
+    }
+
+    if (application.status === 'succeeded') {
+      const { error: recoveryError } = await ctx.supabaseAdmin.rpc('apply_consequence_recovery_setup_event', {
+        p_stripe_setup_intent_id: application.stripeSetupIntentId,
+        p_stripe_customer_id: application.stripeCustomerId,
+        p_stripe_payment_method_id: application.stripePaymentMethodId,
+      });
+      if (recoveryError) { console.error('stripe-consequence-webhook: recovery setup persistence failed', recoveryError.code); return new Response('internal error',{status:500}); }
     }
 
     // Every other outcome the RPC can report (duplicate_event,

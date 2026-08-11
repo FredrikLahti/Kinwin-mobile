@@ -56,6 +56,9 @@ verify_jwt = true
 [functions.scheduled-finalize-challenges]
 verify_jwt = false
 
+[functions.scheduled-charge-failed-consequences]
+verify_jwt = false
+
 [analytics]
 enabled = false
 

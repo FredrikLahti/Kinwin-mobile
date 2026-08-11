@@ -83,11 +83,15 @@ export default {
       p_challenge_id: challengeId,
       p_consequence_id: consequenceId,
     });
-    if (preparationError) {
-      return rpcErrorResponse(preparationError);
-    }
+    let isRecovery = false;
+    let resolvedPreparationData = preparationData;
+    if (preparationError?.code === '22023' && challengeId) {
+      const recovery = await ctx.supabaseAdmin.rpc('prepare_consequence_recovery_setup', { p_owner_id: ownerId, p_challenge_id: challengeId });
+      if (!recovery.error) { isRecovery = true; resolvedPreparationData = recovery.data; }
+      else return rpcErrorResponse(recovery.error);
+    } else if (preparationError) return rpcErrorResponse(preparationError);
 
-    const preparation = preparationData as SetupPreparation;
+    const preparation = resolvedPreparationData as SetupPreparation;
     const adapter = createRealStripeAdapter(STRIPE_SECRET_KEY);
 
     let result: Awaited<ReturnType<typeof runCreateSetupIntent>>;
@@ -107,7 +111,7 @@ export default {
     // call that originally created it — recording it again here would only
     // duplicate work, not state, but is unnecessary.
     if (!result.reused) {
-      const { error: recordError } = await ctx.supabaseAdmin.rpc('record_consequence_setup_attempt', {
+      const { error: recordError } = await ctx.supabaseAdmin.rpc(isRecovery ? 'record_consequence_recovery_setup_attempt' : 'record_consequence_setup_attempt', {
         p_owner_id: ownerId,
         p_challenge_id: preparation.challengeId,
         p_stripe_customer_id: result.stripeCustomerId,
