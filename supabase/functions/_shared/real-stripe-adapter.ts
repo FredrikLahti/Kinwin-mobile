@@ -11,9 +11,9 @@
 // turning that same `StripeAdapter` interface into real Stripe API calls.
 import Stripe from 'npm:stripe@^22';
 
-import type { StripeAdapter, StripeCustomer, StripePaymentIntent, StripeSetupIntent } from './consequence-setup/types.ts';
+import type { StripeCustomer, StripePaymentAdapter, StripePaymentIntent, StripeSetupIntent } from './consequence-setup/types.ts';
 
-export function createRealStripeAdapter(secretKey: string): StripeAdapter {
+export function createRealStripeAdapter(secretKey: string): StripePaymentAdapter {
   const stripe = new Stripe(secretKey);
 
   return {
@@ -47,10 +47,10 @@ export function createRealStripeAdapter(secretKey: string): StripeAdapter {
       }, { idempotencyKey });
       return toStripePaymentIntent(intent);
     },
-    async confirmPaymentIntent(id, { paymentMethodId }): Promise<StripePaymentIntent> {
+    async confirmPaymentIntent(id: string, { paymentMethodId }: { readonly paymentMethodId: string }): Promise<StripePaymentIntent> {
       return toStripePaymentIntent(await stripe.paymentIntents.confirm(id, { payment_method: paymentMethodId, off_session: true }));
     },
-    async retrievePaymentIntent(id): Promise<StripePaymentIntent> {
+    async retrievePaymentIntent(id: string): Promise<StripePaymentIntent> {
       return toStripePaymentIntent(await stripe.paymentIntents.retrieve(id));
     },
   };

@@ -115,7 +115,7 @@ begin
     order by co.created_at,a.id limit p_limit for update of a skip locked
   ), claimed as (
     update private.consequence_charge_attempts a set status='processing',last_attempted_at=clock_timestamp(),
-      retry_count=retry_count+1,next_retry_at=null,failure_code=null,failure_message=null
+      retry_count=a.retry_count+1,next_retry_at=null,failure_code=null,failure_message=null
     from due where a.id=due.id returning a.*
   ) select a.id,co.challenge_id,a.owner_id,a.amount_minor_units,a.currency,a.stripe_customer_id,
       a.stripe_payment_method_id,a.stripe_payment_intent_id,a.retry_count
