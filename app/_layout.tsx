@@ -73,6 +73,7 @@ function AuthGate() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="auth" />
+      <Stack.Screen name="invite" />
       <Stack.Protected guard={status === 'signed_in'}>
         <Stack.Screen name="account" />
         <Stack.Screen name="home" />

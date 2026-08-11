@@ -37,7 +37,7 @@ active financial commitment. A future trusted account-deletion workflow must res
 | `challenge_periods` | Trusted day/week/continuous windows, structured target payload, and computed period status. |
 | `check_in_events` | Append-only Build, Cut back, Stop, and correction event payloads. |
 | `consequences` | Client-readable consequence, authorization, stake, and currency summary. |
-| `invitations` | Invitation lifecycle only; no public token or anonymous access. |
+| `invitations` | Owner-readable invitation lifecycle and SHA-256 bearer-token hash. Raw tokens are never stored. |
 | `memberships` | Current membership status and `full`/`completion`/`none` access mode. |
 | `private.consequence_provider_references` | Opaque payment-provider object references. |
 | `private.consequence_charge_attempts` | Idempotent, durable charge-attempt history. |
@@ -212,7 +212,7 @@ flow, security properties, and local testing instructions.
 - Idempotent charging (only after trusted evaluation reaches `failure`), payment
   retries, and reward fulfillment — payment-method setup itself is implemented (see
   above), charging is not.
-- Invitation creation/delivery and a carefully scoped recipient-access mechanism.
+- Recipient invitation creation, native owner sharing, narrow token access, and idempotent accept/decline are implemented without anonymous owner-table access.
 - Audited administrative/manual-review and account-deletion workflows.
 
 ## Unresolved decisions
@@ -220,6 +220,6 @@ flow, security properties, and local testing instructions.
 The unresolved decisions in `PRODUCTION_DATA_MODEL.md` still apply: correction and evidence policy,
 exact Cut back continuity evaluation, payment retry/grace behavior, recipient replacement,
 start-versus-sharing timing, active-commitment account deletion, disputes/manual review,
-external-organizer identity, and store entitlement integration. Public recipient access and
-membership-history retention also remain intentionally undecided. Timezone/DST period-generation
+external-organizer identity, multi-recipient reward allocation, and store entitlement integration.
+Membership-history retention also remains intentionally undecided. Timezone/DST period-generation
 rules are now resolved — see `docs/PRODUCT_DECISIONS.md`'s "Timezone, start, and DST rules" section.

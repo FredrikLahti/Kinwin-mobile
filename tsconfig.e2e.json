@@ -18,6 +18,7 @@
     "supabase/tests/e2e/consequence-setup-stripe.e2e.ts",
     "supabase/tests/e2e/full-activation-and-check-in.e2e.ts",
     "supabase/tests/e2e/scheduled-completion.e2e.ts",
-    "supabase/tests/e2e/playbook.e2e.ts"
+    "supabase/tests/e2e/playbook.e2e.ts",
+    "supabase/tests/e2e/recipient-invitation.e2e.ts"
   ]
 }
