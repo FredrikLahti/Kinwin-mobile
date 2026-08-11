@@ -1,5 +1,8 @@
 set role service_role;
-update public.invitations set invitation_status='ready', token_hash=encode(extensions.digest('opaque-token-a','sha256'),'hex'), token_issued_at=now()
+-- Seed the durable hash directly. The production token hashing path is covered by
+-- the recipient-token unit tests; this SQL suite intentionally keeps service_role
+-- isolated from the extensions schema while exercising the persisted access model.
+update public.invitations set invitation_status='ready', token_hash='9e81d82c66981af71fd0b10502aa240dbb054ee2d532c8b79ac020bd1c8d66ad', token_issued_at=now()
 where id='11111111-0000-0000-0000-000000000002';
 select test.assert_equals('raw_recipient_token_is_not_stored',(select count(*) from public.invitations where token_hash like '%opaque-token-a%'),0::bigint);
 select test.assert_equals('accepted_delivery_target_absent_before_acceptance',(select count(*) from private.accepted_recipient_delivery_targets where invitation_id='11111111-0000-0000-0000-000000000002'),0::bigint);
