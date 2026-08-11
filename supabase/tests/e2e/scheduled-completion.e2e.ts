@@ -154,4 +154,13 @@ test('fulfillment worker is service-secret scoped and fails truthfully without s
   const configuredBoundary = await invoke(secretKey);
   assert.equal(configuredBoundary.status, 503);
   assert.deepEqual(await configuredBoundary.json(), { error: 'sandbox_not_configured' });
+
+  const reconcile = (key: string) => fetch(`${url}/functions/v1/scheduled-reconcile-rewards`, {
+    method: 'POST', headers: { apikey: key, 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal((await reconcile(anonKey)).status, 401);
+  assert.equal((await reconcile(serviceKey)).status, 401);
+  const reconciliationBoundary = await reconcile(secretKey);
+  assert.equal(reconciliationBoundary.status, 503);
+  assert.deepEqual(await reconciliationBoundary.json(), { error: 'reconciliation_contract_not_configured' });
 });

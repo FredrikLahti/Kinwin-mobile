@@ -10,7 +10,7 @@ export type RecipientInvitationProjection = {
   readonly accessRole: 'recipient' | 'organizer';
   readonly organizerName: string | null;
   readonly recipientNames: readonly string[];
-  readonly rewardStatus: 'preparing' | 'ready' | 'needs_attention' | null;
+  readonly rewardStatus: 'preparing' | 'processing' | 'ready' | 'needs_attention' | null;
   readonly redemptionUrl: string | null;
 };
 

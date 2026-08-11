@@ -134,7 +134,7 @@ do $$
 declare
   delivered_count bigint;
 begin
-  update private.reward_fulfillments set status='delivered',delivered_at=now(),provider_order_id='order_constraint',provider_reward_id='reward_constraint',redemption_url='https://example.test/reward'
+  update private.reward_fulfillments set status='delivered',delivered_at=now(),provider_order_id='order_constraint',provider_reward_id='reward_constraint',provider_status='AVAILABLE',redemption_url='https://example.test/reward'
     where consequence_id='ffffffff-0000-0000-0000-000000000001';
   select count(*) into delivered_count from private.reward_fulfillments where status = 'delivered';
   perform test.assert_equals('valid_delivered_fulfillment', delivered_count, 1::bigint);

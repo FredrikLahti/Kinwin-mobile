@@ -2,7 +2,7 @@ import { readSupabaseConfig } from './config'; import { supabase } from './clien
 export type OwnerInvitationStatus = 'ready' | 'sent' | 'accepted' | 'declined';
 export type OwnerInvitation = { readonly id: string; readonly recipientId: string; readonly status: OwnerInvitationStatus };
 export type OwnerRewardOrganizer={readonly id:string;readonly kind:'recipient'|'other';readonly displayName:string;readonly recipientId:string|null;readonly invitationId:string|null;readonly status:OwnerInvitationStatus|null};
-export type RecipientProjection = { readonly status: OwnerInvitationStatus; readonly ownerName: string; readonly recipientName: string|null; readonly goal: string; readonly behavior: string; readonly consequenceCategory: string; readonly ownerSitsOut: true; readonly accessRole:'recipient'|'organizer'; readonly organizerName:string|null; readonly recipientNames:readonly string[]; readonly rewardStatus:'preparing'|'ready'|'needs_attention'|null; readonly redemptionUrl:string|null };
+export type RecipientProjection = { readonly status: OwnerInvitationStatus; readonly ownerName: string; readonly recipientName: string|null; readonly goal: string; readonly behavior: string; readonly consequenceCategory: string; readonly ownerSitsOut: true; readonly accessRole:'recipient'|'organizer'; readonly organizerName:string|null; readonly recipientNames:readonly string[]; readonly rewardStatus:'preparing'|'processing'|'ready'|'needs_attention'|null; readonly redemptionUrl:string|null };
 type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string };
 const failed = <T>(message = 'Could not load recipient invitations.'): Result<T> => ({ ok: false, message });
 

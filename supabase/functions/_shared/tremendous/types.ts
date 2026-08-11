@@ -11,9 +11,13 @@ export type TremendousFulfillment = {
 export type TremendousCreatedReward = {
   readonly orderId: string;
   readonly rewardId: string;
-  readonly redemptionUrl: string;
 };
 
 export type TremendousResult =
   | { readonly ok: true; readonly reward: TremendousCreatedReward }
   | { readonly ok: false; readonly retryable: boolean; readonly code: string };
+
+export type TremendousReconciliationResult =
+  | { readonly kind: 'ready'; readonly providerStatus: string; readonly redemptionUrl: string }
+  | { readonly kind: 'processing'; readonly providerStatus: string }
+  | { readonly kind: 'failure'; readonly retryable: boolean; readonly code: string; readonly providerStatus: string | null };

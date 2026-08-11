@@ -22,12 +22,58 @@ create temporary table fulfillment_retry_start as select public.start_reward_ful
 create temporary table fulfillment_retry_claim as select * from public.claim_due_reward_fulfillments((select (value->>'runId')::uuid from fulfillment_retry_start),(select (value->>'leaseToken')::uuid from fulfillment_retry_start),25);
 select test.assert_equals('retry_reuses_the_same_obligation',(select obligation_id from fulfillment_retry_claim),(select obligation_id from fulfillment_claim));
 select test.assert_equals('retry_does_not_create_duplicate_provider_obligation',(select count(*) from private.reward_fulfillments f join public.consequences co on co.id=f.consequence_id where co.challenge_id='a2000000-0000-0000-0000-000000000001'),1::bigint);
-select public.record_reward_fulfillment_result((select obligation_id from fulfillment_retry_claim),(select (value->>'runId')::uuid from fulfillment_retry_start),(select (value->>'leaseToken')::uuid from fulfillment_retry_start),true,false,'sandbox_order_1','sandbox_reward_1','https://testflight.tremendous.com/rewards/sandbox_reward_1',null);
-select test.assert_equals('trusted_provider_evidence_marks_reward_delivered',(select status from public.consequences where challenge_id='a2000000-0000-0000-0000-000000000001'),'reward_delivered');
+select public.record_reward_fulfillment_result((select obligation_id from fulfillment_retry_claim),(select (value->>'runId')::uuid from fulfillment_retry_start),(select (value->>'leaseToken')::uuid from fulfillment_retry_start),true,false,'sandbox_order_1','sandbox_reward_1',null,null);
+select test.assert_equals('provider_creation_is_not_delivery',(select status from public.consequences where challenge_id='a2000000-0000-0000-0000-000000000001'),'reward_fulfillment_pending');
+select test.assert_equals('provider_creation_is_persisted_separately',(select status from private.reward_fulfillments where id=(select obligation_id from fulfillment_retry_claim)),'provider_created');
 select test.assert_fails('provider_identity_cannot_change',$stmt$update private.reward_fulfillments set provider_order_id='redirected' where id=(select obligation_id from fulfillment_retry_claim)$stmt$,'23000');
 select public.finish_reward_fulfillment_worker((select (value->>'runId')::uuid from fulfillment_retry_start),(select (value->>'leaseToken')::uuid from fulfillment_retry_start),'succeeded',1,1,0,null);
+
+create temporary table reconciliation_start as select public.start_reward_fulfillment_worker() value;
+create temporary table reconciliation_claim as select * from public.claim_due_reward_reconciliations((select (value->>'runId')::uuid from reconciliation_start),(select (value->>'leaseToken')::uuid from reconciliation_start),25);
+select test.assert_equals('reconciliation_claims_existing_provider_reward',(select provider_reward_id from reconciliation_claim),'sandbox_reward_1');
+select public.record_reward_reconciliation_result((select obligation_id from reconciliation_claim),(select (value->>'runId')::uuid from reconciliation_start),(select (value->>'leaseToken')::uuid from reconciliation_start),'processing','PROCESSING',null,false,null);
+select test.assert_equals('provider_processing_remains_pending',(select status from public.consequences where challenge_id='a2000000-0000-0000-0000-000000000001'),'reward_fulfillment_pending');
+select test.assert_equals('processing_exposes_no_artifact',(public.get_accepted_organizer_reward_handoff((select id from public.invitations where challenge_id='a2000000-0000-0000-0000-000000000001'))->>'redemptionUrl'),null);
+select public.finish_reward_fulfillment_worker((select (value->>'runId')::uuid from reconciliation_start),(select (value->>'leaseToken')::uuid from reconciliation_start),'succeeded',1,1,0,null);
+
+update private.reward_fulfillments set reconciliation_next_retry_at=clock_timestamp() where id=(select obligation_id from fulfillment_claim);
+create temporary table ready_start as select public.start_reward_fulfillment_worker() value;
+create temporary table ready_claim as select * from public.claim_due_reward_reconciliations((select (value->>'runId')::uuid from ready_start),(select (value->>'leaseToken')::uuid from ready_start),25);
+select public.record_reward_reconciliation_result((select obligation_id from ready_claim),(select (value->>'runId')::uuid from ready_start),(select (value->>'leaseToken')::uuid from ready_start),'ready','AVAILABLE','https://testflight.tremendous.com/rewards/sandbox_reward_1',false,null);
+select test.assert_equals('verified_ready_evidence_marks_reward_delivered',(select status from public.consequences where challenge_id='a2000000-0000-0000-0000-000000000001'),'reward_delivered');
+select public.record_reward_reconciliation_result((select obligation_id from ready_claim),(select (value->>'runId')::uuid from ready_start),(select (value->>'leaseToken')::uuid from ready_start),'ready','AVAILABLE','https://testflight.tremendous.com/rewards/sandbox_reward_1',false,null);
+select test.assert_equals('repeated_ready_is_idempotent',(select count(*) from private.reward_fulfillments where provider_reward_id='sandbox_reward_1' and status='delivered'),1::bigint);
+select test.assert_equals('correct_organizer_gets_ready_artifact',(public.get_accepted_organizer_reward_handoff((select id from public.invitations where challenge_id='a2000000-0000-0000-0000-000000000001'))->>'redemptionUrl'),'https://testflight.tremendous.com/rewards/sandbox_reward_1');
+select test.assert_equals('wrong_invitation_gets_no_reward',(select public.get_accepted_organizer_reward_handoff('11111111-0000-0000-0000-000000000002') is null),true);
+select public.finish_reward_fulfillment_worker((select (value->>'runId')::uuid from ready_start),(select (value->>'leaseToken')::uuid from ready_start),'succeeded',1,1,0,null);
+
+-- A second fixture proves both retryable and terminal reconciliation failures
+-- leave the already-final challenge and succeeded payment unchanged.
+update public.challenges set challenge_status='completed_failure',completed_at=now() where id='29222222-0000-0000-0000-000000000001';
+update public.consequences set status='reward_fulfillment_pending' where id='29444444-0000-0000-0000-000000000001';
+update public.invitations set invitation_status='accepted' where organizer_id=(select id from public.challenge_reward_organizers where challenge_id='29222222-0000-0000-0000-000000000001');
+insert into private.consequence_charge_attempts(id,consequence_id,owner_id,idempotency_key,attempt_number,status,amount_minor_units,currency,stripe_customer_id,stripe_payment_method_id,stripe_payment_intent_id,requested_at,completed_at)
+values('30000000-0000-0000-0000-000000000001','29444444-0000-0000-0000-000000000001','29111111-0000-0000-0000-000000000001','terminal-fixture',1,'succeeded',5000,'USD','cus_terminal','pm_terminal','pi_terminal',now(),now());
+insert into private.reward_fulfillments(id,consequence_id,organizer_id,invitation_id,idempotency_key,fulfillment_provider,status,amount_minor_units,currency,requested_at,provider_order_id,provider_reward_id,provider_created_at,reconciliation_next_retry_at)
+select '30000000-0000-0000-0000-000000000002',co.id,o.id,i.id,'terminal-reward-fixture','tremendous_sandbox','provider_created',co.stake_minor_units,co.currency,now(),'sandbox_order_terminal','sandbox_reward_terminal',now(),now()
+from public.consequences co join public.challenge_reward_organizers o on o.challenge_id=co.challenge_id join public.invitations i on i.organizer_id=o.id where co.id='29444444-0000-0000-0000-000000000001';
+create temporary table retryable_reconcile_start as select public.start_reward_fulfillment_worker() value;
+create temporary table retryable_reconcile_claim as select * from public.claim_due_reward_reconciliations((select (value->>'runId')::uuid from retryable_reconcile_start),(select (value->>'leaseToken')::uuid from retryable_reconcile_start),25);
+select public.record_reward_reconciliation_result('30000000-0000-0000-0000-000000000002',(select (value->>'runId')::uuid from retryable_reconcile_start),(select (value->>'leaseToken')::uuid from retryable_reconcile_start),'failure',null,null,true,'http_503');
+select test.assert_equals('reconciliation_temporary_failure_is_retryable',(select status from private.reward_fulfillments where id='30000000-0000-0000-0000-000000000002'),'reconciliation_retry');
+select test.assert_equals('reconciliation_failure_keeps_payment_succeeded',(select status from private.consequence_charge_attempts where id='30000000-0000-0000-0000-000000000001'),'succeeded');
+select public.finish_reward_fulfillment_worker((select (value->>'runId')::uuid from retryable_reconcile_start),(select (value->>'leaseToken')::uuid from retryable_reconcile_start),'partial_failure',1,1,1,null);
+update private.reward_fulfillments set reconciliation_next_retry_at=now() where id='30000000-0000-0000-0000-000000000002';
+create temporary table terminal_reconcile_start as select public.start_reward_fulfillment_worker() value;
+create temporary table terminal_reconcile_claim as select * from public.claim_due_reward_reconciliations((select (value->>'runId')::uuid from terminal_reconcile_start),(select (value->>'leaseToken')::uuid from terminal_reconcile_start),25);
+select public.record_reward_reconciliation_result('30000000-0000-0000-0000-000000000002',(select (value->>'runId')::uuid from terminal_reconcile_start),(select (value->>'leaseToken')::uuid from terminal_reconcile_start),'failure',null,null,false,'unknown_provider_reward');
+select test.assert_equals('terminal_provider_failure_needs_support',(select status from private.reward_fulfillments where id='30000000-0000-0000-0000-000000000002'),'terminal_failure');
+select test.assert_equals('terminal_provider_failure_keeps_consequence_pending',(select status from public.consequences where id='29444444-0000-0000-0000-000000000001'),'reward_fulfillment_pending');
+select test.assert_equals('terminal_provider_failure_keeps_challenge_failure',(select challenge_status from public.challenges where id='29222222-0000-0000-0000-000000000001'),'completed_failure');
+select public.finish_reward_fulfillment_worker((select (value->>'runId')::uuid from terminal_reconcile_start),(select (value->>'leaseToken')::uuid from terminal_reconcile_start),'partial_failure',1,1,1,null);
 select test.assert_equals('successful_challenge_has_no_fulfillment',(select count(*) from private.reward_fulfillments f join public.consequences co on co.id=f.consequence_id where co.challenge_id='a2000000-0000-0000-0000-000000000002'),0::bigint);
 select test.assert_equals('authenticated_cannot_start_fulfillment_worker',has_function_privilege('authenticated','public.start_reward_fulfillment_worker()','execute'),false);
+select test.assert_equals('authenticated_cannot_claim_reconciliation',has_function_privilege('authenticated','public.claim_due_reward_reconciliations(uuid,uuid,integer)','execute'),false);
 reset role;
 set role authenticated;
 select test.assert_fails('owner_cannot_read_private_fulfillment','select redemption_url from private.reward_fulfillments','42501');
