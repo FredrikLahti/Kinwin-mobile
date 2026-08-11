@@ -406,8 +406,9 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
   (`reward_fulfillment_pending`/`reward_delivered`), never fulfillment provider details.
 - **Server responsibilities:** Create a fulfillment request only after a successful
   charge; mark delivered.
-- **Prerequisite product decisions:** "Durable identity and contact requirements for an
-  external reward organizer" — unresolved.
+- **Prerequisite product decisions:** The accepted canonical organizer-access record is
+  now a deterministic LINK delivery channel without contact PII. Provider behavior for
+  multiple beneficiaries and lost-link recovery remain unresolved.
 - **Minimum tests:** `status = 'delivered'` requires `delivered_at` — already
   constraint-proven in `070_constraints.sql`.
 - **Must remain impossible from the client:** Any access to `private.reward_fulfillments`
@@ -415,24 +416,26 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 
 ## 10. Invitations and recipient access
 
-- **Trusted boundary:** Currently entirely unbuilt. The audit confirmed zero `anon`
-  policies or grants exist anywhere in the schema today — "future access unresolved" in
-  the docs is accurate, not aspirational.
-- **Tables/functions:** `public.invitations`; a new, narrowly scoped access mechanism
-  (e.g. a signed, single-use token validated server-side) — not a raw `anon` RLS policy
-  against owner-facing tables.
+- **Trusted boundary:** Implemented by the authenticated `create-recipient-invitation`
+  and `mark-recipient-invitation-shared` Edge Functions plus the anonymous,
+  token-authenticated `recipient-invitation` Edge Function. Owner tables retain zero
+  anonymous grants.
+- **Tables/functions:** `public.invitations` stores one SHA-256 token hash per locked
+  challenge recipient. The durable 256-bit bearer token is only returned to the owner
+  and is never stored raw. Preparing a new share rotates the token rather than creating
+  an uncontrolled duplicate invitation.
 - **Client responsibilities (recipient side):** A distinct, purpose-built flow that only
   ever sees the intentionally narrow preview a token grants — never `challenges` or
   `check_in_events` directly, mirroring today's `/share/preview` UI preview but backed by
   a real, scoped read.
-- **Server responsibilities:** Issue and validate invitation tokens; record
-  accept/decline in `invitations`.
-- **Prerequisite product decisions:** "Whether challenge start waits for sharing";
-  recipient replacement policy; and the access mechanism itself is still an open design
-  question, not just an implementation detail.
-- **Minimum tests:** A recipient token must not grant access to anything beyond its
-  specific scoped view — this needs its own RLS design and its own tests once decided,
-  never a reuse of the owner policies proven in `030`/`040`.
+- **Server responsibilities:** Issue and hash invitation tokens, return only the explicit
+  recipient projection, and record idempotent accept/decline responses. A response never
+  changes challenge, consequence, payment, Playbook, social, or Kin state.
+- **Product decisions:** Challenge start does not wait for sharing or acceptance.
+  Challenge recipients remain distinct from Kin. No email address or phone number is
+  collected. The durable bearer link is the beta recipient delivery channel.
+- **Minimum tests:** Covered in `280_recipient_invitation_access.sql` and the real
+  `recipient-invitation.e2e.ts` Edge Runtime suite.
 - **Must remain impossible from the client:** Any anonymous read of `challenges`,
   `check_in_events`, or `consequences` — proven impossible today by design; must not
   regress when recipient access is added.

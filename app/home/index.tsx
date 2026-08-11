@@ -1,7 +1,7 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
@@ -13,8 +13,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
+import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challenge';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
+import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
 import { ActivityItem, fetchKinActivity, fetchKinCurrentChallenges, KinCurrentChallenge } from '@/lib/supabase/kin-repository';
@@ -42,6 +44,7 @@ export default function HomeV2() {
   const { profile, user } = useAuth();
   const onboarding = useOnboarding();
   const { state: real, refresh } = useRealActiveChallenge();
+  const { state: completed, refresh: refreshCompleted } = useRecentCompletedChallenge();
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
   const [pendingLoading, setPendingLoading] = useState(true);
@@ -80,6 +83,7 @@ export default function HomeV2() {
 
   useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
+  useFocusEffect(useCallback(() => { void refreshCompleted(); }, [refreshCompleted]));
   useFocusEffect(useCallback(() => { void loadKinActivity(); }, [loadKinActivity]));
 
   const createChallenge = () => {
@@ -111,23 +115,18 @@ export default function HomeV2() {
     router.push('/create/intro' as Href);
   };
 
-  const shareActiveChallenge = async () => {
+  const openRecipientInvites = () => {
     if (real.status !== 'ready') return;
     void playSelectionHaptic();
-    const { challenge } = real.data;
-    const identity = describeChallengeIdentity(challenge);
-    const recipientNames = challenge.recipients.map((recipient) => recipient.name).join(', ') || 'them';
-    const message =
-      `Hi! I am keeping a Kinwin challenge: ${identity.headline}.\n\n` +
-      `If I don't keep it, ${recipientNames} could receive a reward funded by my stake. I will not take part.`;
-    await Share.share({ message });
+    router.push('/home/challenge' as Href);
   };
 
   const onRealCheckInSubmitted = useCallback(() => {
     void refresh();
   }, [refresh]);
 
-  const isLoading = real.status === 'loading' || pendingLoading;
+  const homeSurface = chooseHomeChallengeSurface(real.status, completed.status);
+  const isLoading = homeSurface === 'loading' || pendingLoading;
   const focusPeriod = real.status === 'ready'
     ? real.data.periods.find((period) => period.id === real.view.focusPeriodId) ?? null
     : null;
@@ -143,6 +142,8 @@ export default function HomeV2() {
   const isComplete =
     real.status === 'ready' && (real.view.finalResult !== null || real.data.challenge.status === 'awaiting_resolution');
   const identity = real.status === 'ready' ? describeChallengeIdentity(real.data.challenge) : null;
+  const completedIdentity = completed.status === 'ready' ? describeChallengeIdentity(completed.data.snapshot) : null;
+  const completedPresentation = completed.status === 'ready' ? describeChallengeResult(completed.data.status) : null;
 
   // Recent real events first; only fill remaining slots with current Kin
   // state for a challenge no fetched event already covers, so the same
@@ -231,15 +232,37 @@ export default function HomeV2() {
                   <Pressable accessibilityHint="Opens the full challenge detail" accessibilityRole="button" hitSlop={6} onPress={openDetail} style={styles.heroLink}>
                     <Text style={styles.heroLinkText}>View details</Text>
                   </Pressable>
-                  <Pressable accessibilityHint="Opens your phone's share sheet with your invitation again" accessibilityRole="button" hitSlop={6} onPress={() => void shareActiveChallenge()} style={styles.heroLink}>
-                    <Text style={styles.heroLinkText}>Share invite again</Text>
+                  <Pressable accessibilityHint="Opens recipient invitation status and sharing" accessibilityRole="button" hitSlop={6} onPress={openRecipientInvites} style={styles.heroLink}>
+                    <Text style={styles.heroLinkText}>Recipient invites</Text>
                   </Pressable>
                 </View>
               </View>
             </View>
           )}
 
-          {!isLoading && real.status !== 'ready' && real.status !== 'error' && (
+          {!isLoading && homeSurface === 'completed' && completed.status === 'ready' && completedIdentity && completedPresentation && (
+            <View style={styles.section}>
+              <View style={styles.completedCard}>
+                <Text style={styles.completedLabel}>LAST CHALLENGE</Text>
+                <Text numberOfLines={2} style={styles.completedHeadline}>{completedIdentity.headline}</Text>
+                {completedIdentity.ruleDetail && <Text style={styles.completedRule}>{completedIdentity.ruleDetail}</Text>}
+                <Text style={[styles.completedStatus, completedPresentation.tone === 'success' ? styles.completedSuccess : styles.completedFailure]}>
+                  {completedPresentation.homeStatus}
+                </Text>
+                <Text style={styles.completedDate}>Completed {formatCompletedDate(completed.data.completedAt)}</Text>
+                <Pressable
+                  accessibilityHint="Opens the final result for this challenge"
+                  accessibilityRole="button"
+                  onPress={() => router.push(`/home/result?id=${completed.data.id}` as Href)}
+                  style={({ pressed }) => [styles.resultButton, pressed && styles.resultButtonPressed]}
+                >
+                  <Text style={styles.resultButtonText}>View result</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {!isLoading && homeSurface === 'empty' && (
             <View style={styles.emptySection}>
               <Text style={styles.emptyTitle}>{pendingCommitment ? 'Your challenge is almost ready.' : 'No active challenge yet.'}</Text>
               <Text style={styles.emptyBody}>
@@ -248,10 +271,10 @@ export default function HomeV2() {
             </View>
           )}
 
-          {!isLoading && real.status === 'error' && (
+          {!isLoading && homeSurface === 'error' && (
             <View style={styles.emptySection}>
               <Text style={styles.emptyTitle}>Could not load your challenge.</Text>
-              <Pressable accessibilityHint="Tries loading your challenge again" accessibilityRole="button" hitSlop={6} onPress={() => void refresh()} style={styles.retryLink}>
+              <Pressable accessibilityHint="Tries loading your challenge again" accessibilityRole="button" hitSlop={6} onPress={() => { void refresh(); void refreshCompleted(); }} style={styles.retryLink}>
                 <Text style={styles.retryLinkText}>Try again</Text>
               </Pressable>
             </View>
@@ -397,6 +420,17 @@ const styles = StyleSheet.create({
   heroLinks: { marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   heroLink: { minHeight: 32, justifyContent: 'center' },
   heroLinkText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
+  completedCard: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surfaceRaised, padding: theme.spacing.medium, gap: 6 },
+  completedLabel: { color: theme.colors.rosewood, fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
+  completedHeadline: { color: theme.colors.ivory, fontFamily: 'Georgia', fontSize: 22, lineHeight: 27, marginTop: 3 },
+  completedRule: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
+  completedStatus: { fontSize: 14, fontWeight: '800', marginTop: 7 },
+  completedSuccess: { color: theme.colors.sage },
+  completedFailure: { color: theme.colors.ivory },
+  completedDate: { color: theme.colors.warmGrey, fontSize: 12 },
+  resultButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled, backgroundColor: theme.colors.rosewood, marginTop: 10 },
+  resultButtonPressed: { opacity: 0.82 },
+  resultButtonText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '800' },
   emptySection: { marginTop: theme.spacing.large, gap: theme.spacing.xsmall },
   emptyTitle: { color: theme.colors.ivory, fontSize: 18, fontWeight: '700' },
   emptyBody: { color: theme.colors.ivoryMuted, fontSize: 13 },

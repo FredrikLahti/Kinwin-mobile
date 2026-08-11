@@ -59,6 +59,15 @@ verify_jwt = false
 [functions.scheduled-charge-failed-consequences]
 verify_jwt = false
 
+[functions.create-recipient-invitation]
+verify_jwt = true
+[functions.create-organizer-invitation]
+verify_jwt = true
+[functions.mark-recipient-invitation-shared]
+verify_jwt = true
+[functions.recipient-invitation]
+verify_jwt = false
+
 [analytics]
 enabled = false
 
