@@ -3,9 +3,11 @@ import { TerminalChallengeStatus } from '@/lib/supabase/completed-challenge-repo
 export type HomeChallengeSurface = 'loading' | 'active' | 'completed' | 'empty' | 'error';
 export function chooseHomeChallengeSurface(activeStatus: 'loading' | 'none' | 'ready' | 'error', completedStatus: 'loading' | 'none' | 'ready' | 'error'): HomeChallengeSurface {
   if (activeStatus === 'ready') return 'active';
-  if (activeStatus === 'loading' || completedStatus === 'loading') return 'loading';
+  if (activeStatus === 'loading') return 'loading';
+  if (activeStatus === 'error') return 'error';
+  if (completedStatus === 'loading') return 'loading';
   if (completedStatus === 'ready') return 'completed';
-  if (activeStatus === 'error' || completedStatus === 'error') return 'error';
+  if (completedStatus === 'error') return 'error';
   return 'empty';
 }
 
