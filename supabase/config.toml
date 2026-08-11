@@ -67,6 +67,8 @@ verify_jwt = true
 verify_jwt = true
 [functions.recipient-invitation]
 verify_jwt = false
+[functions.scheduled-fulfill-rewards]
+verify_jwt = false
 
 [analytics]
 enabled = false

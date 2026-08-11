@@ -29,6 +29,8 @@ architecture.
 deterministic join from accepted organizer access to canonical organizer, challenge,
 and consequence. It contains no reward link and does not change fulfillment semantics.
 
-Before Tremendous can be implemented, product must decide the provider request and
-delivery behavior for multiple beneficiaries. Lost-link recovery without recipient PII
-also requires an explicit decision. This package does not invent either rule.
+Kinwin v1 creates one full-value reward obligation for each successfully charged failed
+challenge. It never splits the stake or creates one reward per recipient. The canonical
+organizer coordinates one shared reward or experience for the immutable recipient group,
+and the owner sits out. Tremendous remains sandbox-only until operational review,
+credential provisioning, provider-evidence review, and lost-link recovery are complete.

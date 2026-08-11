@@ -144,10 +144,11 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   const projection = (await resolved.json()).invitation;
   assert.deepEqual(
     Object.keys(projection).sort(),
-    ['accessRole','behavior','consequenceCategory','goal','organizerName','ownerName','ownerSitsOut','recipientName','recipientNames','status'].sort(),
+    ['accessRole','behavior','consequenceCategory','goal','organizerName','ownerName','ownerSitsOut','recipientName','recipientNames','redemptionUrl','rewardStatus','status'].sort(),
   );
   assert.equal(projection.recipientName, 'Anna');
   assert.equal(projection.accessRole,'recipient');
+  assert.equal(projection.redemptionUrl,null);
   assert.equal(JSON.stringify(projection).includes('5000'), false);
 
   const accepted = await recipientCall(again.data.token, 'accept');

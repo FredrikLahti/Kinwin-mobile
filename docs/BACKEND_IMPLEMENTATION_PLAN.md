@@ -400,19 +400,24 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 
 ## 9. Reward fulfillment
 
-- **Trusted boundary:** Tremendous (or equivalent) integration, server-side only.
-- **Tables/functions:** `private.reward_fulfillments`.
+- **Trusted boundary:** Tremendous Testflight integration, server-side only. Production
+  origins are rejected by the adapter.
+- **Tables/functions:** `private.reward_fulfillments`, its worker lease/run tables, and
+  service-role-only claim/result RPCs.
 - **Client responsibilities:** Read only `consequences.status`
   (`reward_fulfillment_pending`/`reward_delivered`), never fulfillment provider details.
-- **Server responsibilities:** Create a fulfillment request only after a successful
-  charge; mark delivered.
-- **Prerequisite product decisions:** The accepted canonical organizer-access record is
-  now a deterministic LINK delivery channel without contact PII. Provider behavior for
-  multiple beneficiaries and lost-link recovery remain unresolved.
-- **Minimum tests:** `status = 'delivered'` requires `delivered_at` — already
-  constraint-proven in `070_constraints.sql`.
+- **Server responsibilities:** Create one idempotent full-value LINK order only after a
+  terminal failure, verified successful charge, pending consequence, and accepted
+  canonical organizer access. Persist redemption artifacts privately and mark delivered
+  only after a valid provider response supplies order, reward, and HTTPS link evidence.
+- **Product decision:** Kinwin v1 never splits the stake. The canonical organizer is the
+  single handoff target for one shared reward or experience for the immutable recipient
+  group. The owner sits out.
+- **Minimum tests:** `300_tremendous_sandbox_fulfillment.sql` proves eligibility,
+  leasing, stable idempotency, retry, immutable provider identity, full value, and
+  private isolation. Adapter and worker tests use injected HTTP and make no real order.
 - **Must remain impossible from the client:** Any access to `private.reward_fulfillments`
-  (proven).
+  or redemption URLs, or invoking worker RPCs (proven).
 
 ## 10. Invitations and recipient access
 

@@ -142,6 +142,10 @@
 * Every prepared challenge has exactly one immutable canonical reward organizer. A
   recipient organizer links to the existing beneficiary and reuses that invitation. An
   external organizer remains a distinct non-beneficiary with organizer-scoped access.
+* Kinwin v1 creates one full-value reward obligation for one successfully charged failed
+  challenge. The stake is never split per recipient. The canonical organizer is the
+  single handoff target and coordinates one shared reward or experience for the locked
+  recipient group. The challenge owner always sits out.
 
 ## Brand and interaction
 

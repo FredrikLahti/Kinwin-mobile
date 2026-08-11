@@ -10,6 +10,8 @@ export type RecipientInvitationProjection = {
   readonly accessRole: 'recipient' | 'organizer';
   readonly organizerName: string | null;
   readonly recipientNames: readonly string[];
+  readonly rewardStatus: 'preparing' | 'ready' | 'needs_attention' | null;
+  readonly redemptionUrl: string | null;
 };
 
-export const RECIPIENT_PROJECTION_KEYS = ['status','ownerName','recipientName','goal','behavior','consequenceCategory','ownerSitsOut','accessRole','organizerName','recipientNames'] as const;
+export const RECIPIENT_PROJECTION_KEYS = ['status','ownerName','recipientName','goal','behavior','consequenceCategory','ownerSitsOut','accessRole','organizerName','recipientNames','rewardStatus','redemptionUrl'] as const;

@@ -144,3 +144,14 @@ test('scheduled worker finalizes success/failure without user JWT and remains id
   assert.equal(consequenceError, null);
   assert.ok(consequences?.every((row) => row.status === 'active'), 'outcome finalization must not start charging or fulfillment');
 });
+
+test('fulfillment worker is service-secret scoped and fails truthfully without sandbox credentials', async () => {
+  const invoke = (key: string) => fetch(`${url}/functions/v1/scheduled-fulfill-rewards`, {
+    method: 'POST', headers: { apikey: key, 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal((await invoke(anonKey)).status, 401);
+  assert.equal((await invoke(serviceKey)).status, 401);
+  const configuredBoundary = await invoke(secretKey);
+  assert.equal(configuredBoundary.status, 503);
+  assert.deepEqual(await configuredBoundary.json(), { error: 'sandbox_not_configured' });
+});
