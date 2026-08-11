@@ -18,6 +18,10 @@ export type TremendousResult =
   | { readonly ok: false; readonly retryable: boolean; readonly code: string };
 
 export type TremendousReconciliationResult =
-  | { readonly kind: 'ready'; readonly providerStatus: string; readonly redemptionUrl: string }
+  | { readonly kind: 'ready'; readonly providerStatus: 'SUCCEEDED' }
   | { readonly kind: 'processing'; readonly providerStatus: string }
   | { readonly kind: 'failure'; readonly retryable: boolean; readonly code: string; readonly providerStatus: string | null };
+
+export type TremendousGeneratedLinkResult =
+  | { readonly ok: true; readonly url: string }
+  | { readonly ok: false; readonly retryable: boolean; readonly code: string };

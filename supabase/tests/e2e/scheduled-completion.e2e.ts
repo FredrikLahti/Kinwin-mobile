@@ -162,5 +162,5 @@ test('fulfillment worker is service-secret scoped and fails truthfully without s
   assert.equal((await reconcile(serviceKey)).status, 401);
   const reconciliationBoundary = await reconcile(secretKey);
   assert.equal(reconciliationBoundary.status, 503);
-  assert.deepEqual(await reconciliationBoundary.json(), { error: 'reconciliation_contract_not_configured' });
+  assert.deepEqual(await reconciliationBoundary.json(), { error: 'sandbox_not_configured' });
 });

@@ -6,8 +6,8 @@ test('reconciliation never creates another order and records one normalized resu
   let retrievals = 0; const recorded: string[] = [];
   const result = await runRewardReconciliationWorker({
     start: async () => ({ status: 'started', runId: 'run', leaseToken: 'lease' }),
-    claim: async () => [{ obligationId: 'obligation', providerRewardId: 'reward' }],
-    retrieve: async (id) => { retrievals++; return { kind: 'processing', providerStatus: id.toUpperCase() }; },
+    claim: async () => [{ obligationId: 'obligation', providerRewardId: 'reward', providerOrderId: 'order' }],
+    retrieve: async (id,orderId) => { retrievals++; assert.equal(orderId,'order'); return { kind: 'processing', providerStatus: id.toUpperCase() }; },
     record: async (_run, _token, item) => { recorded.push(item.obligationId); }, finish: async () => {},
   });
   assert.deepEqual(result, { status: 'succeeded', eligible: 1, attempted: 1, failed: 0 });

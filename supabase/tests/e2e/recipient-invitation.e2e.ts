@@ -144,11 +144,10 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   const projection = (await resolved.json()).invitation;
   assert.deepEqual(
     Object.keys(projection).sort(),
-    ['accessRole','behavior','consequenceCategory','goal','organizerName','ownerName','ownerSitsOut','recipientName','recipientNames','redemptionUrl','rewardStatus','status'].sort(),
+    ['accessRole','behavior','consequenceCategory','goal','organizerName','ownerName','ownerSitsOut','recipientName','recipientNames','rewardStatus','status'].sort(),
   );
   assert.equal(projection.recipientName, 'Anna');
   assert.equal(projection.accessRole,'recipient');
-  assert.equal(projection.redemptionUrl,null);
   assert.equal(JSON.stringify(projection).includes('5000'), false);
 
   const accepted = await recipientCall(again.data.token, 'accept');
@@ -156,6 +155,9 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   assert.equal((await accepted.json()).invitation.status, 'accepted');
   assert.equal((await recipientCall(again.data.token, 'accept')).status, 200);
   assert.equal((await recipientCall(again.data.token, 'decline')).status, 409);
+  const rewardLinkCall=(token:string)=>fetch(`${url}/functions/v1/organizer-reward-link`,{method:'POST',headers:{apikey:anonKey,Authorization:`Bearer ${anonKey}`,'content-type':'application/json'},body:JSON.stringify({token})});
+  assert.equal((await rewardLinkCall(again.data.token)).status,404,'ordinary recipient gained organizer reward authority');
+  assert.ok((await owner.c.functions.invoke('organizer-reward-link',{body:{}})).error,'owner credentials alone opened organizer reward');
 
   const second = await owner.c.functions.invoke('create-recipient-invitation', {
     body: { recipientId: recipientB },
@@ -166,6 +168,7 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   assert.equal((await recipientCall(second.data.token, 'decline')).status, 200);
   assert.equal((await recipientCall(second.data.token, 'decline')).status, 200);
   assert.equal((await recipientCall(second.data.token, 'accept')).status, 409);
+  assert.equal((await rewardLinkCall(second.data.token)).status,404,'declined invitation opened organizer reward');
 
   const canonical=await service.from('challenge_reward_organizers').select('id, organizer_kind, challenge_recipient_id').eq('challenge_id',challenge).single();
   assert.equal(canonical.data?.organizer_kind,'other');assert.equal(canonical.data?.challenge_recipient_id,null);
@@ -174,6 +177,7 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   const organizerStored=await service.from('invitations').select('token_hash').eq('id',organizerInvite.data.invitationId).single();assert.equal(JSON.stringify(organizerStored.data).includes(organizerInvite.data.token),false);
   const organizerResolved=await recipientCall(organizerInvite.data.token);assert.equal(organizerResolved.status,200);const organizerProjection=(await organizerResolved.json()).invitation;assert.equal(organizerProjection.accessRole,'organizer');assert.equal(organizerProjection.organizerName,'Alex');assert.deepEqual(organizerProjection.recipientNames,['Anna','Bo']);
   assert.equal((await recipientCall(organizerInvite.data.token,'accept')).status,200);assert.equal((await recipientCall(organizerInvite.data.token,'accept')).status,200);
+  assert.equal((await rewardLinkCall('x'.repeat(43))).status,404);
 
   assert.equal(
     (
