@@ -128,12 +128,12 @@ export default function ActiveChallengeDetailScreen() {
             const invitation = invitations.find((item) => item.recipientId === recipient.id);
             const status = invitation?.status ?? 'ready';
             const isOrganizer=organizer?.kind==='recipient'&&organizer.recipientId===recipient.id;
-            return <View key={recipient.id} style={styles.recipientRow}><View><Text style={styles.body}>{recipient.name}</Text>{isOrganizer&&<Text style={styles.organizerRole}>REWARD ORGANIZER</Text>}<Text style={[styles.inviteStatus, status === 'accepted' && styles.accepted]}>{invitation ? STATUS_COPY[status] : 'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${recipient.name}'s private invitation`} accessibilityRole="button" onPress={() => void shareInvite(recipient.id, recipient.name)} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{invitation ? 'Share again' : 'Share invite'}</Text></Pressable></View>;
+            return <View key={recipient.id} style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{recipient.name}</Text>{isOrganizer&&<Text style={styles.organizerRole}>RECIPIENT AND REWARD ORGANIZER</Text>}<Text style={[styles.inviteStatus, status === 'accepted' && styles.accepted]}>{invitation ? STATUS_COPY[status] : 'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${recipient.name}'s private access`} accessibilityRole="button" onPress={() => void shareInvite(recipient.id, recipient.name)} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{status==='accepted'?'Share access again':invitation?'Share again':'Share invite'}</Text></Pressable></View>;
           })}</View>
           {inviteError && <Text accessibilityLiveRegion="polite" style={styles.inviteError}>{inviteError}</Text>}
         </View>
 
-        {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s organizer invitation`} accessibilityRole="button" onPress={()=>void shareOrganizerInvite()} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{organizer.invitationId?'Share again':'Share invite'}</Text></Pressable></View></View>}
+        {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" onPress={()=>void shareOrganizerInvite()} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share access'}</Text></Pressable></View></View>}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>IF MISSED</Text>
@@ -172,6 +172,7 @@ const styles = StyleSheet.create({
   bodyMuted: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 18 },
   recipientList: { gap: 8, marginTop: 4 },
   recipientRow: { minHeight: 58, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: theme.colors.structureLine, borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface },
+  recipientCopy:{flex:1,paddingVertical:9,paddingRight:8},
   inviteStatus: { color: theme.colors.ivoryMuted, fontSize: 12, marginTop: 2 }, accepted: { color: theme.colors.sage },
   organizerRole:{color:theme.colors.rosewood,fontSize:9,fontWeight:'900',letterSpacing:1.1,marginTop:3},
   inviteButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }, inviteButtonText: { color: theme.colors.rosewood, fontWeight: '800', fontSize: 13 }, inviteError: { color: theme.colors.crimsonBright, fontSize: 13, lineHeight: 18 },

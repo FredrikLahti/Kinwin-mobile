@@ -151,6 +151,11 @@
   opens a freshly generated transient link. If the Kinwin URL is lost, Share again rotates the
   bearer token while preserving the accepted invitation, canonical organizer, fulfillment, and
   provider identities. The old token stops working.
+* For owners, a failed challenge has four reward states: waiting for the organizer,
+  preparing the reward, ready for organizer handoff, and needs attention. For organizers,
+  reward access remains an explicit `Open reward` action. “Ready” means the external LINK is
+  ready for handoff; Kinwin does not claim that anyone redeemed it, used it, or attended the
+  experience.
 
 ## Brand and interaction
 

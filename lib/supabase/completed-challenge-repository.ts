@@ -1,4 +1,5 @@
 import { ActivatedChallengeSnapshot } from '@/domain/challenge/types';
+import { OwnerRewardProgress } from '@/lib/reward-journey';
 
 import { supabase } from './client';
 
@@ -14,6 +15,7 @@ export type CompletedChallenge = {
   readonly timezone: string;
   readonly snapshot: ActivatedChallengeSnapshot;
   readonly consequence: { readonly stakeMinorUnits: number; readonly currency: string } | null;
+  readonly rewardProgress: OwnerRewardProgress | null;
 };
 
 export type FetchCompletedChallengeResult =
@@ -47,12 +49,17 @@ async function fetchCompletedChallengeRow(ownerId: string, challengeId?: string)
   const consequenceResult = await supabase.from('consequences')
     .select('stake_minor_units, currency').eq('challenge_id', row.id).eq('owner_id', ownerId).maybeSingle();
   if (consequenceResult.error) return { ok: false, ...classifyError(consequenceResult.error) };
+  const progressResult = row.challenge_status === 'completed_failure'
+    ? await supabase.rpc('get_owner_reward_progress', { p_challenge_id: row.id })
+    : { data: null, error: null };
+  if (progressResult.error) return { ok: false, ...classifyError(progressResult.error) };
 
   return { ok: true, data: {
     id: row.id, status: row.challenge_status, completedAt: row.completed_at, startsAt: row.starts_at,
     plannedEndsAt: row.planned_ends_at, timezone: row.timezone,
     snapshot: row.activation_snapshot as unknown as ActivatedChallengeSnapshot,
     consequence: consequenceResult.data ? { stakeMinorUnits: consequenceResult.data.stake_minor_units, currency: consequenceResult.data.currency } : null,
+    rewardProgress: progressResult.data as OwnerRewardProgress | null,
   } };
 }
 

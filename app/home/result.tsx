@@ -9,6 +9,7 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import { describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { CompletedChallenge, fetchCompletedChallenge } from '@/lib/supabase/completed-challenge-repository';
 import { buildRecipientInvitationUrl } from '@/lib/recipient-invitations/url';
 import { createOrganizerInvitation,createRecipientInvitation,fetchOwnerRewardOrganizer,markRecipientInvitationShared,OwnerRewardOrganizer } from '@/lib/supabase/recipient-invitation-repository';
@@ -60,6 +61,7 @@ function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly chal
   const result = describeChallengeResult(challenge.status);
   const identity = describeChallengeIdentity(challenge.snapshot);
   const recipientNames = challenge.snapshot.recipients.map((recipient) => recipient.name);
+  const people = formatPeople(recipientNames);
   const consequence = challenge.consequence && recipientNames.length > 0
     ? `${formatStake(challenge.consequence.stakeMinorUnits, challenge.consequence.currency)} for ${recipientNames.join(', ')}`
     : null;
@@ -76,12 +78,13 @@ function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly chal
     </View>
 
     {challenge.status === 'completed_failure' && consequence && <View style={styles.consequenceBlock}>
-      <Text style={styles.blockLabel}>CONSEQUENCE ATTACHED</Text>
+      <Text style={styles.blockLabel}>THE OTHER SIDE OF THE PROMISE</Text>
+      <Text style={styles.winText}>{people} win.</Text>
       <Text style={styles.consequenceText}>{consequence}</Text>
-      <Text style={styles.consequenceNote}>This describes the consequence connected to the challenge. It does not confirm payment or delivery.</Text>
+      <Text style={styles.consequenceNote}>You sit this one out. The reward is prepared separately from the final challenge result.</Text>
     </View>}
 
-    <RewardOrganizerAccess challengeId={challenge.id}/>
+    {challenge.status === 'completed_failure' && <RewardOrganizerAccess challenge={challenge}/>}
 
     <View style={styles.reflectionBlock}>
       <Text style={styles.reflectionTitle}>What is worth remembering for next time?</Text>
@@ -98,7 +101,7 @@ function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly chal
   </>;
 }
 
-function RewardOrganizerAccess({challengeId}:{readonly challengeId:string}){const[organizer,setOrganizer]=useState<OwnerRewardOrganizer|null>(null);const[error,setError]=useState<string|null>(null);useEffect(()=>{void fetchOwnerRewardOrganizer(challengeId).then(result=>result.ok?setOrganizer(result.value):setError(result.message));},[challengeId]);if(!organizer)return error?<Text style={styles.error}>{error}</Text>:null;const share=async()=>{const prepared=organizer.kind==='recipient'&&organizer.recipientId?await createRecipientInvitation(organizer.recipientId):await createOrganizerInvitation(organizer.id);if(!prepared.ok){setError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setError('A public invitation URL has not been configured yet.');return;}const result=await Share.share({message:`Hi ${organizer.displayName}, I chose you to organize the reward for my Kinwin challenge. Open your private invitation: ${url}`,url});if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);const refreshed=await fetchOwnerRewardOrganizer(challengeId);if(refreshed.ok)setOrganizer(refreshed.value);};return <View style={styles.organizerBlock}><Text style={styles.blockLabel}>REWARD ORGANIZER</Text><Text style={styles.consequenceText}>{organizer.displayName}</Text><Text style={styles.consequenceNote}>{organizer.status==='accepted'?'Organizer access accepted.':organizer.status==='declined'?'Organizer invitation declined.':organizer.status==='sent'?'Awaiting response.':'Private access has not been shared.'}</Text><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s organizer access`} accessibilityRole="button" onPress={()=>void share()} style={styles.secondary}><Text style={styles.secondaryText}>{organizer.invitationId?'Share again':'Share organizer invite'}</Text></Pressable>{error&&<Text style={styles.error}>{error}</Text>}</View>}
+function RewardOrganizerAccess({challenge}:{readonly challenge:CompletedChallenge}){const[organizer,setOrganizer]=useState<OwnerRewardOrganizer|null>(null);const[error,setError]=useState<string|null>(null);useEffect(()=>{void fetchOwnerRewardOrganizer(challenge.id).then(result=>result.ok?setOrganizer(result.value):setError(result.message));},[challenge.id]);if(!organizer||!challenge.rewardProgress)return error?<Text style={styles.error}>{error}</Text>:null;const presentation=describeOwnerRewardStatus(challenge.rewardProgress);const share=async()=>{setError(null);const prepared=organizer.kind==='recipient'&&organizer.recipientId?await createRecipientInvitation(organizer.recipientId):await createOrganizerInvitation(organizer.id);if(!prepared.ok){setError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setError('Private sharing is not available right now.');return;}const result=await Share.share({message:`Hi ${organizer.displayName}, here is your private access to organize the reward for my Kinwin challenge: ${url}`,url});if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);const refreshed=await fetchOwnerRewardOrganizer(challenge.id);if(refreshed.ok)setOrganizer(refreshed.value);};return <View style={styles.organizerBlock}><Text style={styles.blockLabel}>REWARD ORGANIZER</Text><Text style={styles.consequenceText}>{organizer.displayName}{organizer.kind==='recipient'?' is also a recipient.':''}</Text><Text accessibilityLiveRegion="polite" style={[styles.rewardStatus,presentation.tone==='success'&&styles.rewardSuccess,presentation.tone==='attention'&&styles.rewardAttention]}>{presentation.label}</Text><Text style={styles.consequenceNote}>{presentation.detail}</Text><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" onPress={()=>void share()} style={styles.secondary}><Text style={styles.secondaryText}>{organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share organizer access'}</Text></Pressable>{error&&<Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text>}</View>}
 
 function Message({ title, body, onPress }: { readonly title: string; readonly body: string; readonly onPress: () => void }) {
   return <View style={styles.message}><Text accessibilityRole="header" style={styles.messageTitle}>{title}</Text><Text style={styles.meaning}>{body}</Text><Pressable accessibilityRole="button" onPress={onPress} style={styles.secondary}><Text style={styles.secondaryText}>Continue</Text></Pressable></View>;
@@ -122,8 +125,12 @@ const styles = StyleSheet.create({
   date: { color: theme.colors.warmGrey, fontSize: 12, marginTop: 4 },
   consequenceBlock: { borderRadius: theme.radius.controlled, backgroundColor: theme.colors.oxbloodDeep, borderWidth: 1, borderColor: theme.colors.oxblood, padding: 16, gap: 7 },
   consequenceText: { color: theme.colors.ivory, fontSize: 16, fontWeight: '700' },
+  winText: { color: theme.colors.ivory, fontFamily: 'Georgia', fontSize: 24, lineHeight: 30 },
   consequenceNote: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   organizerBlock:{borderTopWidth:1,borderTopColor:theme.colors.structureLineStrong,paddingTop:16,gap:8},
+  rewardStatus:{color:theme.colors.ivoryMuted,fontSize:15,fontWeight:'800'},
+  rewardSuccess:{color:theme.colors.sage},
+  rewardAttention:{color:theme.colors.rosewood},
   reflectionBlock: { borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surfaceRaised, borderWidth: 1, borderColor: theme.colors.structureLineStrong, padding: 17, gap: 9, marginTop: 4 },
   reflectionTitle: { color: theme.colors.ivory, fontFamily: 'Georgia', fontSize: 21, lineHeight: 27 },
   reflectionBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
