@@ -177,6 +177,10 @@ test('real recipient token boundary is narrow, owner scoped and idempotent', asy
   const organizerStored=await service.from('invitations').select('token_hash').eq('id',organizerInvite.data.invitationId).single();assert.equal(JSON.stringify(organizerStored.data).includes(organizerInvite.data.token),false);
   const organizerResolved=await recipientCall(organizerInvite.data.token);assert.equal(organizerResolved.status,200);const organizerProjection=(await organizerResolved.json()).invitation;assert.equal(organizerProjection.accessRole,'organizer');assert.equal(organizerProjection.organizerName,'Alex');assert.deepEqual(organizerProjection.recipientNames,['Anna','Bo']);
   assert.equal((await recipientCall(organizerInvite.data.token,'accept')).status,200);assert.equal((await recipientCall(organizerInvite.data.token,'accept')).status,200);
+  const rotatedOrganizerInvite=await owner.c.functions.invoke('create-organizer-invitation',{body:{organizerId:canonical.data!.id}});assert.equal(rotatedOrganizerInvite.error,null);
+  assert.equal(rotatedOrganizerInvite.data.invitationId,organizerInvite.data.invitationId);
+  assert.equal((await recipientCall(organizerInvite.data.token)).status,404,'rotated organizer token remained valid');
+  const rotatedProjection=await recipientCall(rotatedOrganizerInvite.data.token);assert.equal(rotatedProjection.status,200);assert.equal((await rotatedProjection.json()).invitation.status,'accepted');
   assert.equal((await rewardLinkCall('x'.repeat(43))).status,404);
 
   assert.equal(

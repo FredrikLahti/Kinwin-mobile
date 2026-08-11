@@ -6,6 +6,12 @@ only to the authenticated challenge owner. `public.invitations` stores only its 
 hash. Asking to share again rotates the token and invalidates the older link while
 preserving an accepted or declined response.
 
+Rotation updates the existing invitation rather than creating a new identity. For a
+canonical organizer, the organizer row, accepted relationship, fulfillment, provider
+order ID, and provider reward ID remain unchanged. This makes Share again the recovery
+path when the organizer loses the private Kinwin URL; the rotated-out token no longer
+authorizes invitation or reward access.
+
 The public route sends the token to `recipient-invitation`. That trusted Edge Function
 looks up the hash with service credentials and returns exactly: invitation status, owner
 display name, recipient display name, goal, behavior description, consequence category,
@@ -32,5 +38,5 @@ and consequence. It contains no reward link and does not change fulfillment sema
 Kinwin v1 creates one full-value reward obligation for each successfully charged failed
 challenge. It never splits the stake or creates one reward per recipient. The canonical
 organizer coordinates one shared reward or experience for the immutable recipient group,
-and the owner sits out. Tremendous remains sandbox-only until operational review,
-credential provisioning, provider-evidence review, and lost-link recovery are complete.
+and the owner sits out. Tremendous remains sandbox-only until hosted verification,
+credential provisioning, operational monitoring, and production security review are complete.

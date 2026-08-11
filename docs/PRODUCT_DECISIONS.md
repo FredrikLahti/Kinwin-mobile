@@ -146,6 +146,11 @@
   challenge. The stake is never split per recipient. The canonical organizer is the
   single handoff target and coordinates one shared reward or experience for the locked
   recipient group. The challenge owner always sits out.
+* The accepted organizer invitation is the durable v1 reward recovery channel. Losing a
+  Tremendous LINK does not require contact PII: the organizer returns to Kinwin and explicitly
+  opens a freshly generated transient link. If the Kinwin URL is lost, Share again rotates the
+  bearer token while preserving the accepted invitation, canonical organizer, fulfillment, and
+  provider identities. The old token stops working.
 
 ## Brand and interaction
 
