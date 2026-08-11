@@ -19,7 +19,7 @@ export default function RecipientInvitationScreen() {
   const load=useCallback(async()=>{setState({kind:'loading'});const result=await accessRecipientInvitation(token);setState(result.ok?{kind:'ready',invitation:result.value,saving:false}:{kind:'error',message:result.message});},[token]);
   useEffect(()=>{void load();},[load]);
   const respond=async(action:'accept'|'decline')=>{if(state.kind!=='ready'||state.saving)return;setState({...state,saving:true});const result=await accessRecipientInvitation(token,action);setState(result.ok?{kind:'ready',invitation:result.value,saving:false}:{kind:'error',message:result.message});};
-  const openReward=async()=>{if(state.kind!=='ready'||state.saving)return;setRewardError(null);setState({...state,saving:true});const result=await generateOrganizerRewardLink(token);setState({...state,saving:false});if(result.ok)await Linking.openURL(result.value);else setRewardError(rewardLinkErrorMessage(result.kind));};
+  const openReward=async()=>{if(state.kind!=='ready'||state.saving)return;setRewardError(null);setState({...state,saving:true});const result=await generateOrganizerRewardLink(token);setState({...state,saving:false});if(!result.ok){setRewardError(rewardLinkErrorMessage(result.kind));return;}try{await Linking.openURL(result.value);}catch{setRewardError('The reward link could not be opened. Please try again.');}};
 
   return <SafeAreaView style={s.safe}><StatusBar style="light"/><ScrollView contentContainerStyle={s.content}>
     <Text style={s.wordmark}>KINWIN</Text>

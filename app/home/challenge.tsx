@@ -10,6 +10,7 @@ import { formatClockTime } from '@/lib/challenge-ux-preview/view-model';
 import { describeChallengeIdentity, describeConsequence, describeDurationPosition, describeProgress } from '@/lib/home/challenge-summary';
 import { playSelectionHaptic } from '@/lib/haptics';
 import { buildRecipientInvitationUrl } from '@/lib/recipient-invitations/url';
+import { buildInvitationShareContent } from '@/lib/recipient-invitations/share';
 import { createOrganizerInvitation, createRecipientInvitation, fetchOwnerInvitations, fetchOwnerRewardOrganizer, markRecipientInvitationShared, OwnerInvitation, OwnerRewardOrganizer } from '@/lib/supabase/recipient-invitation-repository';
 
 const STATUS_COPY = { ready: 'Ready to share', sent: 'Awaiting response', accepted: 'Accepted', declined: 'Declined' } as const;
@@ -69,12 +70,11 @@ export default function ActiveChallengeDetailScreen() {
     if (!prepared.ok) { setInviteError(prepared.message); return; }
     const url = buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL, prepared.value.token);
     if (!url) { setInviteError('A public invitation URL has not been configured yet.'); return; }
-    const message = `Hi ${recipientName}, I made a Kinwin challenge and chose you as a recipient. Open your private invitation: ${url}`;
-    const result = await Share.share({ message, url });
+    const result = await Share.share(buildInvitationShareContent(`Hi ${recipientName}, I made a Kinwin challenge and chose you as a recipient. Open your private invitation:`, url));
     if (result.action === Share.sharedAction) await markRecipientInvitationShared(prepared.value.invitationId);
     await loadInvitations();
   };
-  const shareOrganizerInvite=async()=>{if(!organizer||organizer.kind!=='other')return;void playSelectionHaptic();setInviteError(null);const prepared=await createOrganizerInvitation(organizer.id);if(!prepared.ok){setInviteError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setInviteError('A public invitation URL has not been configured yet.');return;}const result=await Share.share({message:`Hi ${organizer.displayName}, I chose you to organize the reward for my Kinwin challenge. Open your private invitation: ${url}`,url});if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);await loadInvitations();};
+  const shareOrganizerInvite=async()=>{if(!organizer||organizer.kind!=='other')return;void playSelectionHaptic();setInviteError(null);const prepared=await createOrganizerInvitation(organizer.id);if(!prepared.ok){setInviteError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setInviteError('A public invitation URL has not been configured yet.');return;}const result=await Share.share(buildInvitationShareContent(`Hi ${organizer.displayName}, I chose you to organize the reward for my Kinwin challenge. Open your private invitation:`,url));if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);await loadInvitations();};
 
   return (
     <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>

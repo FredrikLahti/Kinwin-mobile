@@ -172,6 +172,9 @@ these mutations.
 
 ## Physical iPhone beta checklist
 
+The complete managed Expo build contract, deep-link requirements, and device sequence live in
+[`IOS_BETA_BUILD.md`](./IOS_BETA_BUILD.md).
+
 - Long organizer and recipient names; three and four recipients; smallest supported screen.
 - Dynamic Type and VoiceOver reading/action order.
 - Native Share access again sheet after acceptance.

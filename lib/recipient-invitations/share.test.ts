@@ -1,0 +1,2 @@
+import assert from 'node:assert/strict';import test from 'node:test';import {buildInvitationShareContent} from './share';
+test('native share content carries the invitation URL exactly once',()=>{const url='https://beta.example/invite/'+ 'A'.repeat(43);const content=buildInvitationShareContent('Private access:',url);assert.equal(content.message.split(url).length-1,1);assert.deepEqual(Object.keys(content),['message']);});

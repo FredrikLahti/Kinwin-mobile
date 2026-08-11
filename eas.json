@@ -1,0 +1,20 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "requireCommit": true,
+    "appVersionSource": "local"
+  },
+  "build": {
+    "beta": {
+      "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": {
+        "KINWIN_VALIDATE_BETA": "1"
+      },
+      "ios": {
+        "simulator": false
+      }
+    }
+  }
+}
