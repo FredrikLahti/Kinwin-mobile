@@ -20,6 +20,7 @@ const SCAN_DIRS = [
   'app/account',
   'app/home',
   'app/auth',
+  'app/invite',
   'components/v2',
   'components/onboarding',
   'components/share',
