@@ -50,7 +50,9 @@ export async function saveChallengeDraft(input: SaveDraftInput): Promise<SaveDra
 
   if (error) {
     const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
-    return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
+    return isNetworkError
+      ? { ok: false, kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
+      : { ok: false, kind: 'unknown', message: 'Something went wrong. Try again.' };
   }
 
   return { ok: true, draft: mapped.value, recipientIds };
@@ -78,7 +80,9 @@ export async function fetchLatestEditableDraft(userId: string): Promise<LoadDraf
 
   if (error) {
     const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
-    return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
+    return isNetworkError
+      ? { ok: false, kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
+      : { ok: false, kind: 'unknown', message: 'Something went wrong. Try again.' };
   }
   if (!data) return { ok: true, draftId: null, data: null };
 

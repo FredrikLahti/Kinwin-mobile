@@ -347,7 +347,7 @@ export default function CreateReviewScreen() {
       </Pressable>
 
       <View style={styles.membershipRow}>
-        <Text style={styles.membershipText}>Confirming starts a 7 day free Kinwin membership trial, then $9.99 per month. Cancel anytime.</Text>
+        <Text style={styles.membershipText}>Kinwin membership is free during the beta. No card is charged for membership.</Text>
       </View>
     </CreateFlowScreenV2>
   );

@@ -29,6 +29,7 @@ export default function ActiveChallengeDetailScreen() {
   const [invitations, setInvitations] = useState<readonly OwnerInvitation[]>([]);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [organizer,setOrganizer]=useState<OwnerRewardOrganizer|null>(null);
+  const [sharingIds, setSharingIds] = useState<ReadonlySet<string>>(new Set());
   const challengeId = real.status === 'ready' ? real.data.challenge.id : '';
   const loadInvitations = useCallback(async () => { if (!challengeId) return; const [result,organizerResult] = await Promise.all([fetchOwnerInvitations(challengeId),fetchOwnerRewardOrganizer(challengeId)]); if (result.ok) setInvitations(result.value); else setInviteError(result.message);if(organizerResult.ok)setOrganizer(organizerResult.value);else setInviteError(organizerResult.message); }, [challengeId]);
   useFocusEffect(useCallback(() => { void loadInvitations(); }, [loadInvitations]));
@@ -63,7 +64,14 @@ export default function ActiveChallengeDetailScreen() {
   const durationPosition = describeDurationPosition(focusPeriod, real.view.progress.periodsTotal);
   const progressLine = describeProgress(challenge, real.view.currentPeriodStatus, real.view.progress, focusPeriod);
 
-  const shareInvite = async (recipientId: string, recipientName: string) => {
+  const withSharing = async (id: string, run: () => Promise<void>) => {
+    if (sharingIds.has(id)) return;
+    setSharingIds((current) => new Set(current).add(id));
+    try { await run(); }
+    finally { setSharingIds((current) => { const next = new Set(current); next.delete(id); return next; }); }
+  };
+
+  const shareInvite = (recipientId: string, recipientName: string) => withSharing(recipientId, async () => {
     void playSelectionHaptic();
     setInviteError(null);
     const prepared = await createRecipientInvitation(recipientId);
@@ -73,8 +81,19 @@ export default function ActiveChallengeDetailScreen() {
     const result = await Share.share(buildInvitationShareContent(`Hi ${recipientName}, I made a Kinwin challenge and chose you as a recipient. Open your private invitation:`, url));
     if (result.action === Share.sharedAction) await markRecipientInvitationShared(prepared.value.invitationId);
     await loadInvitations();
-  };
-  const shareOrganizerInvite=async()=>{if(!organizer||organizer.kind!=='other')return;void playSelectionHaptic();setInviteError(null);const prepared=await createOrganizerInvitation(organizer.id);if(!prepared.ok){setInviteError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setInviteError('A public invitation URL has not been configured yet.');return;}const result=await Share.share(buildInvitationShareContent(`Hi ${organizer.displayName}, I chose you to organize the reward for my Kinwin challenge. Open your private invitation:`,url));if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);await loadInvitations();};
+  });
+  const shareOrganizerInvite = () => withSharing('organizer', async () => {
+    if (!organizer || organizer.kind !== 'other') return;
+    void playSelectionHaptic();
+    setInviteError(null);
+    const prepared = await createOrganizerInvitation(organizer.id);
+    if (!prepared.ok) { setInviteError(prepared.message); return; }
+    const url = buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL, prepared.value.token);
+    if (!url) { setInviteError('A public invitation URL has not been configured yet.'); return; }
+    const result = await Share.share(buildInvitationShareContent(`Hi ${organizer.displayName}, I chose you to organize the reward for my Kinwin challenge. Open your private invitation:`, url));
+    if (result.action === Share.sharedAction) await markRecipientInvitationShared(prepared.value.invitationId);
+    await loadInvitations();
+  });
 
   return (
     <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>
@@ -128,12 +147,13 @@ export default function ActiveChallengeDetailScreen() {
             const invitation = invitations.find((item) => item.recipientId === recipient.id);
             const status = invitation?.status ?? 'ready';
             const isOrganizer=organizer?.kind==='recipient'&&organizer.recipientId===recipient.id;
-            return <View key={recipient.id} style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{recipient.name}</Text>{isOrganizer&&<Text style={styles.organizerRole}>RECIPIENT AND REWARD ORGANIZER</Text>}<Text style={[styles.inviteStatus, status === 'accepted' && styles.accepted]}>{invitation ? STATUS_COPY[status] : 'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${recipient.name}'s private access`} accessibilityRole="button" onPress={() => void shareInvite(recipient.id, recipient.name)} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{status==='accepted'?'Share access again':invitation?'Share again':'Share invite'}</Text></Pressable></View>;
+            const isSharing = sharingIds.has(recipient.id);
+            return <View key={recipient.id} style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{recipient.name}</Text>{isOrganizer&&<Text style={styles.organizerRole}>RECIPIENT AND REWARD ORGANIZER</Text>}<Text style={[styles.inviteStatus, status === 'accepted' && styles.accepted]}>{invitation ? STATUS_COPY[status] : 'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${recipient.name}'s private access`} accessibilityRole="button" disabled={isSharing} onPress={() => void shareInvite(recipient.id, recipient.name)} style={[styles.inviteButton, isSharing && styles.inviteButtonBusy]}><Text style={styles.inviteButtonText}>{isSharing?'Preparing…':status==='accepted'?'Share access again':invitation?'Share again':'Share invite'}</Text></Pressable></View>;
           })}</View>
           {inviteError && <Text accessibilityLiveRegion="polite" style={styles.inviteError}>{inviteError}</Text>}
         </View>
 
-        {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" onPress={()=>void shareOrganizerInvite()} style={styles.inviteButton}><Text style={styles.inviteButtonText}>{organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share access'}</Text></Pressable></View></View>}
+        {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" disabled={sharingIds.has('organizer')} onPress={()=>void shareOrganizerInvite()} style={[styles.inviteButton, sharingIds.has('organizer') && styles.inviteButtonBusy]}><Text style={styles.inviteButtonText}>{sharingIds.has('organizer')?'Preparing…':organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share access'}</Text></Pressable></View></View>}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>IF MISSED</Text>
@@ -175,7 +195,7 @@ const styles = StyleSheet.create({
   recipientCopy:{flex:1,paddingVertical:9,paddingRight:8},
   inviteStatus: { color: theme.colors.ivoryMuted, fontSize: 12, marginTop: 2 }, accepted: { color: theme.colors.sage },
   organizerRole:{color:theme.colors.rosewood,fontSize:9,fontWeight:'900',letterSpacing:1.1,marginTop:3},
-  inviteButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }, inviteButtonText: { color: theme.colors.rosewood, fontWeight: '800', fontSize: 13 }, inviteError: { color: theme.colors.crimsonBright, fontSize: 13, lineHeight: 18 },
+  inviteButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }, inviteButtonBusy: { opacity: 0.6 }, inviteButtonText: { color: theme.colors.rosewood, fontWeight: '800', fontSize: 13 }, inviteError: { color: theme.colors.crimsonBright, fontSize: 13, lineHeight: 18 },
   shareAction: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   shareActionText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
   emptyBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing.medium },
