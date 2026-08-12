@@ -140,6 +140,26 @@
   creates a Kin relationship. The same accepted link remains usable for future scoped
   reward delivery. See `docs/RECIPIENT_INVITATION_ACCESS.md`.
 
+## Reward organizer and fulfillment
+
+* Every prepared challenge has exactly one immutable canonical reward organizer. A
+  recipient organizer links to the existing beneficiary and reuses that invitation. An
+  external organizer remains a distinct non-beneficiary with organizer-scoped access.
+* Kinwin v1 creates one full-value reward obligation for one successfully charged failed
+  challenge. The stake is never split per recipient. The canonical organizer is the
+  single handoff target and coordinates one shared reward or experience for the locked
+  recipient group. The challenge owner always sits out.
+* The accepted organizer invitation is the durable v1 reward recovery channel. Losing a
+  Tremendous LINK does not require contact PII: the organizer returns to Kinwin and explicitly
+  opens a freshly generated transient link. If the Kinwin URL is lost, Share again rotates the
+  bearer token while preserving the accepted invitation, canonical organizer, fulfillment, and
+  provider identities. The old token stops working.
+* For owners, a failed challenge has four reward states: waiting for the organizer,
+  preparing the reward, ready for organizer handoff, and needs attention. For organizers,
+  reward access remains an explicit `Open reward` action. "Ready" means the external LINK is
+  ready for handoff; Kinwin does not claim that anyone redeemed it, used it, or attended the
+  experience.
+
 ## Brand and interaction
 
 * Visual theme: “Two Futures.”

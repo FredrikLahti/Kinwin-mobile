@@ -30,6 +30,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Validate hosted beta verifier syntax
+        run: node --check scripts/verify-hosted-beta.mjs
+
       - name: Install PostgreSQL
         run: |
           sudo apt-get update
@@ -83,7 +86,7 @@ jobs:
       # npm: specifiers).
       - name: Typecheck Edge Functions with Deno
         working-directory: supabase/functions
-        run: deno check **/*.ts
+        run: deno check **/*.ts ../../scripts/verify-tremendous-testflight.ts
 
       # Placeholder-only Stripe secrets for the local Edge Runtime — never
       # real credentials, and this workflow never requests or invents real

@@ -15,7 +15,7 @@ export type ChallengeResultPresentation = { readonly eyebrow: string; readonly h
 export function describeChallengeResult(status: TerminalChallengeStatus): ChallengeResultPresentation {
   return status === 'completed_success'
     ? { eyebrow: 'CHALLENGE COMPLETE', headline: 'You kept it.', meaning: 'You kept this challenge. The failure consequence does not apply.', homeStatus: 'Completed. You kept it.', tone: 'success' }
-    : { eyebrow: 'CHALLENGE COMPLETE', headline: 'You did not keep it.', meaning: 'This challenge is final. Its consequence is handled separately.', homeStatus: 'Completed. Not kept.', tone: 'failure' };
+    : { eyebrow: 'CHALLENGE COMPLETE', headline: 'You did not keep this one.', meaning: 'The challenge is final. Now the consequence moves to the people you chose.', homeStatus: 'Challenge missed', tone: 'failure' };
 }
 
 export function formatCompletedDate(value: string): string {
