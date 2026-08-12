@@ -6,6 +6,7 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-beta-web/
 web-build/
 expo-env.d.ts
 
@@ -49,3 +50,6 @@ yarn-error.*
 
 # generated visual-review screenshots
 /artifacts/screenshots/
+
+# deterministic, generated beta icon/splash assets (scripts/beta-assets.cjs)
+/assets/beta/*.png
