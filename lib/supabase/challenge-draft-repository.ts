@@ -5,6 +5,7 @@ import { resolveRecipientIds } from '@/domain/challenge/recipient-ids';
 import { restoreOnboardingDraftData } from '@/domain/challenge/to-onboarding-draft';
 import type { ChallengeDraft } from '@/domain/challenge/types';
 
+import { classifyDraftSaveError } from './classify-draft-save-error';
 import { supabase } from './client';
 import { planDraftMutation } from './draft-mutation';
 
@@ -19,10 +20,9 @@ export type SaveDraftResult =
   | { readonly ok: true; readonly draft: ChallengeDraft; readonly recipientIds: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly kind: 'invalid'; readonly issues: readonly DraftMappingIssue[] }
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
-  // A concurrent tab/session already turned this same draft into a pending
-  // commitment, so the immutable-archived-row trigger fired. This is an
-  // expected business signal, not a failure to report raw — callers resume
-  // the real commitment instead of showing an error (see app/create/review.tsx).
+  // See classifyDraftSaveError: a concurrent tab/session already archived
+  // this draft. Callers resume the real commitment (app/create/review.tsx)
+  // rather than showing an error.
   | { readonly ok: false; readonly kind: 'archived' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
@@ -54,12 +54,10 @@ export async function saveChallengeDraft(input: SaveDraftInput): Promise<SaveDra
       : await supabase.from('challenge_drafts').update(plan.row).eq('id', plan.id);
 
   if (error) {
-    const text = error.message.toLowerCase();
-    if (text.includes('archived')) return { ok: false, kind: 'archived' };
-    const isNetworkError = text.includes('network') || text.includes('fetch');
-    return isNetworkError
-      ? { ok: false, kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
-      : { ok: false, kind: 'unknown', message: 'Something went wrong. Try again.' };
+    const classification = classifyDraftSaveError(error.message);
+    return classification.kind === 'archived'
+      ? { ok: false, kind: 'archived' }
+      : { ok: false, kind: classification.kind, message: classification.message };
   }
 
   return { ok: true, draft: mapped.value, recipientIds };
