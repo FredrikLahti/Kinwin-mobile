@@ -19,15 +19,20 @@ jobs:
     # exposed to app.config.js (a dynamic config) through this repository
     # VARIABLE — see app.config.js's KINWIN_EAS_PROJECT_ID handling. Empty
     # on the very first run, before the project has been created below.
-    #
-    # EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is a Stripe *publishable* TEST key
-    # (client-safe by design, not a secret) supplied the same way, via a
-    # repository variable.
     env:
       KINWIN_EAS_PROJECT_ID: ${{ vars.KINWIN_EAS_PROJECT_ID }}
-      EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      # Registers the Stripe TEST publishable key for redaction (GitHub's
+      # `::add-mask::`) before anything else can echo it. It's read from a
+      # repository VARIABLE, not a secret, so GitHub Actions doesn't mask it
+      # automatically the way it does for `secrets.*` — this step exists
+      # purely so no later step's env/command banner ever prints it in full.
+      # Deliberately first, before this value is used anywhere else below.
+      - name: Mask the Stripe publishable key in workflow logs
+        if: vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY != ''
+        run: echo "::add-mask::${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -113,8 +118,12 @@ jobs:
 
       # Fail closed rather than silently skipping or forwarding a live/malformed
       # value: this must be a Stripe *TEST* publishable key, never a secret key.
+      # Scoped to this one step (not job-level env) so it's the only step
+      # whose banner references it at all — already masked by the step above.
       - name: Wire Stripe TEST publishable key into EAS preview environment
         if: steps.check-link.outputs.linked == 'true'
+        env:
+          EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
         run: |
           if [ -z "$EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" ]; then
             echo "::error::EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY repository variable is not set."
