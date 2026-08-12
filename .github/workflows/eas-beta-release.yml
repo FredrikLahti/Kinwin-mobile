@@ -19,8 +19,13 @@ jobs:
     # exposed to app.config.js (a dynamic config) through this repository
     # VARIABLE — see app.config.js's KINWIN_EAS_PROJECT_ID handling. Empty
     # on the very first run, before the project has been created below.
+    #
+    # EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is a Stripe *publishable* TEST key
+    # (client-safe by design, not a secret) supplied the same way, via a
+    # repository variable.
     env:
       KINWIN_EAS_PROJECT_ID: ${{ vars.KINWIN_EAS_PROJECT_ID }}
+      EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -105,6 +110,121 @@ jobs:
         run: |
           eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value "https://ywoledppusxwdonwsewh.supabase.co" --visibility plaintext --non-interactive
           eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR" --visibility plaintext --non-interactive
+
+      # Fail closed rather than silently skipping or forwarding a live/malformed
+      # value: this must be a Stripe *TEST* publishable key, never a secret key.
+      - name: Wire Stripe TEST publishable key into EAS preview environment
+        if: steps.check-link.outputs.linked == 'true'
+        run: |
+          if [ -z "$EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" ]; then
+            echo "::error::EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY repository variable is not set."
+            exit 1
+          fi
+          case "$EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" in
+            pk_test_*) ;;
+            *) echo "::error::EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a Stripe TEST publishable key (pk_test_...)."; exit 1 ;;
+          esac
+          eas env:set --environment preview --name EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY --value "$EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY" --visibility plaintext --non-interactive
+
+      # Claims (or reuses) a stable EAS Hosting production URL of the form
+      # https://<name>.expo.app — NOT the per-deployment
+      # https://<name>--<deployment-id>.expo.app form — since the native app's
+      # associated domain must stay the same across web deployments. This is a
+      # *plain* export (the beta gate is off): app.config.js's beta validation
+      # needs EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL, which doesn't exist
+      # yet on a first run, so this can't be the real beta export — it exists
+      # only to discover/claim the origin.
+      - name: Export a plain web build to claim the EAS Hosting origin
+        if: steps.check-link.outputs.linked == 'true'
+        run: npx expo export --platform web --output-dir dist-bootstrap-web
+
+      # --dev-domain is idempotent: re-running with the project's own
+      # already-claimed name succeeds without changing anything, so this step
+      # (and the redeploy below) are safe to re-run on every future manual
+      # trigger. Two failure modes are handled explicitly, since they're
+      # expected, not exceptional: the candidate name is taken by another
+      # project (try the next candidate), or this project already claimed a
+      # *different* name in a prior run (reuse it instead of erroring).
+      - name: Claim a stable EAS Hosting production origin
+        id: hosting-origin
+        if: steps.check-link.outputs.linked == 'true'
+        run: |
+          candidates=(kinwin-beta kinwin-beta-1 kinwin-beta-2 kinwin-beta-3 kinwin-beta-4)
+          claimed=""
+          for name in "${candidates[@]}"; do
+            echo "Trying EAS Hosting origin: $name.expo.app"
+            if eas deploy --non-interactive --json --prod --dev-domain "$name" --export-dir dist-bootstrap-web --environment preview > /tmp/deploy-bootstrap.json 2> /tmp/deploy-bootstrap.err; then
+              claimed="$name"
+              break
+            fi
+            if grep -q "is already set to" /tmp/deploy-bootstrap.err; then
+              existing=$(grep -oE '"[a-z0-9-]+\.expo\.app"' /tmp/deploy-bootstrap.err | head -1 | tr -d '"')
+              claimed="${existing%.expo.app}"
+              echo "This project already has an EAS Hosting origin from a prior run: $claimed.expo.app — reusing it"
+              if eas deploy --non-interactive --json --prod --dev-domain "$claimed" --export-dir dist-bootstrap-web --environment preview > /tmp/deploy-bootstrap.json 2> /tmp/deploy-bootstrap.err; then
+                break
+              fi
+              echo "::error::Failed to redeploy to the project's existing EAS Hosting origin ($claimed.expo.app):"
+              cat /tmp/deploy-bootstrap.err
+              exit 1
+            fi
+            if grep -q "already taken" /tmp/deploy-bootstrap.err; then
+              echo "$name.expo.app is already taken by another project, trying the next candidate"
+              continue
+            fi
+            echo "::error::eas deploy failed for an unexpected reason:"
+            cat /tmp/deploy-bootstrap.err
+            exit 1
+          done
+          if [ -z "$claimed" ]; then
+            echo "::error::Could not claim any candidate EAS Hosting origin: ${candidates[*]}"
+            exit 1
+          fi
+          origin=$(jq -r '.production.url' /tmp/deploy-bootstrap.json)
+          echo "Claimed EAS Hosting origin: $origin"
+          echo "origin=$origin" >> "$GITHUB_OUTPUT"
+          echo "dev_domain=$claimed" >> "$GITHUB_OUTPUT"
+
+      # Now that the stable origin is known, produce the real beta web build
+      # (all four public values set) and redeploy it to the SAME origin —
+      # same --dev-domain, so the URL doesn't change, only the content. AASA
+      # generation is deliberately skipped here: it requires a real
+      # KINWIN_APPLE_TEAM_ID (see docs/IOS_BETA_BUILD.md), which isn't known
+      # yet — that's added once it exists, never invented.
+      - name: Export the real beta web build with the discovered origin
+        if: steps.check-link.outputs.linked == 'true'
+        env:
+          KINWIN_VALIDATE_BETA: '1'
+          EXPO_PUBLIC_SUPABASE_URL: https://ywoledppusxwdonwsewh.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR
+          EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
+        run: npx expo export --platform web --output-dir dist-beta-web
+
+      - name: Deploy the real beta web build to the same EAS Hosting origin
+        if: steps.check-link.outputs.linked == 'true'
+        run: eas deploy --non-interactive --json --prod --dev-domain "${{ steps.hosting-origin.outputs.dev_domain }}" --export-dir dist-beta-web --environment preview
+
+      # Uses a harmless dummy token purely to confirm routing — never a real
+      # invitation bearer token.
+      - name: Verify the real beta web origin over HTTPS
+        if: steps.check-link.outputs.linked == 'true'
+        run: |
+          origin="${{ steps.hosting-origin.outputs.origin }}"
+          root_status=$(curl -s -o /dev/null -w '%{http_code}' "$origin/")
+          if [ "$root_status" != "200" ]; then
+            echo "::error::Beta web origin root did not respond 200 (got $root_status): $origin/"
+            exit 1
+          fi
+          invite_status=$(curl -s -o /dev/null -w '%{http_code}' "$origin/invite/kinwin-routing-verification-only")
+          if [ "$invite_status" != "200" ]; then
+            echo "::error::/invite/<token> did not resolve to the Expo Router SPA (got $invite_status, expected 200): $origin/invite/<token>"
+            exit 1
+          fi
+          echo "Beta web origin verified over HTTPS: $origin (root and /invite/<token> both 200)"
+
+      - name: Set the real invitation origin in EAS preview environment
+        if: steps.check-link.outputs.linked == 'true'
+        run: eas env:set --environment preview --name EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL --value "${{ steps.hosting-origin.outputs.origin }}" --visibility plaintext --non-interactive
 
       # Internal distribution, TEST-only config (see scripts/beta-public-config.cjs
       # and eas.json's "beta" profile). Never submits to App Store. If Apple
