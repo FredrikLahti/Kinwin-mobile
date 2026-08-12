@@ -6,16 +6,17 @@ ensureBetaAssets();
 const betaBuild = process.env.EAS_BUILD_PROFILE === 'beta' || process.env.KINWIN_VALIDATE_BETA === '1';
 const beta = betaBuild ? validateBetaPublicConfig(process.env) : null;
 
-// This app config is dynamic (a .js file), so `eas init` cannot write the
+// This app config is dynamic (a .js file), so `eas init` couldn't write the
 // created project's extra.eas.projectId into it automatically (Expo's own
-// tooling refuses to rewrite JS config files). Once the EAS project exists,
-// its ID is not secret, so it's supplied here via a plain environment
-// variable instead: either a real deployment env, or the non-secret
-// KINWIN_EAS_PROJECT_ID repository variable the beta-release GitHub Actions
-// workflow sets (see .github/workflows/eas-beta-release.yml). If it's unset,
-// EAS CLI commands that need project context simply have no project linked
-// yet, which is the correct first-run state.
-const easProjectId = process.env.KINWIN_EAS_PROJECT_ID;
+// tooling refuses to rewrite JS config files) — the beta-release GitHub
+// Actions workflow's first bootstrap run created the real EAS project
+// (@kinwin/kinwin-mobile) and surfaced its ID in the run log. The ID isn't
+// secret, so it's committed here as the default; KINWIN_EAS_PROJECT_ID can
+// still override it (e.g. to point at a different project) if ever needed.
+// The workflow always defines this env var (empty string when the repo
+// variable is unset), so `||` (not `??`) is required for the default to
+// actually apply there.
+const easProjectId = process.env.KINWIN_EAS_PROJECT_ID || 'f229b6b8-d2ab-4815-a32c-c2952f6995ec';
 
 module.exports = {
   expo: {
