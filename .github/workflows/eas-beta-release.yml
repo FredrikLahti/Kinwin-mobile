@@ -206,6 +206,7 @@ jobs:
           KINWIN_VALIDATE_BETA: '1'
           EXPO_PUBLIC_SUPABASE_URL: https://ywoledppusxwdonwsewh.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR
+          EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
           EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
         run: npx expo export --platform web --output-dir dist-beta-web
 
