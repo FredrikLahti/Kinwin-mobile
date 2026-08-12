@@ -21,7 +21,6 @@ export default function HomeScreen() {
       >
         <View style={styles.container}>
           <View style={styles.topRow}>
-            <Text style={styles.version}>Mobile V1</Text>
             <Pressable
               accessibilityHint="Opens sign in and sign up"
               accessibilityRole="button"
@@ -72,20 +71,8 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: 12,
-  },
-  version: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: '#C9C9C3',
-    borderRadius: 999,
-    color: '#4C4C48',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.6,
   },
   authLink: {
     flexShrink: 1,

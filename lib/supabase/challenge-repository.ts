@@ -6,7 +6,9 @@ import { supabase } from './client';
 
 function classifyError(error: { message: string }): { readonly kind: 'network' | 'unknown'; readonly message: string } {
   const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
-  return { kind: isNetworkError ? 'network' : 'unknown', message: error.message };
+  return isNetworkError
+    ? { kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
+    : { kind: 'unknown', message: 'Something went wrong. Try again.' };
 }
 
 export type PrepareChallengeFromDraftResult =

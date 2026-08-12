@@ -5,6 +5,7 @@ import { resolveRecipientIds } from '@/domain/challenge/recipient-ids';
 import { restoreOnboardingDraftData } from '@/domain/challenge/to-onboarding-draft';
 import type { ChallengeDraft } from '@/domain/challenge/types';
 
+import { classifyDraftSaveError } from './classify-draft-save-error';
 import { supabase } from './client';
 import { planDraftMutation } from './draft-mutation';
 
@@ -19,6 +20,10 @@ export type SaveDraftResult =
   | { readonly ok: true; readonly draft: ChallengeDraft; readonly recipientIds: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly kind: 'invalid'; readonly issues: readonly DraftMappingIssue[] }
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
+  // See classifyDraftSaveError: a concurrent tab/session already archived
+  // this draft. Callers resume the real commitment (app/create/review.tsx)
+  // rather than showing an error.
+  | { readonly ok: false; readonly kind: 'archived' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
 /**
@@ -49,8 +54,10 @@ export async function saveChallengeDraft(input: SaveDraftInput): Promise<SaveDra
       : await supabase.from('challenge_drafts').update(plan.row).eq('id', plan.id);
 
   if (error) {
-    const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
-    return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
+    const classification = classifyDraftSaveError(error.message);
+    return classification.kind === 'archived'
+      ? { ok: false, kind: 'archived' }
+      : { ok: false, kind: classification.kind, message: classification.message };
   }
 
   return { ok: true, draft: mapped.value, recipientIds };
@@ -78,7 +85,9 @@ export async function fetchLatestEditableDraft(userId: string): Promise<LoadDraf
 
   if (error) {
     const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
-    return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
+    return isNetworkError
+      ? { ok: false, kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
+      : { ok: false, kind: 'unknown', message: 'Something went wrong. Try again.' };
   }
   if (!data) return { ok: true, draftId: null, data: null };
 
