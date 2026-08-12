@@ -241,6 +241,20 @@ jobs:
       # signing credentials don't exist yet for this project, EAS will fail this
       # step with the specific credential step it needs next — that failure is
       # expected on a first run and must not be papered over here.
+      #
+      # `eas build` sets EAS_BUILD_PROFILE=beta locally (confirmed by
+      # reproducing this exact failure: with only that set and none of the
+      # four values below, app.config.js's beta gate throws), but it does
+      # NOT sync the values already configured in EAS's "preview" environment
+      # into its own local pre-flight config resolution — those are only
+      # injected into the remote build worker, which local resolution has to
+      # succeed before ever reaching. So the same four values the export step
+      # needed are needed here too, for the same reason.
       - name: Attempt beta iOS build
         if: steps.check-link.outputs.linked == 'true'
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://ywoledppusxwdonwsewh.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR
+          EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
         run: eas build --platform ios --profile beta --non-interactive --wait
