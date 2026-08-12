@@ -91,6 +91,21 @@ jobs:
           eas project:info
           npx expo config --json | jq '{name, slug, iosBundleIdentifier: .ios.bundleIdentifier, extra}'
 
+      # The beta build gate (scripts/beta-public-config.cjs, triggered by EAS
+      # setting EAS_BUILD_PROFILE=beta during `eas build`) requires these in
+      # process.env or it fails the build outright. Per docs/IOS_BETA_BUILD.md,
+      # these are provided through the EAS "preview" environment, never
+      # committed to the repo. `eas env:set` create-or-updates, so this is
+      # safe to run every time. Both values are public/client-safe (a
+      # Supabase project URL and its publishable anon key, the same class of
+      # value already embedded in the built app) — not secrets, hence
+      # `--visibility plaintext`.
+      - name: Configure EAS preview environment (known public values)
+        if: steps.check-link.outputs.linked == 'true'
+        run: |
+          eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value "https://ywoledppusxwdonwsewh.supabase.co" --visibility plaintext --non-interactive
+          eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR" --visibility plaintext --non-interactive
+
       # Internal distribution, TEST-only config (see scripts/beta-public-config.cjs
       # and eas.json's "beta" profile). Never submits to App Store. If Apple
       # signing credentials don't exist yet for this project, EAS will fail this
