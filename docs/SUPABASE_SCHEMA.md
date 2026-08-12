@@ -34,6 +34,7 @@ active financial commitment. A future trusted account-deletion workflow must res
 | `challenge_drafts` | Editable normalized `ChallengeDraft` JSON plus relational owner/version/status. Raw UI state is excluded. |
 | `challenges` | Lifecycle/result status and immutable `ActivatedChallengeSnapshot` JSON plus query-critical activation metadata. |
 | `challenge_recipients` | Ordered, queryable recipient names and recipient-organizer role. The snapshot remains authoritative. |
+| `challenge_reward_organizers` | Exactly one immutable organizer identity per prepared challenge, optionally linked to a recipient. |
 | `challenge_periods` | Trusted day/week/continuous windows, structured target payload, and computed period status. |
 | `check_in_events` | Append-only Build, Cut back, Stop, and correction event payloads. |
 | `consequences` | Client-readable consequence, authorization, stake, and currency summary. |

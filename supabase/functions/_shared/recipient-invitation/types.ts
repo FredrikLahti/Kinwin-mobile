@@ -2,11 +2,15 @@ export type RecipientInvitationStatus = 'ready' | 'sent' | 'accepted' | 'decline
 export type RecipientInvitationProjection = {
   readonly status: RecipientInvitationStatus;
   readonly ownerName: string;
-  readonly recipientName: string;
+  readonly recipientName: string | null;
   readonly goal: string;
   readonly behavior: string;
   readonly consequenceCategory: string;
   readonly ownerSitsOut: true;
+  readonly accessRole: 'recipient' | 'organizer';
+  readonly organizerName: string | null;
+  readonly recipientNames: readonly string[];
+  readonly rewardStatus: 'preparing' | 'processing' | 'ready' | 'needs_attention' | null;
 };
 
-export const RECIPIENT_PROJECTION_KEYS = ['status', 'ownerName', 'recipientName', 'goal', 'behavior', 'consequenceCategory', 'ownerSitsOut'] as const;
+export const RECIPIENT_PROJECTION_KEYS = ['status','ownerName','recipientName','goal','behavior','consequenceCategory','ownerSitsOut','accessRole','organizerName','recipientNames','rewardStatus'] as const;

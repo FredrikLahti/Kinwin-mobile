@@ -6,7 +6,7 @@ export default { fetch: withSupabase<any>({ auth: 'none' }, async (req, ctx) => 
   const body = await req.json().catch(() => ({})); const token = body.token;
   if (!isRecipientTokenShape(token)) return Response.json({ error: 'not_found' }, { status: 404 });
   const tokenHash = await hashRecipientToken(token);
-  const { data: invitation } = await ctx.supabaseAdmin.from('invitations').select('id, invitation_status, recipient_id, challenge_id, challenge_recipients!inner(display_name), challenges!inner(owner_id, activation_snapshot, source_draft_id)').eq('token_hash', tokenHash).maybeSingle();
+  const { data: invitation } = await ctx.supabaseAdmin.from('invitations').select('id, invitation_status, recipient_id, organizer_id, challenge_id, challenge_recipients(display_name), challenge_reward_organizers(display_name), challenges!inner(owner_id, activation_snapshot, source_draft_id)').eq('token_hash', tokenHash).maybeSingle();
   if (!invitation) return Response.json({ error: 'not_found' }, { status: 404 });
   const action = body.action;
   if (action === 'accept' || action === 'decline') {
@@ -27,6 +27,10 @@ export default { fetch: withSupabase<any>({ auth: 'none' }, async (req, ctx) => 
   let source = snapshot;
   if (!snapshot.goal && challenge.source_draft_id) { const { data } = await ctx.supabaseAdmin.from('challenge_drafts').select('draft_payload').eq('id', challenge.source_draft_id).single(); source = data?.draft_payload ?? {}; }
   const { data: profile } = await ctx.supabaseAdmin.from('profiles').select('display_name').eq('id', challenge.owner_id).maybeSingle();
-  const projection: RecipientInvitationProjection = { status: invitation.invitation_status, ownerName: profile?.display_name?.trim() || 'Someone close to you', recipientName: (invitation.challenge_recipients as any).display_name, goal: source.goal || '', behavior: source.behavior?.description || '', consequenceCategory: source.consequenceCategory || source.experienceCategory || '', ownerSitsOut: true };
+  const {data:canonical}=await ctx.supabaseAdmin.from('challenge_reward_organizers').select('display_name, challenge_recipient_id').eq('challenge_id',invitation.challenge_id).single();
+  const isOrganizer=invitation.organizer_id!==null||canonical?.challenge_recipient_id===invitation.recipient_id;
+  const {data:recipientRows}=isOrganizer?await ctx.supabaseAdmin.from('challenge_recipients').select('display_name').eq('challenge_id',invitation.challenge_id).order('sort_order'):({data:[]} as any);
+  const handoff=isOrganizer&&invitation.invitation_status==='accepted'?(await ctx.supabaseAdmin.rpc('get_accepted_organizer_reward_handoff',{p_invitation_id:invitation.id})).data:null;
+  const projection: RecipientInvitationProjection = { status: invitation.invitation_status, ownerName: profile?.display_name?.trim() || 'Someone close to you', recipientName: invitation.recipient_id ? (invitation.challenge_recipients as any)?.display_name ?? null : null, goal: source.goal || '', behavior: source.behavior?.description || '', consequenceCategory: source.consequenceCategory || source.experienceCategory || '', ownerSitsOut: true, accessRole:isOrganizer?'organizer':'recipient',organizerName:canonical?.display_name??(invitation.challenge_reward_organizers as any)?.display_name??null,recipientNames:(recipientRows??[]).map((row:any)=>row.display_name),rewardStatus:handoff?.status??null };
   return Response.json({ invitation: projection });
 }) };

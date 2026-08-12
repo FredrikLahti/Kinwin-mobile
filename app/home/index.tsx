@@ -17,6 +17,7 @@ import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challe
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
 import { ActivityItem, fetchKinActivity, fetchKinCurrentChallenges, KinCurrentChallenge } from '@/lib/supabase/kin-repository';
@@ -144,6 +145,7 @@ export default function HomeV2() {
   const identity = real.status === 'ready' ? describeChallengeIdentity(real.data.challenge) : null;
   const completedIdentity = completed.status === 'ready' ? describeChallengeIdentity(completed.data.snapshot) : null;
   const completedPresentation = completed.status === 'ready' ? describeChallengeResult(completed.data.status) : null;
+  const completedRewardPresentation = completed.status === 'ready' && completed.data.rewardProgress ? describeOwnerRewardStatus(completed.data.rewardProgress) : null;
 
   // Recent real events first; only fill remaining slots with current Kin
   // state for a challenge no fetched event already covers, so the same
@@ -249,6 +251,8 @@ export default function HomeV2() {
                 <Text style={[styles.completedStatus, completedPresentation.tone === 'success' ? styles.completedSuccess : styles.completedFailure]}>
                   {completedPresentation.homeStatus}
                 </Text>
+                {completed.data.status === 'completed_failure' && <Text style={styles.completedRule}>{formatPeople(completed.data.snapshot.recipients.map((recipient) => recipient.name))} win.</Text>}
+                {completedRewardPresentation && <Text style={completedRewardPresentation.tone === 'success' ? styles.completedSuccess : styles.completedRule}>{completedRewardPresentation.label}</Text>}
                 <Text style={styles.completedDate}>Completed {formatCompletedDate(completed.data.completedAt)}</Text>
                 <Pressable
                   accessibilityHint="Opens the final result for this challenge"
