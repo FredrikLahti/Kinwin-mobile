@@ -19,6 +19,10 @@ if (!first.ok || !second.ok || first.reward.orderId !== second.reward.orderId ||
 }
 console.log(`PASS Testflight order idempotency. Order ${first.reward.orderId}; reward ${first.reward.rewardId}.`);
 const state = await createTremendousReconciliationAdapter(config)(first.reward.rewardId, first.reward.orderId);
+if (state.kind === 'failure') {
+  console.error(`FAIL reward retrieval failed: ${state.code}${state.providerStatus ? ` (provider status ${state.providerStatus})` : ''}.`);
+  Deno.exit(1);
+}
 console.log(`PASS reward retrieval classified as ${state.kind}${state.providerStatus ? ` (${state.providerStatus})` : ''}.`);
 if (state.kind === 'ready') {
   const generated = await createTremendousGenerateLinkAdapter(config)(first.reward.rewardId);

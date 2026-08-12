@@ -57,6 +57,12 @@ async function main() {
   } else if (aasaResponse.status !== 200) {
     fail(`${aasaUrl} returned status ${aasaResponse.status}, expected 200`);
   } else {
+    const contentType = aasaResponse.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+      fail(`${aasaUrl} was served with Content-Type "${contentType || '(none)'}"; Apple requires application/json`);
+    } else {
+      pass('AASA is served with Content-Type application/json');
+    }
     let body;
     try {
       body = await aasaResponse.json();

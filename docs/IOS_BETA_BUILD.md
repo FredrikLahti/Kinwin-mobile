@@ -56,13 +56,17 @@ web output `single`) and then writes `dist-beta-web/.well-known/apple-app-site-a
 scopes the association to exactly `/invite/*` — never the whole domain, never a token or query.
 `public/_redirects` rewrites `/invite/*` to the exported `index.html` for Netlify-style static
 hosts; an equivalent catch-all rewrite scoped to `/invite/*` is required on any other static host.
-Until the AASA file is actually deployed at that host, Safari can render the public route but iOS
-cannot reliably hand the HTTPS link to the installed app. Once deployed, `npm run
+Apple requires the AASA file to be served as `Content-Type: application/json`; a static host that
+serves extensionless files as `application/octet-stream` by default will pass every other check
+here and still silently fail on-device. `public/_headers` sets that header for Netlify-style static
+hosts; an equivalent header rule is required on any other static host. Until the AASA file is
+actually deployed at that host with the correct content type, Safari can render the public route
+but iOS cannot reliably hand the HTTPS link to the installed app. Once deployed, `npm run
 verify:beta-universal-links` (with `EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL` and
 `KINWIN_APPLE_TEAM_ID` set) is a read-only check that the live host serves the expected AASA
-content with no redirect and that `/invite/*` resolves to the web app instead of a 404 — it never
-prints a token or secret. The custom `kinwin` scheme continues to support native Stripe return
-routing; it is not substituted for the public invitation URL.
+content — with the correct `Content-Type` and no redirect — and that `/invite/*` resolves to the
+web app instead of a 404; it never prints a token or secret. The custom `kinwin` scheme continues
+to support native Stripe return routing; it is not substituted for the public invitation URL.
 
 ## Supabase Auth redirects
 
