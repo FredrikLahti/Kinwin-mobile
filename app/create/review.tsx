@@ -207,16 +207,14 @@ export default function CreateReviewScreen() {
         case 'not_configured':
           setSaveErrorMessage('Sign in to save your progress.');
           break;
+        case 'archived':
+          // An existing commitment was already prepared under a different
+          // tab/session, or any other path that slipped past the focus
+          // guard above — resume the real commitment instead of showing an
+          // error for a draft that can no longer be saved.
+          router.replace('/account/pending-commitment' as Href);
+          return;
         default:
-          // Last-resort net: an existing commitment being prepared under a
-          // different tab/session, or any other path that slipped past the
-          // focus guard above, surfaces as exactly this immutability error
-          // — resume the real commitment instead of showing a raw database
-          // message.
-          if (result.message.toLowerCase().includes('archived')) {
-            router.replace('/account/pending-commitment' as Href);
-            return;
-          }
           setSaveErrorMessage(result.message);
       }
       return;

@@ -19,6 +19,11 @@ export type SaveDraftResult =
   | { readonly ok: true; readonly draft: ChallengeDraft; readonly recipientIds: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly kind: 'invalid'; readonly issues: readonly DraftMappingIssue[] }
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
+  // A concurrent tab/session already turned this same draft into a pending
+  // commitment, so the immutable-archived-row trigger fired. This is an
+  // expected business signal, not a failure to report raw — callers resume
+  // the real commitment instead of showing an error (see app/create/review.tsx).
+  | { readonly ok: false; readonly kind: 'archived' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
 /**
@@ -49,7 +54,9 @@ export async function saveChallengeDraft(input: SaveDraftInput): Promise<SaveDra
       : await supabase.from('challenge_drafts').update(plan.row).eq('id', plan.id);
 
   if (error) {
-    const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
+    const text = error.message.toLowerCase();
+    if (text.includes('archived')) return { ok: false, kind: 'archived' };
+    const isNetworkError = text.includes('network') || text.includes('fetch');
     return isNetworkError
       ? { ok: false, kind: 'network', message: 'Could not reach Kinwin. Check your connection and try again.' }
       : { ok: false, kind: 'unknown', message: 'Something went wrong. Try again.' };
