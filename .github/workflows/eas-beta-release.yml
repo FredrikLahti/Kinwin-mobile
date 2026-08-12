@@ -15,6 +15,12 @@ jobs:
   eas-beta-release:
     name: Bootstrap EAS and attempt iOS beta build
     runs-on: ubuntu-latest
+    # The EAS project ID isn't secret. Once the project exists, its ID is
+    # exposed to app.config.js (a dynamic config) through this repository
+    # VARIABLE — see app.config.js's KINWIN_EAS_PROJECT_ID handling. Empty
+    # on the very first run, before the project has been created below.
+    env:
+      KINWIN_EAS_PROJECT_ID: ${{ vars.KINWIN_EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,11 +53,40 @@ jobs:
             echo "linked=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create or link the EAS project
+      # app.config.js is a *dynamic* config (JavaScript, not app.json), so no
+      # eas-cli command can persist extra.eas.projectId into it automatically
+      # — Expo's own CLI refuses to rewrite JS config files. Every EAS
+      # command that needs project context hits this same limitation, not
+      # just `eas init`, so there's no supported way to create the project
+      # and continue toward a build in this same run without already knowing
+      # its ID beforehand (confirmed by reading eas-cli's actual init/project
+      # ID resolution source; `eas init --json` does not help either, since
+      # it throws before producing any JSON when the config is dynamic).
+      #
+      # So this step only ever creates the project on the server and prints
+      # its ID in this log via EAS CLI's own warning message — the ID isn't
+      # secret. continue-on-error keeps that log instead of aborting the job
+      # here; the explicit failure step below tells the founder exactly what
+      # one-time, non-technical action finishes the job:  copy the project
+      # ID into the KINWIN_EAS_PROJECT_ID repository *variable* (Settings ->
+      # Secrets and variables -> Actions -> Variables — not Secrets, since
+      # it's not sensitive), then re-run this workflow. On that re-run,
+      # check-link above already resolves the ID from app.config.js and this
+      # step is skipped entirely.
+      - name: Create the EAS project (first bootstrap run only)
+        id: init
         if: steps.check-link.outputs.linked != 'true'
+        continue-on-error: true
         run: eas init --force --non-interactive
 
+      - name: EAS project ID not yet available to app.config.js
+        if: steps.check-link.outputs.linked != 'true'
+        run: |
+          echo "::error::The EAS project was created on the server (see the 'Create the EAS project' step's log above for its ID), but app.config.js is a dynamic config so EAS CLI could not persist the ID there automatically. Copy the project ID from that log, then add it as a repository VARIABLE named KINWIN_EAS_PROJECT_ID (GitHub repo -> Settings -> Secrets and variables -> Actions -> Variables tab -> New repository variable; not a secret, the ID isn't sensitive). Re-run this workflow afterward to continue to the build."
+          exit 1
+
       - name: Show EAS project info (non-secret)
+        if: steps.check-link.outputs.linked == 'true'
         run: |
           eas project:info
           npx expo config --json | jq '{name, slug, iosBundleIdentifier: .ios.bundleIdentifier, extra}'
@@ -62,4 +97,5 @@ jobs:
       # step with the specific credential step it needs next — that failure is
       # expected on a first run and must not be papered over here.
       - name: Attempt beta iOS build
+        if: steps.check-link.outputs.linked == 'true'
         run: eas build --platform ios --profile beta --non-interactive --wait
