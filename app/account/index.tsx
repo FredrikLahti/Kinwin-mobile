@@ -2,6 +2,7 @@ import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -18,6 +19,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { readSupportConfig } from '@/lib/support/config';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
 
@@ -107,6 +109,13 @@ export default function AccountScreen() {
     void playSelectionHaptic();
     await signOut();
     router.replace('/' as Href);
+  };
+
+  const supportConfig = readSupportConfig();
+  const contactSupport = () => {
+    if (!supportConfig) return;
+    void playSelectionHaptic();
+    void Linking.openURL(`mailto:${supportConfig.email}?subject=${encodeURIComponent('Kinwin support')}`);
   };
 
   return (
@@ -216,6 +225,22 @@ export default function AccountScreen() {
               <Text style={styles.toggleLabel}>Show &quot;How Kinwin works&quot; before creating a challenge</Text>
               <Text style={styles.textButtonLabel}>{(profile?.showChallengeIntro ?? true) ? 'On' : 'Off'}</Text>
             </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>SUPPORT</Text>
+            {supportConfig ? (
+              <Pressable
+                accessibilityHint={`Opens your email app to contact Kinwin support at ${supportConfig.email}`}
+                accessibilityRole="button"
+                onPress={contactSupport}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>Contact Kinwin</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.body}>Support contact is not configured in this build yet.</Text>
+            )}
           </View>
 
           <Pressable

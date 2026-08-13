@@ -9,6 +9,7 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import { describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { CompletedChallenge, fetchCompletedChallenge } from '@/lib/supabase/completed-challenge-repository';
 import { buildRecipientInvitationUrl } from '@/lib/recipient-invitations/url';
@@ -52,13 +53,19 @@ export default function ChallengeResultScreen() {
         {state.kind === 'loading' && <ActivityIndicator color={theme.colors.rosewood} style={styles.loader} />}
         {state.kind === 'error' && <Message title="Could not load this result." body={state.message} onPress={() => void load()} />}
         {state.kind === 'missing' && <Message title="This result is not available." body="Return Home to see your current challenge." onPress={() => router.replace('/home' as Href)} />}
-        {state.kind === 'ready' && <ResultContent challenge={state.data} saved={saved} onHome={() => router.replace('/home' as Href)} onPlaybook={() => router.push(`/playbook/edit?sourceChallengeId=${state.data.id}&returnTo=${encodeURIComponent(`/home/result?id=${state.data.id}`)}` as Href)} />}
+        {state.kind === 'ready' && <ResultContent
+          challenge={state.data}
+          saved={saved}
+          onHome={() => router.replace('/home' as Href)}
+          onPlaybook={() => router.push(`/playbook/edit?sourceChallengeId=${state.data.id}&returnTo=${encodeURIComponent(`/home/result?id=${state.data.id}`)}` as Href)}
+          onUpdatePayment={() => router.push(`/account/payment-recovery?challengeId=${state.data.id}&returnTo=${encodeURIComponent(`/home/result?id=${state.data.id}`)}` as Href)}
+        />}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly challenge: CompletedChallenge; readonly saved: boolean; readonly onHome: () => void; readonly onPlaybook: () => void }) {
+function ResultContent({ challenge, saved, onHome, onPlaybook, onUpdatePayment }: { readonly challenge: CompletedChallenge; readonly saved: boolean; readonly onHome: () => void; readonly onPlaybook: () => void; readonly onUpdatePayment: () => void }) {
   const result = describeChallengeResult(challenge.status);
   const identity = describeChallengeIdentity(challenge.snapshot);
   const recipientNames = challenge.snapshot.recipients.map((recipient) => recipient.name);
@@ -85,6 +92,8 @@ function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly chal
       <Text style={styles.consequenceNote}>You sit this one out. The reward is prepared separately from the final challenge result.</Text>
     </View>}
 
+    {challenge.status === 'completed_failure' && challenge.paymentStatus && <PaymentAttentionBanner onUpdatePayment={onUpdatePayment} status={challenge.paymentStatus} />}
+
     {challenge.status === 'completed_failure' && <RewardOrganizerAccess challenge={challenge}/>}
 
     <View style={styles.reflectionBlock}>
@@ -100,6 +109,21 @@ function ResultContent({ challenge, saved, onHome, onPlaybook }: { readonly chal
       <Text style={styles.secondaryText}>Back to Home</Text>
     </Pressable>
   </>;
+}
+
+function PaymentAttentionBanner({ status, onUpdatePayment }: { readonly status: NonNullable<CompletedChallenge['paymentStatus']>; readonly onUpdatePayment: () => void }) {
+  const presentation = describeOwnerPaymentStatus(status);
+  if (!presentation) return null;
+  return (
+    <View style={styles.paymentBlock}>
+      <Text style={styles.blockLabel}>PAYMENT</Text>
+      <Text style={styles.paymentStatus}>{presentation.label}</Text>
+      <Text style={styles.consequenceNote}>{presentation.detail}</Text>
+      <Pressable accessibilityHint="Opens Stripe's secure payment form to save a new card" accessibilityRole="button" onPress={onUpdatePayment} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+        <Text style={styles.primaryText}>Update payment method</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 function RewardOrganizerAccess({challenge}:{readonly challenge:CompletedChallenge}){const[organizer,setOrganizer]=useState<OwnerRewardOrganizer|null>(null);const[error,setError]=useState<string|null>(null);const[sharing,setSharing]=useState(false);useEffect(()=>{void fetchOwnerRewardOrganizer(challenge.id).then(result=>result.ok?setOrganizer(result.value):setError(result.message));},[challenge.id]);if(!organizer||!challenge.rewardProgress)return error?<Text style={styles.error}>{error}</Text>:null;const presentation=describeOwnerRewardStatus(challenge.rewardProgress);const share=async()=>{if(sharing)return;setSharing(true);setError(null);try{const prepared=organizer.kind==='recipient'&&organizer.recipientId?await createRecipientInvitation(organizer.recipientId):await createOrganizerInvitation(organizer.id);if(!prepared.ok){setError(prepared.message);return;}const url=buildRecipientInvitationUrl(process.env.EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL,prepared.value.token);if(!url){setError('Private sharing is not available right now.');return;}const result=await Share.share(buildInvitationShareContent(`Hi ${organizer.displayName}, here is your private access to organize the reward for my Kinwin challenge:`,url));if(result.action===Share.sharedAction)await markRecipientInvitationShared(prepared.value.invitationId);const refreshed=await fetchOwnerRewardOrganizer(challenge.id);if(refreshed.ok)setOrganizer(refreshed.value);}finally{setSharing(false);}};return <View style={styles.organizerBlock}><Text style={styles.blockLabel}>REWARD ORGANIZER</Text><Text style={styles.consequenceText}>{organizer.displayName}{organizer.kind==='recipient'?' is also a recipient.':''}</Text><Text accessibilityLiveRegion="polite" style={[styles.rewardStatus,presentation.tone==='success'&&styles.rewardSuccess,presentation.tone==='attention'&&styles.rewardAttention]}>{presentation.label}</Text><Text style={styles.consequenceNote}>{presentation.detail}</Text><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" disabled={sharing} onPress={()=>void share()} style={[styles.secondary,sharing&&styles.pressed]}><Text style={styles.secondaryText}>{sharing?'Preparing…':organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share organizer access'}</Text></Pressable>{error&&<Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text>}</View>}
@@ -128,6 +152,8 @@ const styles = StyleSheet.create({
   consequenceText: { color: theme.colors.ivory, fontSize: 16, fontWeight: '700' },
   winText: { color: theme.colors.ivory, fontFamily: 'Georgia', fontSize: 24, lineHeight: 30 },
   consequenceNote: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
+  paymentBlock: { borderRadius: theme.radius.controlled, backgroundColor: theme.colors.oxbloodDeep, borderWidth: 1, borderColor: theme.colors.oxblood, padding: 16, gap: 7 },
+  paymentStatus: { color: theme.colors.ivory, fontSize: 15, fontWeight: '800' },
   organizerBlock:{borderTopWidth:1,borderTopColor:theme.colors.structureLineStrong,paddingTop:16,gap:8},
   rewardStatus:{color:theme.colors.ivoryMuted,fontSize:15,fontWeight:'800'},
   rewardSuccess:{color:theme.colors.sage},

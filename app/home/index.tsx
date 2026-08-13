@@ -17,6 +17,7 @@ import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challe
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
@@ -146,6 +147,7 @@ export default function HomeV2() {
   const completedIdentity = completed.status === 'ready' ? describeChallengeIdentity(completed.data.snapshot) : null;
   const completedPresentation = completed.status === 'ready' ? describeChallengeResult(completed.data.status) : null;
   const completedRewardPresentation = completed.status === 'ready' && completed.data.rewardProgress ? describeOwnerRewardStatus(completed.data.rewardProgress) : null;
+  const completedPaymentPresentation = completed.status === 'ready' && completed.data.paymentStatus ? describeOwnerPaymentStatus(completed.data.paymentStatus) : null;
 
   // Recent real events first; only fill remaining slots with current Kin
   // state for a challenge no fetched event already covers, so the same
@@ -253,7 +255,18 @@ export default function HomeV2() {
                 </Text>
                 {completed.data.status === 'completed_failure' && <Text style={styles.completedRule}>{formatPeople(completed.data.snapshot.recipients.map((recipient) => recipient.name))} win.</Text>}
                 {completedRewardPresentation && <Text style={completedRewardPresentation.tone === 'success' ? styles.completedSuccess : styles.completedRule}>{completedRewardPresentation.label}</Text>}
+                {completedPaymentPresentation && <Text style={styles.completedPaymentAttention}>{completedPaymentPresentation.label}</Text>}
                 <Text style={styles.completedDate}>Completed {formatCompletedDate(completed.data.completedAt)}</Text>
+                {completedPaymentPresentation && (
+                  <Pressable
+                    accessibilityHint="Opens Stripe's secure payment form to save a new card"
+                    accessibilityRole="button"
+                    onPress={() => router.push(`/account/payment-recovery?challengeId=${completed.data.id}&returnTo=${encodeURIComponent(`/home/result?id=${completed.data.id}`)}` as Href)}
+                    style={({ pressed }) => [styles.resultButton, styles.paymentAttentionButton, pressed && styles.resultButtonPressed]}
+                  >
+                    <Text style={styles.resultButtonText}>Update payment method</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   accessibilityHint="Opens the final result for this challenge"
                   accessibilityRole="button"
@@ -432,6 +445,8 @@ const styles = StyleSheet.create({
   completedSuccess: { color: theme.colors.sage },
   completedFailure: { color: theme.colors.ivory },
   completedDate: { color: theme.colors.warmGrey, fontSize: 12 },
+  completedPaymentAttention: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '800' },
+  paymentAttentionButton: { backgroundColor: theme.colors.oxblood },
   resultButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled, backgroundColor: theme.colors.rosewood, marginTop: 10 },
   resultButtonPressed: { opacity: 0.82 },
   resultButtonText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '800' },

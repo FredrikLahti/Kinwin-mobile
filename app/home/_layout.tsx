@@ -46,7 +46,6 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="challenge" options={{ href: null }} />
       <Tabs.Screen name="result" options={{ href: null }} />
-      <Tabs.Screen name="progress" options={{ href: null }} />
       <Tabs.Screen name="coming-soon" options={{ href: null }} />
     </Tabs>
   );
