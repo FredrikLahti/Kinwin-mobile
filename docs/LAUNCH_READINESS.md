@@ -43,7 +43,17 @@ Method: evidence from code, migrations, deployed Edge Functions, tests, and merg
 | Universal Links end-to-end on a real device | **INTERNAL BETA BLOCKER, conditional** — `docs/IOS_BETA_BUILD.md`'s own physical-device test sequence includes opening `/invite/<token>` links with the app installed. This needs the real `KINWIN_APPLE_TEAM_ID` (blocked on Apple enrollment, same as above) to generate and deploy the final AASA at `kinwin-beta.expo.app`. Until then, the `kinwin://` custom scheme still works for manual testing, so this doesn't have to block *first install*, only the *full* real-flow walkthrough. |
 | `ITSAppUsesNonExemptEncryption` | **Not** a blocker here — EAS `internal` distribution is ad-hoc (direct `.ipa` install), it never goes through App Store Connect processing, so this warning is inert until the first TestFlight/App Store Connect upload. See External beta gate. |
 
-Everything else in "Current shipping scope" above is already testable once the app is on a device — this gate is purely about the Apple signing chain and the AASA host you're waiting on.
+This table is about **first install only** — getting the real app onto an iPhone at all. It is not the same as being able to exercise the full failure-to-reward mechanic. Apple is the blocker to getting the real native app installed; Tremendous Testflight runtime configuration (below) is the separate blocker to completing the full failure-to-reward core loop; AASA/Universal Links are needed specifically for the real invitation-link native handoff, not for the rest of the app.
+
+### Full core-loop verification gate
+
+Getting the app installed does **not** mean the whole Kinwin mechanic is verifiable yet. Everything up to and including a Stripe TEST consequence charge is testable once the app is on a device. The failure → reward half is separately blocked:
+
+| Item | Status |
+|---|---|
+| Tremendous Testflight runtime configuration | **CORE-LOOP BLOCKER (internal beta), separate from Apple signing.** The Tremendous *implementation* is done and deployed (`_shared/tremendous/adapter.ts`, `scheduled-fulfill-rewards`, `scheduled-reconcile-rewards`, all cron-wired) — what's missing is runtime configuration: `TREMENDOUS_API_BASE_URL` (`https://testflight.tremendous.com`), a `TEST_`-prefixed `TREMENDOUS_API_KEY`, `TREMENDOUS_FUNDING_SOURCE_ID`, and `TREMENDOUS_CAMPAIGN_ID` — all four are required (`readTremendousSandboxConfig`, `supabase/functions/_shared/tremendous/adapter.ts:21-27`, returns `null` if any is missing/invalid). Confirmed directly in code: `scheduled-fulfill-rewards/index.ts:10-11` and `scheduled-reconcile-rewards/index.ts:10-11` both return `Response.json({ error: 'sandbox_not_configured' }, { status: 503 })` when that config is absent — this fails safely, before any provider side effect, exactly as designed. Until these four values are set on the hosted TEST project, a real `completed_failure` challenge can reach a successful Stripe charge and then stall: no Tremendous order is ever created, reconciliation has nothing to poll, and the canonical organizer can never see a reward reach "ready." **No production Tremendous configuration is needed for this — the same TEST/sandbox values documented in `docs/BETA_TEST_ENVIRONMENT.md`'s "Tremendous Testflight secrets" table are what's missing.** |
+
+Do not describe the Kinwin mechanic as end-to-end verified until this is resolved and the full chain (`completed_failure` → Stripe TEST charge → `reward_fulfillment_pending` → Tremendous TEST order → reconciliation → organizer Open reward) has actually been observed once.
 
 ## External beta gate
 
@@ -57,7 +67,8 @@ Everything else in "Current shipping scope" above is already testable once the a
 | Password reset | **EXTERNAL BETA BLOCKER (recommended, not an Apple rule).** Confirmed absent — `contexts/auth-context.tsx` has no `resetPasswordForEmail` call anywhere, and `docs/IOS_BETA_BUILD.md` documents this as a deliberate current limitation. Fine for a founder-supported internal circle; a real gap once testers you can't personally walk through a reset are involved. Small, well-scoped Supabase Auth feature. |
 | Support/contact surface | **EXTERNAL BETA BLOCKER.** Confirmed absent anywhere in the app (`app/account/index.tsx` checked in full — no support email, contact screen, or help link). Outside testers need a way to report problems. |
 | Consequence-consent copy, legal-reviewed | **EXTERNAL BETA BLOCKER, soft.** Functional disclosure UI already exists in two places — a required outcomes-acknowledgment checkbox on `app/create/review.tsx`, and a separate consent screen at `app/account/payment-setup.tsx` — but `docs/PRODUCT_DECISIONS.md` itself flags this as *"a list of the data the copy must convey, not approved legal wording — final consent copy requires legal review before shipping."* Worth a real review once money moves between actual outside people. |
-| TEST-only Stripe/Tremendous | **Not a blocker — intentional.** Staying on TEST/sandbox rails for the external beta is the correct, deliberate choice; `scripts/beta-public-config.cjs` actively rejects anything else at build time. Only becomes relevant at public launch. |
+| TEST-mode Stripe/Tremendous (as opposed to production) | **Not a blocker — intentional.** Staying on TEST/sandbox rails for the external beta is the correct, deliberate choice; `scripts/beta-public-config.cjs` and `readTremendousSandboxConfig` both actively reject anything else at build/runtime. Only becomes relevant at public launch. |
+| Tremendous Testflight runtime configuration (the four secrets, not TEST-vs-production) | **EXTERNAL BETA BLOCKER — carried forward from the Internal beta core-loop gate above.** This is not about switching out of TEST mode; it's that the required TEST-mode values (`TREMENDOUS_API_BASE_URL`, `TREMENDOUS_API_KEY`, `TREMENDOUS_FUNDING_SOURCE_ID`, `TREMENDOUS_CAMPAIGN_ID`) aren't set on the hosted project yet. Outside testers cannot experience a completed reward without this — the loop stalls after the Stripe charge. |
 
 ## Public App Store gate
 
@@ -122,23 +133,26 @@ Do not treat these documents' status prose as current implementation truth:
 
 ## Canonical end-to-end launch smoke flow
 
-The real, currently-implemented path from signup to a completed reward roundtrip — useful as the manual physical-device test sequence once the Apple signing chain is unblocked:
+This mirrors `docs/BETA_TEST_ENVIRONMENT.md`'s own "Canonical beta smoke scenario" (its source of truth; reproduced here in the same order, with the reward-organizer terminology it uses). Recipient/organizer access is shared and the **canonical organizer** accepts *before* failure — not after, as a naive reading of the feature list might suggest — because acceptance gates the reward *handoff*, not challenge *activation*:
 
-1. Sign up → create a challenge draft (`app/create/*`) → pick a recipient and a stake → acknowledge the outcomes/consent checkbox on the review screen.
-2. Set up a Stripe TEST payment method (PaymentSheet) → SetupIntent confirmed via webhook.
-3. Activate the challenge (timezone captured, server re-validates payment authorization).
-4. Check in through the period(s) — real `check_in_events` written server-side each time.
-5. On a missed check-in / failed period, the challenge reaches `completed_failure` (scheduled worker, or the on-open fast path).
-6. The hourly consequence-payment cron charges the Stripe TEST card (idempotent, webhook-confirmed truth).
-7. The owner shares a recipient-invitation link (`/invite/<token>`, rotates on regeneration) via native Share.
-8. The recipient opens the link (web fallback at `kinwin-beta.expo.app`, or the installed app via `kinwin://`/Universal Link once AASA is deployed) and accepts.
-9. The reward-fulfillment cron creates a Tremendous TEST order for the accepted recipient/organizer; the reconciliation cron polls until the reward LINK is ready.
-10. The recipient/organizer redeems the reward link (`organizer-reward-link`, generated on demand, never stored).
+1. Sign up.
+2. Create a challenge draft, add one or more recipients, and choose the **canonical organizer**.
+3. Complete Stripe TEST payment-method setup and verify authorization via the signed webhook.
+4. Activate the challenge.
+5. Share scoped recipient/organizer access.
+6. Have the canonical organizer accept. Recipient/organizer response never gates activation — activation already happened in step 4 — but an **accepted** canonical organizer is required later for the reward handoff.
+7. Complete real check-ins and genuinely reach failure through ordinary product behavior (there is no hosted force-failure API).
+8. Observe the scheduled Stripe TEST charge and its independently verified webhook success.
+9. Observe exactly one Tremendous Testflight fulfillment obligation/order, with stable `external_id` idempotency (requires the Tremendous Testflight runtime configuration above).
+10. Observe reconciliation reach LINK `SUCCEEDED`.
+11. The owner's Home/result screen reflects the correct reward-progress state ("owner sits out" of the reward itself, per `docs/PRODUCT_DECISIONS.md`'s terminology — the owner never gets access to it).
+12. The accepted canonical organizer explicitly presses **Open reward**. Kinwin only knows it generated/opened a Tremendous LINK — it does not, and cannot, claim actual redemption, usage, or attendance beyond that.
+13. Confirm the owner, an ordinary non-organizer recipient, and a wrong/declined/rotated token all cannot obtain organizer reward access.
 
 ## Next recommended work packages
 
 Ordered, prioritizing shipping over infrastructure:
 
-1. **Unblock and complete internal iPhone beta.** Once Apple Developer Program enrollment finishes: run the one-time interactive `eas credentials` setup, register the founder's test device(s) (`eas device:create`), re-trigger the existing GitHub Actions workflow, and walk the full canonical smoke flow above on a real iPhone — including Universal Links once the real Apple Team ID is known and the AASA is redeployed. This is almost entirely founder/Apple-side action at this point, not new engineering.
+1. **Unblock internal iPhone beta, then unblock the full core loop.** Once Apple Developer Program enrollment finishes: run the one-time interactive `eas credentials` setup, register the founder's test device(s) (`eas device:create`), re-trigger the existing GitHub Actions workflow, and confirm the app installs. Separately, set the four Tremendous Testflight runtime secrets on the hosted TEST project (implementation is already deployed and waiting on them) — only then walk the full canonical smoke flow above on a real iPhone, including Universal Links once the real Apple Team ID is known and the AASA is redeployed. All of this is founder-side configuration/Apple process, not new engineering.
 2. **Minimal external-beta surface.** Password reset (small, well-scoped Supabase Auth addition), a support/contact surface in the app, `ITSAppUsesNonExemptEncryption` declared in `app.config.js`, and a real legal review of the existing consequence-consent copy. Small, concrete, unblocks giving the app to real outside testers.
 3. **Public-launch package, after the product decisions above are answered.** Account deletion (once the seven data questions above are answered), App Store Connect setup (metadata, screenshots, privacy nutrition labels, production bundle identifier), a privacy policy and Terms of Service, and the production-environment provisioning decision (Supabase/Stripe/Tremendous) — each gated on an explicit founder decision, not an engineering guess.
