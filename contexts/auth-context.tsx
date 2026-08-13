@@ -6,11 +6,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import { AuthErrorKind, classifySupabaseError } from '@/lib/auth/classify-error';
 import { AuthStatus as DerivedAuthStatus, deriveAuthStatus } from '@/lib/auth/derive-auth-status';
+import { deriveStatusDuringRecovery } from '@/lib/auth/recovery-mode-status';
 import { buildPasswordResetRedirectUrl } from '@/lib/auth/reset-password-url';
 import { supabase } from '@/lib/supabase/client';
 
@@ -53,6 +55,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(isConfigured ? 'loading' : 'signed_out');
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  // Kinwin's own recovery-mode flag — see lib/auth/recovery-mode-status.ts
+  // for why this can't be derived from Supabase's own event stream alone.
+  // A ref, not state: it must be read synchronously inside the
+  // onAuthStateChange callback below, including on the very same tick
+  // applyRecoverySession sets it, before any state update could re-render.
+  const recoveryModeRef = useRef(false);
 
   const loadProfile = useCallback(async (userId: string) => {
     if (!supabase) return;
@@ -82,7 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
       setSession(nextSession);
-      setStatus(deriveAuthStatus(event, nextSession !== null));
+      if (recoveryModeRef.current) {
+        const transition = deriveStatusDuringRecovery(event, nextSession !== null);
+        if (transition.exitRecoveryMode) recoveryModeRef.current = false;
+        setStatus(transition.status);
+      } else {
+        setStatus(deriveAuthStatus(event, nextSession !== null));
+      }
       if (nextSession) {
         void loadProfile(nextSession.user.id);
       } else {
@@ -192,15 +206,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Establishes the short-lived recovery session from the tokens embedded
-  // in the emailed reset link. This is never treated as an ordinary sign-in
-  // by the rest of the app — onAuthStateChange still flips status to
-  // 'signed_in' (there is no separate "recovery" auth status in Supabase),
-  // so the reset-password screen itself is what limits what this session is
-  // used for before the user sets a new password.
+  // in the emailed reset link. Entering recoveryModeRef *before* calling
+  // setSession is what keeps this from being treated as an ordinary
+  // sign-in — setSession() itself only ever notifies 'SIGNED_IN' (or
+  // 'TOKEN_REFRESHED'), never Supabase's own 'PASSWORD_RECOVERY' event, for
+  // this call pattern (verified directly against the installed
+  // @supabase/auth-js source; see lib/auth/recovery-mode-status.ts). If
+  // setSession itself fails outright, no onAuthStateChange event fires at
+  // all in that branch, so recovery mode is exited here directly rather
+  // than left relying on a listener event that will never arrive.
   const applyRecoverySession = useCallback(async (accessToken: string, refreshToken: string): Promise<AuthResult> => {
     if (!supabase) return { ok: false, kind: 'not_configured', message: 'Kinwin is not connected to a Supabase project yet.' };
+    recoveryModeRef.current = true;
     const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
     if (error) {
+      recoveryModeRef.current = false;
       const { kind, message } = classifySupabaseError(error.message);
       return { ok: false, kind, message };
     }

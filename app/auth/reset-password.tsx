@@ -89,9 +89,14 @@ export default function ResetPasswordScreen() {
     setState({ kind: 'done' });
   };
 
-  const goToSignIn = () => {
+  // updatePassword's success (USER_UPDATED) already promotes the recovery
+  // session to an ordinary signed-in one (see lib/auth/recovery-mode-status.ts)
+  // — the user is genuinely authenticated at this point, so this goes
+  // straight to Home rather than back through /auth just to be redirected
+  // again. Matches app/index.tsx's own signed-in destination.
+  const continueToApp = () => {
     void playImportantHaptic();
-    router.replace('/auth' as Href);
+    router.replace('/home' as Href);
   };
 
   return (
@@ -173,7 +178,7 @@ export default function ResetPasswordScreen() {
             {state.kind === 'done' && (
               <View style={styles.form}>
                 <Text accessibilityLiveRegion="polite" style={styles.notice}>Your password has been updated.</Text>
-                <AnimatedPrimaryButton accessibilityHint="Continues to Kinwin" label="Continue" onPress={goToSignIn} reducedMotion={reducedMotion} />
+                <AnimatedPrimaryButton accessibilityHint="Continues to Kinwin" label="Continue" onPress={continueToApp} reducedMotion={reducedMotion} />
               </View>
             )}
           </View>

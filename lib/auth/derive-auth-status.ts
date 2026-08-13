@@ -1,16 +1,20 @@
 export type AuthStatus = 'signed_out' | 'signed_in' | 'password_recovery';
 
 /**
- * A Supabase PASSWORD_RECOVERY event must never be treated as an ordinary
- * sign-in — every "if signed in, redirect away from this auth screen" check
- * elsewhere in the app (app/index.tsx, app/auth/index.tsx, the root
- * Stack.Protected guard in app/_layout.tsx) only compares against
- * 'signed_in', so keeping recovery a distinct status is what stops those
- * ambient checks from hijacking navigation out of
- * app/auth/reset-password.tsx the moment the recovery session is
- * established — without any of those files needing to know this screen
- * exists. Any other event (including the USER_UPDATED that follows a
- * successful updateUser({password}) call) is an ordinary session update.
+ * Ordinary event-to-status mapping, used by AuthProvider whenever Kinwin's
+ * own recovery mode (contexts/auth-context.tsx's recoveryModeRef, governed
+ * by lib/auth/recovery-mode-status.ts) is NOT active. This alone is not
+ * sufficient to protect app/auth/reset-password.tsx: Kinwin establishes its
+ * recovery session with a plain setSession() call, which the installed
+ * @supabase/auth-js only ever notifies as 'SIGNED_IN' (or
+ * 'TOKEN_REFRESHED') for — never the SDK's own 'PASSWORD_RECOVERY' event,
+ * which is emitted only by automatic detectSessionInUrl (disabled here) or
+ * exchangeCodeForSession (PKCE, not used here). The 'PASSWORD_RECOVERY'
+ * case below is kept for a real event Supabase can still emit through
+ * other code paths this app doesn't currently exercise — it costs nothing
+ * to handle correctly, but the actual protection for reset-password.tsx's
+ * real call pattern is recoveryModeRef + deriveStatusDuringRecovery, not
+ * this function.
  */
 export function deriveAuthStatus(event: string, hasSession: boolean): AuthStatus {
   if (event === 'PASSWORD_RECOVERY') return 'password_recovery';
