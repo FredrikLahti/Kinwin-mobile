@@ -1,3 +1,9 @@
+// Design reference only — intentionally not under app/, so it has no route
+// and is not reachable from the shipping app. Moved out of app/home/ because
+// its fixture data (streak, consistency %, weekly bars) was previously
+// reachable as a real route despite showing no real user data. See
+// docs/PRODUCT_STATUS.md §5 and docs/LAUNCH_READINESS.md's external-beta
+// gate for the history. Do not re-route this without wiring it to real data.
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

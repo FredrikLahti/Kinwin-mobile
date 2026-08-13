@@ -24,14 +24,16 @@ type Mode = 'sign_in' | 'sign_up';
 export default function AuthScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { isConfigured, signIn, signUp, status } = useAuth();
+  const { isConfigured, signIn, signUp, resendConfirmationEmail, status } = useAuth();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [mode, setMode] = useState<Mode>('sign_in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [signedUpNotice, setSignedUpNotice] = useState(false);
+  const [signedUpNotice, setSignedUpNotice] = useState<'created' | 'check_email' | null>(null);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   useEffect(() => {
     if (status === 'signed_in') {
@@ -52,18 +54,36 @@ export default function AuthScreen() {
     void playImportantHaptic();
     setSubmitting(true);
     setErrorMessage(null);
-    setSignedUpNotice(false);
-    const result = mode === 'sign_in' ? await signIn(email, password) : await signUp(email, password);
+    setSignedUpNotice(null);
+    if (mode === 'sign_in') {
+      const result = await signIn(email, password);
+      setSubmitting(false);
+      if (!result.ok) setErrorMessage(result.message);
+      return;
+    }
+    const result = await signUp(email, password);
     setSubmitting(false);
     if (!result.ok) {
       setErrorMessage(result.message);
       return;
     }
-    if (mode === 'sign_up') {
-      // With email confirmation enabled, signUp succeeds without a session yet.
-      setSignedUpNotice(true);
-      setMode('sign_in');
-    }
+    // With email confirmation enabled, signUp succeeds without a session
+    // yet — needsConfirmation is the real, checked signal for that, not an
+    // assumption.
+    setSignedUpNotice(result.needsConfirmation ? 'check_email' : 'created');
+    setPendingConfirmationEmail(result.needsConfirmation ? email.trim() : null);
+    setResendState('idle');
+    setMode('sign_in');
+  };
+
+  const resendConfirmation = async () => {
+    if (!pendingConfirmationEmail || resendState === 'sending') return;
+    void playSelectionHaptic();
+    setResendState('sending');
+    setErrorMessage(null);
+    const result = await resendConfirmationEmail(pendingConfirmationEmail);
+    setResendState(result.ok ? 'sent' : 'idle');
+    if (!result.ok) setErrorMessage(result.message);
   };
 
   const switchMode = (next: Mode) => {
@@ -71,7 +91,7 @@ export default function AuthScreen() {
     void playSelectionHaptic();
     setMode(next);
     setErrorMessage(null);
-    setSignedUpNotice(false);
+    setSignedUpNotice(null);
   };
 
   if (!isConfigured) {
@@ -175,9 +195,41 @@ export default function AuthScreen() {
                   textContentType={mode === 'sign_in' ? 'password' : 'newPassword'}
                   value={password}
                 />
+                {mode === 'sign_in' && (
+                  <Pressable
+                    accessibilityHint="Opens the password reset request screen"
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => { void playSelectionHaptic(); router.push('/auth/forgot-password' as Href); }}
+                    style={({ pressed }) => [styles.forgotPasswordLink, pressed && styles.forgotPasswordLinkPressed]}
+                  >
+                    <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+                  </Pressable>
+                )}
               </View>
 
-              {signedUpNotice && (
+              {signedUpNotice === 'check_email' && (
+                <View style={styles.checkEmailBlock}>
+                  <Text accessibilityLiveRegion="polite" style={styles.notice}>
+                    Check your email to confirm your account before signing in.
+                  </Text>
+                  {resendState === 'sent' ? (
+                    <Text style={styles.notice}>Confirmation email sent again.</Text>
+                  ) : (
+                    <Pressable
+                      accessibilityHint="Sends the confirmation email again"
+                      accessibilityRole="button"
+                      disabled={resendState === 'sending'}
+                      hitSlop={6}
+                      onPress={() => void resendConfirmation()}
+                      style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+                    >
+                      <Text style={styles.textButtonLabel}>{resendState === 'sending' ? 'Sending…' : 'Resend confirmation email'}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              {signedUpNotice === 'created' && (
                 <Text accessibilityLiveRegion="polite" style={styles.notice}>
                   Account created. Sign in below to continue.
                 </Text>
@@ -247,5 +299,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, color: theme.colors.bone, fontSize: 15,
   },
   notice: { color: theme.colors.copperBright, fontSize: 13, lineHeight: 19 },
+  checkEmailBlock: { gap: 8 },
+  textButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center' },
+  textButtonPressed: { opacity: 0.7 },
+  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  forgotPasswordLink: { alignSelf: 'flex-end', minHeight: 32, justifyContent: 'center', marginTop: 2 },
+  forgotPasswordLinkPressed: { opacity: 0.7 },
+  forgotPasswordText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },
   error: { color: '#E37D6A', fontSize: 13, lineHeight: 19 },
 });

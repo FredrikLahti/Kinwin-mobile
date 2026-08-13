@@ -19,6 +19,22 @@ export const supabase: SupabaseClient | null = (() => {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // Explicit, not just relying on the (currently also 'implicit')
+      // supabase-js default: PKCE's code exchange needs the code_verifier
+      // it generated to still be in *this* client instance's storage when
+      // the link is opened. Kinwin's password-recovery and email-confirmation
+      // links are frequently opened in a different context than the one
+      // that requested them — a phone's default browser (Universal
+      // Links/App Links aren't fully configured on every platform/build
+      // yet) or a different device's mail client — where that verifier
+      // was never stored. Implicit flow avoids this entirely: GoTrue
+      // verifies the emailed token server-side and hands back a ready
+      // access_token/refresh_token pair directly, needing nothing stored
+      // locally beforehand. See app/auth/reset-password.tsx and
+      // lib/auth/parse-auth-redirect.ts. Kinwin has no OAuth/SSO, so PKCE's
+      // usual advantage (protecting an OAuth redirect's authorization code
+      // from interception) doesn't apply here.
+      flowType: 'implicit',
     },
   });
 })();

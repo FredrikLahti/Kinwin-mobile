@@ -60,3 +60,8 @@ select test.assert_equals('no_reward_fulfillment_is_created',(
   where co.challenge_id='a2000000-0000-0000-0000-000000000001'
 ),0::bigint);
 select test.assert_equals('authenticated_cannot_claim_payments',has_function_privilege('authenticated','public.claim_due_consequence_payments(uuid,uuid,integer)','execute'),false);
+
+-- Releases the worker lease so later test files can start a fresh run
+-- instead of finding this one still "locked" for its full 20-minute window.
+select public.finish_consequence_payment_worker((select (value->>'runId')::uuid from worker_start),(select (value->>'leaseToken')::uuid from worker_start),'succeeded',1,1,0,null);
+reset role;

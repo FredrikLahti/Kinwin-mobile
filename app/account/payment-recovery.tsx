@@ -1,3 +1,13 @@
+// Client path for the existing server-side card-replacement recovery
+// contract (supabase/functions/create-consequence-setup-intent/index.ts's
+// automatic recovery fallback, and
+// supabase/migrations/20260901000000_owner_payment_recovery.sql). This
+// screen only ever prepares and saves a new payment method through the same
+// real Stripe SetupIntent/PaymentSheet path payment-setup.tsx uses — it
+// never charges anything and never claims the consequence is paid. The
+// webhook-driven server RPCs remain the sole source of truth for whether
+// the challenge's payment obligation is actually resolved; this screen only
+// waits for get_owner_payment_status to stop reporting 'needs_attention'.
 import * as Linking from 'expo-linking';
 import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -15,45 +25,35 @@ import { useStripe, usePaymentSheet } from '@/lib/stripe/native-stripe';
 import { classifyPaymentSheetPresentResult } from '@/lib/stripe/payment-sheet-outcome';
 import { derivePaymentSetupAvailability } from '@/lib/stripe/payment-setup-availability';
 import { pollForAuthorization } from '@/lib/stripe/poll-authorization';
-import { fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
 import { createConsequenceSetupIntent } from '@/lib/supabase/consequence-setup-repository';
+import { fetchOwnerPaymentStatus } from '@/lib/supabase/payment-recovery-repository';
 
-type SetupMode = 'initial' | 'replace';
-
-// 'presenting' and 'verifying' are only ever reached through startPaymentSheet
-// below — never set directly from a re-fetch — so a background refetch can
-// never interrupt an in-flight card step or verification. PaymentSheet
-// itself is a native modal that blocks the screen underneath while it is
-// up, so commitment cancellation (which lives only on the pending-commitment
-// screen) is structurally unreachable during 'presenting' — there is no
-// separate flag to manage for that requirement. There is no 'ready' state:
-// once authorized, this screen hands off to /account/pending-commitment
-// immediately rather than showing its own confirmation — saving a card is
-// an infrastructure step, not a moment to linger on.
 type ScreenState =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'none' }
-  | { readonly kind: 'unavailable'; readonly reason: 'not_configured' | 'native_required'; readonly commitment: PendingCommitment }
-  | { readonly kind: 'consent'; readonly commitment: PendingCommitment; readonly mode: SetupMode }
-  | { readonly kind: 'presenting'; readonly commitment: PendingCommitment; readonly mode: SetupMode }
-  | { readonly kind: 'verifying'; readonly commitment: PendingCommitment; readonly timedOut: boolean; readonly checking: boolean }
-  | { readonly kind: 'error'; readonly commitment: PendingCommitment | null; readonly message: string };
+  | { readonly kind: 'not_needed' }
+  | { readonly kind: 'unavailable'; readonly reason: 'not_configured' | 'native_required' }
+  | { readonly kind: 'consent' }
+  | { readonly kind: 'presenting' }
+  | { readonly kind: 'verifying'; readonly timedOut: boolean; readonly checking: boolean }
+  | { readonly kind: 'done' }
+  | { readonly kind: 'error'; readonly message: string };
 
-export default function PaymentSetupScreen() {
+function oneParam(value: string | string[] | undefined): string { return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
+
+export default function PaymentRecoveryScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const { user } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const { handleURLCallback } = useStripe();
-  // Only relevant when a card is already saved: opened from pending-commitment's
-  // "Change payment method" link, which is the one case that should go straight
-  // to consent instead of being redirected away as already-done.
-  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ challengeId?: string | string[]; returnTo?: string | string[] }>();
+  const challengeId = oneParam(params.challengeId);
+  const returnTo = oneParam(params.returnTo) || (challengeId ? `/home/result?id=${challengeId}` : '/home');
 
   const [state, setState] = useState<ScreenState>({ kind: 'loading' });
   const [acknowledged, setAcknowledged] = useState(false);
   const activeRef = useRef(true);
-  const returnURL = useMemo(() => Linking.createURL('account/payment-setup'), []);
+  const returnURL = useMemo(() => Linking.createURL('account/payment-recovery'), []);
 
   const availability = useMemo(
     () => derivePaymentSetupAvailability({ isWeb: Platform.OS === 'web', stripeConfigured: readStripeConfig() !== null }),
@@ -61,44 +61,24 @@ export default function PaymentSetupScreen() {
   );
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !challengeId) { setState({ kind: 'not_needed' }); return; }
     setState({ kind: 'loading' });
-    const result = await fetchPendingCommitment(user.id);
+    const result = await fetchOwnerPaymentStatus(challengeId);
     if (!activeRef.current) return;
-    if (!result.ok) {
-      const message = 'message' in result ? result.message : 'Sign in to continue payment setup.';
-      setState({ kind: 'error', commitment: null, message });
-      return;
-    }
-    if (!result.commitment) {
-      setState({ kind: 'none' });
-      return;
-    }
+    if (!result.ok) { setState({ kind: 'error', message: 'Could not check your payment status. Try again.' }); return; }
+    if (result.value.state !== 'needs_attention') { setState({ kind: 'not_needed' }); return; }
     setAcknowledged(false);
-    if (result.commitment.authorizationStatus === 'authorized' && modeParam !== 'replace') {
-      router.replace('/account/pending-commitment' as Href);
-      return;
-    }
-    if (availability.kind !== 'available') {
-      setState({ kind: 'unavailable', reason: availability.reason, commitment: result.commitment });
-    } else {
-      setState({ kind: 'consent', commitment: result.commitment, mode: modeParam === 'replace' ? 'replace' : 'initial' });
-    }
-  }, [availability, modeParam, router, user]);
+    setState(availability.kind !== 'available' ? { kind: 'unavailable', reason: availability.reason } : { kind: 'consent' });
+  }, [availability, challengeId, user]);
 
-  // Re-derives from the server every time this screen gains focus — reopening
-  // after backgrounding, navigating away and back, or a delayed webhook must
-  // never show a stale local claim. Native PaymentSheet's own presentation
-  // does not change React Navigation focus, so this never fires mid-sheet.
   useFocusEffect(useCallback(() => {
     activeRef.current = true;
     void load();
     return () => { activeRef.current = false; };
   }, [load]));
 
-  // Required for card authentication/redirect return flows (see
-  // docs/PAYMENT_SETUP.md); a no-op on web, where useStripe() is the
-  // native-stripe.web.tsx stub.
+  // Required for card authentication/redirect return flows, same as
+  // payment-setup.tsx; a no-op on web.
   useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => { void handleURLCallback(url); });
     return () => subscription.remove();
@@ -107,37 +87,27 @@ export default function PaymentSetupScreen() {
   const runVerificationPoll = useCallback(async () => {
     const outcome = await pollForAuthorization(
       async () => {
-        if (!user) return { authorized: false };
-        const result = await fetchPendingCommitment(user.id);
+        if (!challengeId) return { authorized: false };
+        const result = await fetchOwnerPaymentStatus(challengeId);
         if (!activeRef.current) return { authorized: true };
         if (!result.ok) return { authorized: false };
-        if (!result.commitment) {
-          setState({ kind: 'none' });
-          return { authorized: true };
-        }
-        if (result.commitment.authorizationStatus === 'authorized') {
-          router.replace('/account/pending-commitment' as Href);
-          return { authorized: true };
-        }
-        const commitment = result.commitment;
-        setState((previous) => (previous.kind === 'verifying' ? { ...previous, commitment } : previous));
-        return { authorized: false };
+        return { authorized: result.value.state !== 'needs_attention' };
       },
       { signal: { get aborted() { return !activeRef.current; } } },
     );
-    if (outcome === 'timeout' && activeRef.current) {
-      setState((previous) => (previous.kind === 'verifying' ? { ...previous, timedOut: true } : previous));
-    }
-  }, [router, user]);
+    if (!activeRef.current) return;
+    if (outcome === 'authorized') setState({ kind: 'done' });
+    else if (outcome === 'timeout') setState((previous) => (previous.kind === 'verifying' ? { ...previous, timedOut: true } : previous));
+  }, [challengeId]);
 
-  const startPaymentSheet = useCallback(async (commitment: PendingCommitment, mode: SetupMode) => {
-    if (!user) return;
-    setState({ kind: 'presenting', commitment, mode });
+  const startPaymentSheet = useCallback(async () => {
+    if (!user || !challengeId) return;
+    setState({ kind: 'presenting' });
 
-    const setupResult = await createConsequenceSetupIntent(commitment.challengeId, user.id);
+    const setupResult = await createConsequenceSetupIntent(challengeId, user.id);
     if (!activeRef.current) return;
     if (!setupResult.ok) {
-      setState({ kind: 'error', commitment, message: setupResult.message });
+      setState({ kind: 'error', message: setupResult.message });
       return;
     }
 
@@ -149,7 +119,7 @@ export default function PaymentSetupScreen() {
     });
     if (!activeRef.current) return;
     if (initResult.error) {
-      setState({ kind: 'error', commitment, message: 'Could not prepare the payment form. Try again.' });
+      setState({ kind: 'error', message: 'Could not prepare the payment form. Try again.' });
       return;
     }
 
@@ -159,22 +129,22 @@ export default function PaymentSetupScreen() {
 
     if (outcome === 'canceled') {
       void playSelectionHaptic();
-      setState({ kind: 'consent', commitment, mode });
+      setState({ kind: 'consent' });
       return;
     }
     if (outcome === 'failed') {
-      // Never the raw Stripe SDK message — it can include provider-specific
-      // decline detail. A single safe, generic message covers both a real
-      // failure and a timeout, which classifyPaymentSheetPresentResult
-      // already collapses together.
-      setState({ kind: 'error', commitment, message: 'The payment step could not be completed. Try again.' });
+      // Never the raw Stripe SDK message (presentResult.error?.message) —
+      // it can include provider-specific decline detail. A single safe,
+      // generic message covers both a real failure and a timeout, which
+      // classifyPaymentSheetPresentResult already collapses together.
+      setState({ kind: 'error', message: 'The payment step could not be completed. Try again.' });
       return;
     }
 
     void playCommitmentHaptic();
-    setState({ kind: 'verifying', commitment, timedOut: false, checking: false });
+    setState({ kind: 'verifying', timedOut: false, checking: false });
     void runVerificationPoll();
-  }, [initPaymentSheet, presentPaymentSheet, returnURL, runVerificationPoll, user]);
+  }, [challengeId, initPaymentSheet, presentPaymentSheet, returnURL, runVerificationPoll, user]);
 
   const toggleAcknowledged = () => {
     void playSelectionHaptic();
@@ -184,28 +154,21 @@ export default function PaymentSetupScreen() {
   const continueToPaymentSheet = () => {
     if (state.kind !== 'consent' || !acknowledged || availability.kind !== 'available') return;
     void playImportantHaptic();
-    void startPaymentSheet(state.commitment, state.mode);
+    void startPaymentSheet();
   };
 
   const checkAgain = useCallback(async () => {
-    if (state.kind !== 'verifying' || !user) return;
+    if (state.kind !== 'verifying' || !challengeId) return;
     setState((previous) => (previous.kind === 'verifying' ? { ...previous, checking: true } : previous));
-    const result = await fetchPendingCommitment(user.id);
+    const result = await fetchOwnerPaymentStatus(challengeId);
     if (!activeRef.current) return;
     if (!result.ok) {
       setState((previous) => (previous.kind === 'verifying' ? { ...previous, checking: false } : previous));
       return;
     }
-    if (!result.commitment) {
-      setState({ kind: 'none' });
-      return;
-    }
-    if (result.commitment.authorizationStatus === 'authorized') {
-      router.replace('/account/pending-commitment' as Href);
-      return;
-    }
-    setState({ kind: 'verifying', commitment: result.commitment, timedOut: true, checking: false });
-  }, [router, state, user]);
+    if (result.value.state !== 'needs_attention') { setState({ kind: 'done' }); return; }
+    setState({ kind: 'verifying', timedOut: true, checking: false });
+  }, [challengeId, state]);
 
   const retry = () => {
     void playSelectionHaptic();
@@ -217,9 +180,9 @@ export default function PaymentSetupScreen() {
     router.back();
   };
 
-  const backToCommitment = () => {
+  const done = () => {
     void playImportantHaptic();
-    router.replace('/account/pending-commitment' as Href);
+    router.replace(returnTo as Href);
   };
 
   return (
@@ -229,7 +192,7 @@ export default function PaymentSetupScreen() {
         <View style={styles.content}>
           <View style={styles.header}>
             <Pressable
-              accessibilityHint="Returns to your pending commitment"
+              accessibilityHint="Goes back"
               accessibilityLabel="Go back"
               accessibilityRole="button"
               hitSlop={8}
@@ -241,36 +204,24 @@ export default function PaymentSetupScreen() {
             <Text style={styles.wordmark}>KINWIN</Text>
           </View>
 
-          <Text accessibilityRole="header" style={styles.headline}>Add payment method</Text>
+          <Text accessibilityRole="header" style={styles.headline}>Update payment method</Text>
 
           {state.kind === 'loading' && (
-            <Text accessibilityLiveRegion="polite" style={styles.body}>Checking your commitment…</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.body}>Checking your payment status…</Text>
           )}
 
-          {state.kind === 'none' && (
+          {state.kind === 'not_needed' && (
             <View style={styles.section}>
-              <Text style={styles.body}>
-                This commitment could not be found. It may have already been canceled.
-              </Text>
-              <Pressable
-                accessibilityHint="Returns to your pending commitment"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={backToCommitment}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-              >
-                <Text style={styles.textButtonLabel}>Back to your commitment</Text>
+              <Text style={styles.body}>This payment method doesn&apos;t need attention right now.</Text>
+              <Pressable accessibilityHint="Returns to the challenge result" accessibilityRole="button" hitSlop={6} onPress={done} style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}>
+                <Text style={styles.textButtonLabel}>Back</Text>
               </Pressable>
             </View>
           )}
 
           {state.kind === 'consent' && (
             <View style={styles.section}>
-              <Text style={styles.stakeLine}>
-                {state.commitment.stakeMinorUnits > 0
-                  ? `$${(state.commitment.stakeMinorUnits / 100).toLocaleString('en-US')} may be charged to this card if the challenge fails.`
-                  : 'This card may be charged if the challenge fails.'}
-              </Text>
+              <Text style={styles.stakeLine}>Kinwin could not charge your saved card for this challenge. Save a new card to continue.</Text>
               <DisclosureList />
 
               <Pressable
@@ -288,9 +239,9 @@ export default function PaymentSetupScreen() {
               </Pressable>
 
               <PrimaryButtonV2
-                accessibilityHint="Opens Stripe's secure payment form to save a card"
+                accessibilityHint="Opens Stripe's secure payment form to save a new card"
                 disabled={!acknowledged}
-                label={state.mode === 'replace' ? 'Update card' : 'Continue to Stripe'}
+                label="Update card"
                 onPress={continueToPaymentSheet}
                 reducedMotion={reducedMotion}
               />
@@ -302,7 +253,7 @@ export default function PaymentSetupScreen() {
               <Text style={styles.errorText}>
                 {state.reason === 'native_required'
                   ? 'Payment setup requires the Kinwin app on a phone or tablet. This screen is shown for visual review only. The payment form cannot open here.'
-                  : 'Payment setup is not configured in this build yet. The rest of Kinwin remains usable. Try again once it is configured.'}
+                  : 'Payment setup is not configured in this build yet. Try again once it is configured.'}
               </Text>
             </View>
           )}
@@ -315,8 +266,8 @@ export default function PaymentSetupScreen() {
             <View style={styles.section}>
               <Text accessibilityLiveRegion="polite" style={styles.body}>
                 {state.timedOut
-                  ? 'Still verifying with Stripe. This can take a little longer than usual. You can check again, or leave and come back later. Your progress is saved.'
-                  : 'Confirming your card was saved. This usually takes a few seconds.'}
+                  ? 'Still confirming with Stripe. This can take a little longer than usual. You can check again, or leave and come back later.'
+                  : 'Confirming your new card was saved. This usually takes a few seconds.'}
               </Text>
               {state.timedOut && (
                 <Pressable
@@ -330,6 +281,15 @@ export default function PaymentSetupScreen() {
                   <Text style={styles.textButtonLabel}>{state.checking ? 'Checking…' : 'Check again'}</Text>
                 </Pressable>
               )}
+            </View>
+          )}
+
+          {state.kind === 'done' && (
+            <View style={styles.section}>
+              <Text style={styles.body}>
+                Your payment method has been updated. Kinwin will automatically retry the charge. You don&apos;t need to do anything else.
+              </Text>
+              <PrimaryButtonV2 accessibilityHint="Returns to the challenge result" label="Back to result" onPress={done} reducedMotion={reducedMotion} />
             </View>
           )}
 
@@ -353,15 +313,13 @@ export default function PaymentSetupScreen() {
   );
 }
 
-// The points docs/PRODUCT_DECISIONS.md's "Consequence payment setup" section
-// requires the consent screen to convey — plain product copy, not approved legal
-// wording (see that section's own caveat: final consent copy requires legal review
-// before shipping).
+// Same points as payment-setup.tsx's DisclosureList — still accurate here:
+// this screen only ever saves a card through a SetupIntent, it never
+// charges one directly.
 const DISCLOSURE_POINTS: readonly string[] = [
   'No money is charged now.',
   'Your card is saved securely with Stripe.',
-  'A charge can happen automatically, even while you’re not using Kinwin.',
-  'This card is used only for this commitment.',
+  'Kinwin will automatically retry the existing charge once your card is saved.',
 ];
 
 function DisclosureList() {
