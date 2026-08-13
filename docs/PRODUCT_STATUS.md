@@ -119,7 +119,7 @@ Consequence charging (real money mechanic) and membership billing (a separate, u
 | Current period | IMPLEMENTED | Real server-tracked period state. | |
 | Check-in | IMPLEMENTED | Real, via `append-check-in-event`; writes an actual event row, not local state. | |
 | Correction / edit semantics | IMPLEMENTED | Append-only ledger — a correction inserts a new `event_type: 'correction'` row referencing the fact it corrects; there is no destructive edit/retract, and both first reports and corrections are blocked once the reporting window closes. | |
-| Progress | **SUPERSEDED / PROTOTYPE ONLY** | `app/home/progress.tsx` is a real, navigable screen — but every number on it (streak, consistency %, weekly bars) comes from a static fixture (`fixtures/ux-v2-preview.ts`), not the user's real data. It also renders a "preview" tag. | Worth fixing before external beta — this could easily be mistaken for a real feature by a tester. |
+| Progress | PARTIAL | `app/home/progress.tsx` is a real, navigable screen reachable from the shipping Home tabs — but every number on it (streak, consistency %, weekly bars) comes from a static fixture (`fixtures/ux-v2-preview.ts`), not the user's real data. It also renders a "preview" tag. | **External beta blocker** (see `LAUNCH_READINESS.md`) — this is real and reachable, so it could easily be mistaken for genuine functionality by a tester. Must be connected to real data or removed/hidden from shipping navigation before outside testers get the app. |
 | Reporting window | IMPLEMENTED | A period stays open for corrections/first reports until `reportingClosesAt`, a separate, later deadline than the period's own end. | |
 | Recovery UX | **SUPERSEDED / PROTOTYPE ONLY** | `app/challenge/recovery.tsx` is *not* payment recovery — it's an old relapse-recovery planning screen (pick an obstacle + a coping strategy) built on the legacy fixture context, part of the orphaned `app/challenge/*` shell that nothing in the real app links to. | Don't confuse with the payment-recovery gap in §4, which is a real, separate issue. |
 | Completion | IMPLEMENTED | Server-authoritative (see §6). | |
@@ -229,7 +229,7 @@ High-level; see `docs/CHECK_IN_ENGINE.md` and `docs/SCHEDULED_CHALLENGE_COMPLETI
 | Late joining | OUT OF CURRENT SCOPE | | |
 | Voting | OUT OF CURRENT SCOPE | Zero code trace anywhere, including the prototype. | |
 | Shared final-event experience | OUT OF CURRENT SCOPE | | |
-| "Revenge challenges" | OUT OF CURRENT SCOPE | Not found anywhere in the repo (docs or code). | |
+| "Revenge challenges" | OUT OF CURRENT SCOPE | Named once in the historical Social v1 feed-event list (`docs/SOCIAL_V1_SPEC.md`'s `revenge challenge started` event type); no real product definition, schema, screen, or implementation exists. | |
 
 ### 11. Notifications & engagement
 
@@ -252,7 +252,8 @@ Nothing in this domain is implemented. Stated plainly, per instructions:
 |---|---|---|---|
 | Analytics | DEFERRED / POST-LAUNCH | No analytics SDK in `package.json` or anywhere in code. | |
 | Crash/error reporting | DEFERRED / POST-LAUNCH | No Sentry/Bugsnag/Crashlytics or equivalent. | |
-| Support/admin tools | NOT IMPLEMENTED — PLANNED | No admin dashboard or internal ops screen anywhere. | See `LAUNCH_READINESS.md` external-beta gate. |
+| Support/contact surface | See §1 | Founder-facing support/contact channel for testers — tracked once in §1 as NOT IMPLEMENTED — PLANNED, an external-beta blocker. Not duplicated here. | See `LAUNCH_READINESS.md` external-beta gate. |
+| Internal admin/ops dashboard | DEFERRED / POST-LAUNCH | No admin dashboard or internal ops screen anywhere in the app. No current repo or product-decision evidence that a dedicated admin UI is a committed near-term requirement — distinct from the founder-facing support surface above. | |
 | Worker observability | PARTIAL | Real `service_role`-only SQL views exist (`private.reward_fulfillment_health` and others), but no UI — founder-facing or otherwise — surfaces them; they're queried manually. | |
 | Release verification / evidence | IMPLEMENTED | Three real, working scripts: `verify:hosted-beta` (read-only smoke test of the hosted TEST project), `verify:tremendous:testflight` (opt-in real sandbox reward + idempotency proof), `verify:beta-universal-links` (AASA/Universal Link contract check). | |
 | Operational tooling that exists | IMPLEMENTED | The three scripts above, plus `docs/BETA_TEST_ENVIRONMENT.md` as the maintained release contract (configuration inventory, migration/function/cron manifests, release-evidence checklist). | |
@@ -322,9 +323,11 @@ Only real decisions engineering shouldn't make automatically — full detail in 
 2. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
 3. Currency scope beyond USD.
 4. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.
-5. Production bundle identifier and Apple Team ID.
+5. Production bundle identifier.
 6. Distribution model for external beta (ad-hoc device registration vs. TestFlight).
 7. Whether public launch is free or paid.
+
+Not a founder product decision (listed here only for completeness): the Apple Team ID is an external platform/account value Apple assigns after Developer Program enrollment completes, not something engineering or the founder chooses as product design. Tracked as a Platform & release surfaces inventory item (§13), not here.
 
 ## Prototype / legacy inventory
 

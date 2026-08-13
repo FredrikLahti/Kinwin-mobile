@@ -1,6 +1,6 @@
 # Kinwin Social v1 Specification
 
-**Status:** Product scope approved for planning. Implementation has not started as a coherent, connected feature — some UI prototypes for parts of this spec exist in disconnected/orphaned screens (see `docs/PRODUCT_STATUS.md`), but they are not wired into the shipping app. This document is not the current implementation-status source; for what is actually built today, see `docs/PRODUCT_STATUS.md`.
+**Status:** Historical planning specification. A smaller real Kin foundation (connections, requests, activity and reactions) has since shipped separately. The broader Social v1 described here has not been implemented as a whole. This document is not the current implementation-status source; see `docs/PRODUCT_STATUS.md`.
 
 **Purpose:** Define the social foundation of Kinwin as a private network of people the user knows and trusts. This document is the shared source of truth for future Codex, Claude Code, and human implementation work.
 
