@@ -64,3 +64,5 @@ npx expo-doctor
 ## Status
 
 Se `docs/LAUNCH_READINESS.md` för en aktuell, evidensbaserad genomgång av vad som är klart och vad som återstår före en intern betatest, extern beta och publik lansering.
+
+Se `docs/PRODUCT_STATUS.md` för en fullständig produktinventering: vad som är byggt, delvis byggt, planerat eller inte påbörjat, funktion för funktion.
