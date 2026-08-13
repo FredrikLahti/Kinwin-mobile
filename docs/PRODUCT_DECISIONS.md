@@ -1,5 +1,7 @@
 # Kinwin Product Decisions
 
+> This document records product decisions (what Kinwin should be), not implementation status. For what is actually built today, see `docs/PRODUCT_STATUS.md`. For release-gate status, see `docs/LAUNCH_READINESS.md`.
+
 ## Core
 
 * Product name: Kinwin
