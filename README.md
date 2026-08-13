@@ -2,7 +2,7 @@
 
 Detta är den nya mobilappen för Kinwin, byggd från grunden med Expo, React Native och TypeScript. Samma kodbas ska stödja iPhone och Android.
 
-Projektet innehåller just nu endast en tillfällig startsida. Ingen backend, inloggning eller betalningsintegration finns ännu.
+Denna README beskriver bara hur man kör appen lokalt. För aktuell status på vad som faktiskt är byggt (backend, inloggning, betalningar, m.m.) och vad som återstår före lansering, se `docs/LAUNCH_READINESS.md`.
 
 ## Förutsättningar
 
@@ -61,6 +61,6 @@ npm run lint
 npx expo-doctor
 ```
 
-## Inte implementerat ännu
+## Status
 
-Projektet har ingen backend, autentisering, analys, notifieringar eller betalningskoppling till Supabase, Stripe eller Tremendous. Den riktiga onboardingen och den slutliga visuella identiteten är också avsiktligt senare arbete.
+Se `docs/LAUNCH_READINESS.md` för en aktuell, evidensbaserad genomgång av vad som är klart och vad som återstår före en intern betatest, extern beta och publik lansering.
