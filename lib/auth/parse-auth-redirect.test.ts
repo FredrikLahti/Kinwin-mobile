@@ -9,9 +9,15 @@ test('parses hash-fragment tokens (implicit-flow recovery link shape)', () => {
   assert.equal(params.type, 'recovery');
 });
 
-test('parses query-string tokens (PKCE code exchange shape)', () => {
-  const params = parseAuthRedirectParams('https://kinwin-beta.expo.app/auth/reset-password?code=xyz&type=recovery');
-  assert.equal(params.code, 'xyz');
+// The parser itself is generic (any key from a query string), but Kinwin's
+// app never acts on a `code` param — the client is deliberately configured
+// for the implicit flow (lib/supabase/client.ts), which never produces one
+// for this app's recovery/confirmation links. This test only proves the
+// parser doesn't special-case or drop an unrelated query key, not that the
+// app supports PKCE code exchange.
+test('parses an arbitrary query string generically, without any auth-specific assumptions', () => {
+  const params = parseAuthRedirectParams('https://kinwin-beta.expo.app/auth/reset-password?foo=xyz&type=recovery');
+  assert.equal(params.foo, 'xyz');
   assert.equal(params.type, 'recovery');
 });
 

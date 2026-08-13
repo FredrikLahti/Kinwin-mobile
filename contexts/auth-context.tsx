@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { AuthErrorKind, classifySupabaseError } from '@/lib/auth/classify-error';
+import { AuthStatus as DerivedAuthStatus, deriveAuthStatus } from '@/lib/auth/derive-auth-status';
 import { buildPasswordResetRedirectUrl } from '@/lib/auth/reset-password-url';
 import { supabase } from '@/lib/supabase/client';
 
@@ -22,7 +23,9 @@ export type SignUpResult = { readonly ok: true; readonly needsConfirmation: bool
 
 export type Profile = { readonly id: string; readonly displayName: string | null; readonly showChallengeIntro: boolean };
 
-type AuthStatus = 'loading' | 'signed_out' | 'signed_in';
+// See lib/auth/derive-auth-status.ts's own comment for why
+// 'password_recovery' must stay distinct from 'signed_in' here.
+type AuthStatus = 'loading' | DerivedAuthStatus;
 
 type AuthContextValue = {
   readonly isConfigured: boolean;
@@ -76,10 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session) void loadProfile(data.session.user.id);
     });
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
       setSession(nextSession);
-      setStatus(nextSession ? 'signed_in' : 'signed_out');
+      setStatus(deriveAuthStatus(event, nextSession !== null));
       if (nextSession) {
         void loadProfile(nextSession.user.id);
       } else {

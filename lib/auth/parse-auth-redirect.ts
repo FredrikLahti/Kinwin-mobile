@@ -1,8 +1,12 @@
 /**
- * Extracts auth params from a Supabase redirect URL, whether GoTrue
- * delivered them as a `#fragment` (the classic implicit-flow shape,
- * `access_token`/`refresh_token`/`type`) or a `?query` string (the PKCE
- * shape, `code`). Equivalent in effect to expo-auth-session's
+ * Extracts arbitrary key/value params from a redirect URL, whether they
+ * arrive as a `#fragment` or a `?query` string — a small, generic parse,
+ * not auth-specific. Kinwin's Supabase client is deliberately configured
+ * for the implicit auth flow (see lib/supabase/client.ts's `flowType`
+ * comment for why), so the only shape this app's own recovery/confirmation
+ * links actually use is the `#fragment` one, carrying `access_token` /
+ * `refresh_token` / `type` directly — never a PKCE `?code=`, which this app
+ * does not exchange. Equivalent in effect to expo-auth-session's
  * `QueryParams.getQueryParams` (used in Supabase's own React Native guide)
  * but written by hand here to avoid adding a new dependency for one small,
  * easily-tested parse.

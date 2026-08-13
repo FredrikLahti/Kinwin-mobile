@@ -2,13 +2,15 @@
 -- failed-challenge consequence payment needs their attention, and extends
 -- the existing narrow card-replacement recovery mechanism (see
 -- 20260823000000_stripe_failure_charging.sql) to also cover the terminal
--- 'permanently_failed' outcome (automatic retries exhausted). This does not
--- change the payment worker's cadence, backoff, idempotency keys, or the
--- charge/PaymentIntent logic itself — only which charge-attempt states are
--- eligible for the owner to replace their payment method, and resets the
--- retry counter on a genuine card replacement so a fresh card gets the same
--- three-attempt allowance a first attempt gets. See docs/PRODUCT_STATUS.md
--- and docs/LAUNCH_READINESS.md for the product context.
+-- 'permanently_failed' outcome (automatic retries exhausted). Also makes
+-- recovery revival happen at webhook time (inside
+-- apply_consequence_recovery_setup_event) instead of waiting for the
+-- payment worker's next scheduled run to notice a replaced card — needed
+-- so the client can honestly poll for "no longer needs attention" within
+-- seconds, not up to an hour later. None of this changes the payment
+-- worker's cadence, backoff, idempotency keys, or the charge/PaymentIntent
+-- logic itself. See docs/PRODUCT_STATUS.md and docs/LAUNCH_READINESS.md for
+-- the product context.
 
 -- 1) Widen recovery eligibility to also include the exhausted-retries state.
 create or replace function public.prepare_consequence_recovery_setup(p_owner_id uuid,p_challenge_id uuid)
@@ -36,6 +38,17 @@ begin
  return jsonb_build_object('setupAttemptId',attempt,'consequenceId',v_co.id);
 end $$;
 
+-- Recovery-setup webhook application is the ONLY writer of
+-- consequence_provider_references.payment_method_reference after the initial
+-- insert (verified across every migration) — so it is also the correct,
+-- single place to transition the stalled charge attempt itself, at the
+-- moment webhook-verified truth actually arrives, rather than leaving it to
+-- be discovered whenever claim_due_consequence_payments next happens to
+-- run (up to an hour later on the real cron cadence). This is what makes
+-- get_owner_payment_status below able to honestly report "no longer needs
+-- attention" within seconds of the card being saved, not after the next
+-- worker tick — while the worker itself remains the only thing that ever
+-- attempts a charge or touches PaymentIntent/idempotency state.
 create or replace function public.apply_consequence_recovery_setup_event(p_stripe_setup_intent_id text,p_stripe_customer_id text,p_stripe_payment_method_id text)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare s private.consequence_setup_attempts%rowtype;a private.consequence_charge_attempts%rowtype;c public.challenges%rowtype;
@@ -43,16 +56,33 @@ begin
  select * into s from private.consequence_setup_attempts where stripe_setup_intent_id=p_stripe_setup_intent_id and status='succeeded';
  if not found then return jsonb_build_object('outcome','not_recovery'); end if;
  select * into a from private.consequence_charge_attempts where consequence_id=s.consequence_id for update;
- select c.* into c from public.challenges c join public.consequences co on co.challenge_id=c.id where co.id=s.consequence_id;
- if c.challenge_status<>'completed_failure' or a.status not in ('requires_payment_method','requires_action','permanently_failed') or a.stripe_customer_id<>p_stripe_customer_id then return jsonb_build_object('outcome','not_recoverable'); end if;
+ -- Table alias deliberately not "c" — the declared `c public.challenges%rowtype`
+ -- variable above made `co.challenge_id=c.id` genuinely ambiguous to Postgres
+ -- (a real bug in the original migration this replaces: it made this
+ -- function raise on every real call, since it was never actually exercised
+ -- end-to-end by any prior test).
+ select ch.* into c from public.challenges ch join public.consequences co on co.challenge_id=ch.id where co.id=s.consequence_id;
+ if not found or c.challenge_status<>'completed_failure' or a.status not in ('requires_payment_method','requires_action','permanently_failed') or a.stripe_customer_id<>p_stripe_customer_id then return jsonb_build_object('outcome','not_recoverable'); end if;
  update private.consequence_provider_references set payment_method_reference=p_stripe_payment_method_id,authorization_reference=p_stripe_setup_intent_id where consequence_id=s.consequence_id and customer_reference=p_stripe_customer_id;
+ -- Revive the obligation immediately: a fresh card gets the same
+ -- three-attempt allowance a first attempt gets (retry_count reset), and
+ -- becomes due on the worker's very next run (next_retry_at = now).
+ -- 'temporary_failure' is the correct pre-claim status, not 'pending' —
+ -- this obligation already had at least one real attempt.
+ update private.consequence_charge_attempts set stripe_payment_method_id=p_stripe_payment_method_id,
+   status='temporary_failure',retry_count=0,next_retry_at=clock_timestamp(),failure_code='payment_method_replaced'
+   where id=a.id;
  return jsonb_build_object('outcome','payment_method_replaced','obligationId',a.id);
 end $$;
 
--- 2) The worker's own revival step (inside claim_due_consequence_payments)
--- must also recognize a replaced card on a 'permanently_failed' obligation,
--- and must reset retry_count so the fresh card gets a full new attempt
--- allowance instead of remaining permanently unclaimable at retry_count=3.
+-- apply_consequence_recovery_setup_event above is now the sole writer of
+-- payment_method_reference, and it performs the status/retry_count
+-- transition itself at webhook time — so claim_due_consequence_payments'
+-- own "detect a replaced card" revival step (a separate update statement
+-- that used to run every worker tick, checking every provider reference
+-- for a mismatch) is provably unreachable and removed here rather than
+-- left as dead code. The rest of this function is otherwise byte-identical
+-- to 20260823000000_stripe_failure_charging.sql.
 create or replace function public.claim_due_consequence_payments(p_run_id uuid,p_lease_token uuid,p_limit integer default 25)
 returns table(obligation_id uuid,challenge_id uuid,owner_id uuid,amount_minor_units bigint,currency text,
  stripe_customer_id text,stripe_payment_method_id text,stripe_payment_intent_id text,retry_count integer)
@@ -72,17 +102,6 @@ begin
     and pr.customer_reference is not null and pr.payment_method_reference is not null
   on conflict(consequence_id) do nothing;
 
-  -- A newly saved replacement method revives the obligation; amount and
-  -- PaymentIntent identity are retained. The worker updates that one Intent.
-  -- retry_count is reset here so a replaced card always gets a fresh
-  -- allowance of attempts, whether it was stuck at requires_payment_method
-  -- or had already exhausted its three automatic retries.
-  update private.consequence_charge_attempts a set stripe_payment_method_id=pr.payment_method_reference,
-    status='temporary_failure',retry_count=0,next_retry_at=clock_timestamp(),failure_code='payment_method_replaced'
-  from private.consequence_provider_references pr
-  where a.consequence_id=pr.consequence_id and a.status in ('requires_payment_method','permanently_failed')
-    and pr.payment_method_reference is distinct from a.stripe_payment_method_id;
-
   return query
   with due as (
     select a.id from private.consequence_charge_attempts a join public.consequences co on co.id=a.consequence_id
@@ -99,7 +118,7 @@ begin
     from claimed a join public.consequences co on co.id=a.consequence_id;
 end $$;
 
--- 3) Safe, coarse, owner-scoped read of whether a failed-challenge payment
+-- 2) Safe, coarse, owner-scoped read of whether a failed-challenge payment
 -- needs the owner's attention — never exposes provider ids, raw Stripe
 -- status strings, or internal failure codes. Mirrors
 -- get_owner_reward_progress's auth.uid()-scoped pattern.

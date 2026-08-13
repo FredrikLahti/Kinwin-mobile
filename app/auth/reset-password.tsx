@@ -1,11 +1,18 @@
-// Landing screen for the emailed password-recovery link. Supabase's own
-// React Native guidance (unlike the web SDK's automatic detectSessionInUrl,
-// which this app deliberately disables — see lib/supabase/client.ts) has the
-// app itself read the access_token/refresh_token pair out of the redirect
-// URL and call setSession. This screen reads them from the route's own
-// query params first (the common case once Expo Router has matched this
-// path), and falls back to parsing the raw incoming URL directly in case
-// GoTrue delivered them as a #fragment instead.
+// Landing screen for the emailed password-recovery link. Kinwin's Supabase
+// client is deliberately configured for the implicit auth flow, not PKCE
+// (see lib/supabase/client.ts's flowType comment for why: this app's
+// recovery links are routinely opened in a different context — a browser,
+// a different device's mail client — than the one that requested them,
+// which a PKCE code exchange cannot complete). Under implicit flow, GoTrue
+// verifies the emailed token server-side and hands back a ready
+// access_token/refresh_token pair directly, so — unlike the web SDK's
+// automatic detectSessionInUrl, which this app deliberately disables (see
+// lib/supabase/client.ts) — this screen reads that pair out of the
+// redirect URL itself and calls setSession. It reads them from the route's
+// own query params first (the common case once Expo Router has matched
+// this path), and falls back to parsing the raw incoming URL directly in
+// case they arrived as a #fragment instead. A PKCE `?code=` is
+// deliberately never handled here — see lib/auth/parse-auth-redirect.ts.
 import * as Linking from 'expo-linking';
 import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

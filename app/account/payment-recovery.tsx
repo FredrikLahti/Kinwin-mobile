@@ -133,7 +133,11 @@ export default function PaymentRecoveryScreen() {
       return;
     }
     if (outcome === 'failed') {
-      setState({ kind: 'error', message: presentResult.error?.message || 'The payment step could not be completed. Try again.' });
+      // Never the raw Stripe SDK message (presentResult.error?.message) —
+      // it can include provider-specific decline detail. A single safe,
+      // generic message covers both a real failure and a timeout, which
+      // classifyPaymentSheetPresentResult already collapses together.
+      setState({ kind: 'error', message: 'The payment step could not be completed. Try again.' });
       return;
     }
 
