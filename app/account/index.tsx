@@ -243,6 +243,23 @@ export default function AccountScreen() {
             )}
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>LEGAL</Text>
+            <Pressable
+              accessibilityHint="Opens Kinwin's privacy page"
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); router.push('/legal/privacy' as Href); }}
+              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+            >
+              <Text style={styles.textButtonLabel}>Privacy</Text>
+            </Pressable>
+            {/* Terms of Service is intentionally not linked here yet: no
+                real Terms exist. The route (app/legal/terms.tsx) exists for
+                internal review only until real Terms are written and
+                reviewed; linking a page that says "not ready" would be
+                more confusing than just not linking it. */}
+          </View>
+
           <Pressable
             accessibilityHint="Signs out of your Kinwin account"
             accessibilityRole="button"

@@ -44,10 +44,10 @@ Today, a Kinwin user can: sign up, create a commitment challenge (a goal, a beha
 | Email verification behavior | IMPLEMENTED | `signUp` checks whether Supabase actually returned a session (`data.session === null` means confirmation is required) instead of assuming — the auth screen shows a distinct "Check your email to confirm your account" state with a real "Resend confirmation email" action (`supabase.auth.resend`), and sign-in maps GoTrue's real `Email not confirmed` error to its own honest message instead of a generic "incorrect email/password." | |
 | Password reset | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | Real Supabase flow: `app/auth/forgot-password.tsx` calls `resetPasswordForEmail` with enumeration-safe copy; the emailed link opens `app/auth/reset-password.tsx` (reachable via the same https:// web origin the recipient-invitation fallback already uses), which establishes the recovery session (`setSession` from the link's access/refresh token, implicit flow — see `lib/supabase/client.ts`'s `flowType` comment for why PKCE would not work across Kinwin's actual app→email→browser redirect paths) and calls `updateUser` to set the new password. Also fixed a real routing bug this correction pass found: establishing the recovery session was flipping the shared `status` to a plain `'signed_in'`, which would have let ambient "if signed in, redirect away" checks in `app/index.tsx` and `app/auth/index.tsx` yank the user off this screen before they could set a new password — a new `'password_recovery'` status (`lib/auth/derive-auth-status.ts`) keeps those checks from firing during recovery. | Two things could not be verified from this sandboxed environment (no hosted-project credentials, no Supabase CLI/Management API access): (1) that the hosted TEST Supabase project's Auth → Redirect URLs allowlist actually includes this app's reset-password URL — required or GoTrue silently ignores `redirectTo`; (2) a live end-to-end send-and-click of a real reset email. The EAS Hosting SPA-fallback serving `/auth/reset-password` is architecturally the same mechanism already verified working for `/invite/<token>` (see `LAUNCH_READINESS.md`), but was not independently re-confirmed live in this session. |
 | OAuth / social login | DEFERRED / POST-LAUNCH | Zero code. In-app copy literally says "Apple and Google sign-in come later." | |
-| Account deletion | PRODUCT DECISION NEEDED | No UI, function, or migration. Restrictive foreign keys deliberately block cascading deletion through an active financial commitment. | See `LAUNCH_READINESS.md`'s seven data-retention questions before this can be built. |
+| Account deletion | PRODUCT DECISION NEEDED | No UI, function, or migration. Restrictive foreign keys deliberately block cascading deletion through an active financial commitment (verified across every migration: `on delete restrict` from every challenge/payment/reward table, `on delete cascade` only for Kin connections/social activity/reactions/Playbook). A full decision package with recommended options now exists in `docs/ACCOUNT_DELETION_DECISIONS.md`. | See that document's "Founder decisions required" section (5 items) before this can be built. Not implemented in this package, by design. |
 | Account/settings functionality | IMPLEMENTED | `app/account/index.tsx` — display name, draft management, "show intro" toggle, sign out. | |
 | Support/contact surface | PARTIAL | Real "Contact Kinwin" row in `app/account/index.tsx`, wired to open a `mailto:` link to `EXPO_PUBLIC_SUPPORT_EMAIL`. No real address is configured yet — `lib/support/config.ts` reads the env var and the screen honestly shows "Support contact is not configured in this build yet" until it's set, rather than shipping a fake address. | **Founder action needed:** set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address once one exists. |
-| Privacy policy / Terms surfaces | NOT IMPLEMENTED — PLANNED | No privacy policy or ToS document. A functional (not legally reviewed) consequence-disclosure exists in the creation flow — see §2. | |
+| Privacy policy / Terms surfaces | PARTIAL | `app/legal/privacy.tsx` is a real, publicly reachable (no sign-in required) factual DRAFT built strictly from `docs/PRIVACY_DATA_INVENTORY.md`, linked from Account settings; explicitly labeled as a draft, not legally reviewed. `app/legal/terms.tsx` is route infrastructure only — deliberately not linked from any shipping navigation, explicitly labeled "not ready" — since no real Terms exist yet. A functional (not legally reviewed) consequence-disclosure also exists in the creation flow — see §2 and `docs/PRODUCT_DECISIONS.md`'s gap analysis. | Legal review of the Privacy draft, and writing real Terms, remain outstanding. |
 
 ### 2. Challenge creation
 
@@ -278,7 +278,8 @@ Implementation status only — release-blocking classification lives entirely in
 | AASA | PARTIAL | Deterministic generator script exists and works; requires the real Apple Team ID to produce final content — deliberately not deployed yet. | |
 | Universal Links | PARTIAL | See §7 — iOS-only, beta-gated; Android has none. | |
 | TestFlight | NOT IMPLEMENTED — PLANNED | Needs an App Store Connect app record + export-compliance answers first. | |
-| App Store Connect | NOT IMPLEMENTED — PLANNED | No metadata, screenshots, or privacy-label prep exists yet. | |
+| App Store Connect | NOT IMPLEMENTED — PLANNED | No metadata, screenshots, or privacy-label prep exists yet. A working App Store Privacy declaration map exists in `docs/PRIVACY_DATA_INVENTORY.md` to prepare for the real questionnaire, but it is not itself a submission. | |
+| Export compliance (`ITSAppUsesNonExemptEncryption`) | IMPLEMENTED | `app.config.js` declares `ios.config.usesNonExemptEncryption: false`, justified by direct dependency/code inspection (HTTPS/TLS-only networking, Stripe's standard native SDK, `expo-crypto`'s `randomUUID()` only, no custom/bundled cryptography anywhere in the app). Verified the evaluated Expo config actually contains the expected value. | |
 | Production bundle identifier | PRODUCT DECISION NEEDED | Current identifier (`com.kinwin.mobile.beta`) is explicitly not the final one. | |
 
 ## Real user journeys currently available
@@ -299,9 +300,9 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 - Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface.
 
 ### Public-launch work
-- Account deletion (pending the data-retention decisions).
-- Privacy policy, Terms of Service.
-- Apple signing chain, App Store Connect setup, production bundle identifier.
+- Account deletion implementation (decision package exists in `docs/ACCOUNT_DELETION_DECISIONS.md`; still pending the five founder decisions it closes with).
+- Legal review of the Privacy draft (`app/legal/privacy.tsx`) and writing real Terms of Service (`app/legal/terms.tsx` has route infrastructure only).
+- Apple signing chain, App Store Connect setup (metadata, screenshots, privacy nutrition label using `docs/PRIVACY_DATA_INVENTORY.md`'s working map), production bundle identifier.
 - Production Stripe/Tremendous provisioning (if real money is intended at launch).
 
 ### Post-launch expansion
@@ -318,7 +319,7 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 
 Only real decisions engineering shouldn't make automatically — full detail in `LAUNCH_READINESS.md`:
 
-1. Account deletion semantics (active challenge, pending obligation, history retention, social activity, invitations, provider references, legally required records).
+1. Account deletion semantics — see `docs/ACCOUNT_DELETION_DECISIONS.md`'s 5-item "Founder decisions required" section (completed-history model, Kin-connection deletion mechanics, payment-record retention length, whether to block deletion during any non-terminal state, and recipient display-name retention).
 2. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
 3. Currency scope beyond USD.
 4. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.

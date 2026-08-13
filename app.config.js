@@ -33,6 +33,23 @@ module.exports = {
       supportsTablet: true,
       bundleIdentifier: 'com.kinwin.mobile.beta',
       buildNumber: '1',
+      // Declares ITSAppUsesNonExemptEncryption = false in the built
+      // Info.plist. Justified by actual dependency/code inspection, not
+      // assumed: the app's only network traffic is HTTPS/TLS to Supabase
+      // and Stripe (OS-handled, exempt); the Stripe React Native SDK's
+      // native dependency graph (StripeCore/StripeUICore/StripePayments/
+      // StripePaymentsUI/StripeApplePay) is Stripe's standard modular
+      // payments SDK relying on TLS and Apple Pay's own on-device
+      // encryption, not a bundled custom cipher; the only crypto API used
+      // in application code is expo-crypto's randomUUID() for idempotency
+      // keys/client operation ids (standard system randomness, not
+      // confidentiality encryption); the SHA-256 hashing of recipient/
+      // organizer invitation tokens happens entirely server-side
+      // (Postgres/Edge Functions), never in this app binary; and no
+      // SecureStore/Keychain wrapper, VPN, DRM, or messaging-encryption
+      // SDK is present anywhere in the dependency tree. Revisit this if a
+      // future dependency changes that picture.
+      config: { usesNonExemptEncryption: false },
       ...(beta ? { associatedDomains: [`applinks:${beta.invitationHost}`] } : {}),
     },
     android: {
