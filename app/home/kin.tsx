@@ -281,7 +281,7 @@ export default function KinV2() {
     setSubmittingReport(false);
     setReportTarget(null);
     if (!result.ok) {
-      Alert.alert('Could not send that report', result.kind === 'rejected' ? (result.message ?? '') : 'Please try again.');
+      Alert.alert('Could not send that report', 'Please try again.');
       return;
     }
     // Only offered from an activity card (target.activityId set) — the

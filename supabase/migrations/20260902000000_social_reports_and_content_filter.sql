@@ -151,11 +151,18 @@ create table private.social_reports (
   reported_user_id uuid not null references auth.users (id) on delete cascade,
   -- Nullable: a report can be about a specific piece of activity, or about
   -- the person/profile generally (e.g. reported from the People tab, not
-  -- tied to one activity item). set null (not cascade) on the activity's
-  -- own removal so a report never silently disappears just because the
-  -- thing it was about later goes away -- social_activity has no delete
-  -- path today, but this is the honest, surprise-free default regardless.
-  reported_activity_id uuid references public.social_activity (id) on delete set null,
+  -- tied to one activity item). Deliberately NOT a foreign key into
+  -- social_activity: existence/visibility is already re-validated inside
+  -- submit_social_report at the moment of submission (below), so this
+  -- column only ever needs to be a historical, opaque reference from that
+  -- point on -- a report's identity must never be mutated by something
+  -- else's later lifecycle (e.g. the referenced activity row being
+  -- deleted), and a live FK would do exactly that (see the note on the
+  -- partial unique index just below for the concrete collision this
+  -- avoids). No archive/retention model is introduced here -- how long a
+  -- report itself is kept remains RETENTION DECISION NEEDED, same as
+  -- everywhere else in docs/PRIVACY_DATA_INVENTORY.md.
+  reported_activity_id uuid,
   reason text not null check (reason in ('harassment', 'hate_or_abuse', 'sexual_content', 'spam', 'other')),
   detail text check (detail is null or length(detail) <= 500),
   status text not null default 'open' check (status in ('open', 'resolved', 'dismissed')),
@@ -166,14 +173,19 @@ create table private.social_reports (
   check (status <> 'open' or resolved_at is null)
 );
 
--- Repeatedly reporting the exact same target (and, if given, the exact
--- same activity item) is a no-op, not a new row each time -- the RPC below
--- treats a conflict as "already_reported" rather than erroring. A genuinely
--- new incident (a different activity item from the same person) is still
--- its own real report.
-create unique index social_reports_reporter_target_unique on private.social_reports (
+-- Prevents duplicate-click spam, not future incidents: only one OPEN report
+-- for the same reporter + exact target (activity-specific reports and
+-- profile-level reports are distinct targets, via the same coalesce-to-a-
+-- sentinel trick used elsewhere for "nullable column, unique together"). A
+-- partial index, not a plain one -- once a report is resolved/dismissed, a
+-- genuinely new report against the same target is allowed again, rather
+-- than being permanently blocked. Being a partial index over `status =
+-- 'open'` rather than a live FK is also what makes reported_activity_id
+-- safe to have no foreign key above: nothing about deleting a
+-- social_activity row can ever touch this index or this table at all.
+create unique index social_reports_reporter_target_open_unique on private.social_reports (
   reporter_user_id, reported_user_id, coalesce(reported_activity_id, '00000000-0000-0000-0000-000000000000'::uuid)
-);
+) where status = 'open';
 -- The actual operational review query: open reports, oldest first.
 create index social_reports_status_created_idx on private.social_reports (status, created_at);
 create index social_reports_reported_user_idx on private.social_reports (reported_user_id);
@@ -190,9 +202,13 @@ grant select, insert, update, delete on table private.social_reports to service_
 -- The one client-reachable entrypoint. Reports either a specific activity
 -- item (validated against the exact same visibility rule social_activity's
 -- own RLS already enforces -- owner or accepted Kin) or, if
--- p_reported_activity_id is omitted, the person themselves -- gated on some
--- real kin_connections row already existing between the two (any status),
--- so this can never become a "report an arbitrary stranger's uuid" primitive.
+-- p_reported_activity_id is omitted, the person's profile -- gated on the
+-- exact same visibility rule profiles_select_kin already uses (pending or
+-- accepted; not a stale 'removed' or 'blocked' row), so a profile-level
+-- report can never target someone whose profile isn't actually visible
+-- through the real Kin UI in the first place. Deliberately does not cover
+-- person-search results (search_kin_candidates) -- out of scope for this
+-- pass.
 create or replace function public.submit_social_report(
   p_reported_user_id uuid,
   p_reported_activity_id uuid default null,
@@ -239,6 +255,7 @@ begin
       select 1 from public.kin_connections c
       where least(c.requester_id, c.recipient_id) = least(caller, p_reported_user_id)
         and greatest(c.requester_id, c.recipient_id) = greatest(caller, p_reported_user_id)
+        and c.status in ('pending', 'accepted')
     ) then
       raise exception 'that person could not be found' using errcode = 'P0002';
     end if;
@@ -252,13 +269,17 @@ begin
   insert into private.social_reports (reporter_user_id, reported_user_id, reported_activity_id, reason, detail)
     values (caller, p_reported_user_id, p_reported_activity_id, p_reason, v_detail)
   on conflict (reporter_user_id, reported_user_id, coalesce(reported_activity_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  where status = 'open'
   do nothing
   returning id into v_report_id;
 
+  -- Report ids are operator/service_role-only detail (see private.social_reports'
+  -- own grants below) -- never handed back to an ordinary authenticated
+  -- caller, who has no product reason to know it and no way to use it.
   if v_report_id is null then
     return jsonb_build_object('status', 'already_reported');
   end if;
-  return jsonb_build_object('status', 'submitted', 'reportId', v_report_id);
+  return jsonb_build_object('status', 'submitted');
 end;
 $$;
 
