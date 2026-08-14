@@ -44,10 +44,11 @@ Today, a Kinwin user can: sign up, create a commitment challenge (a goal, a beha
 | Email verification behavior | IMPLEMENTED | `signUp` checks whether Supabase actually returned a session (`data.session === null` means confirmation is required) instead of assuming — the auth screen shows a distinct "Check your email to confirm your account" state with a real "Resend confirmation email" action (`supabase.auth.resend`), and sign-in maps GoTrue's real `Email not confirmed` error to its own honest message instead of a generic "incorrect email/password." | |
 | Password reset | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | Real Supabase flow: `app/auth/forgot-password.tsx` calls `resetPasswordForEmail` with enumeration-safe copy; the emailed link opens `app/auth/reset-password.tsx` (reachable via the same https:// web origin the recipient-invitation fallback already uses), which establishes the recovery session (`setSession` from the link's access/refresh token, implicit flow — see `lib/supabase/client.ts`'s `flowType` comment for why PKCE would not work across Kinwin's actual app→email→browser redirect paths) and calls `updateUser` to set the new password. Also fixed a real routing bug this correction pass found: establishing the recovery session was flipping the shared `status` to a plain `'signed_in'`, which would have let ambient "if signed in, redirect away" checks in `app/index.tsx` and `app/auth/index.tsx` yank the user off this screen before they could set a new password — a new `'password_recovery'` status (`lib/auth/derive-auth-status.ts`) keeps those checks from firing during recovery. | Two things could not be verified from this sandboxed environment (no hosted-project credentials, no Supabase CLI/Management API access): (1) that the hosted TEST Supabase project's Auth → Redirect URLs allowlist actually includes this app's reset-password URL — required or GoTrue silently ignores `redirectTo`; (2) a live end-to-end send-and-click of a real reset email. The EAS Hosting SPA-fallback serving `/auth/reset-password` is architecturally the same mechanism already verified working for `/invite/<token>` (see `LAUNCH_READINESS.md`), but was not independently re-confirmed live in this session. |
 | OAuth / social login | DEFERRED / POST-LAUNCH | Zero code. In-app copy literally says "Apple and Google sign-in come later." | |
-| Account deletion | PRODUCT DECISION NEEDED | No UI, function, or migration. Restrictive foreign keys deliberately block cascading deletion through an active financial commitment. | See `LAUNCH_READINESS.md`'s seven data-retention questions before this can be built. |
+| Account deletion | PRODUCT DECISION NEEDED | No UI, function, or migration. Restrictive foreign keys deliberately block cascading deletion through an active financial commitment (verified across every migration: `on delete restrict` from every challenge/payment/reward table, `on delete cascade` only for Kin connections/social activity/reactions/Playbook). A full decision package with recommended options now exists in `docs/ACCOUNT_DELETION_DECISIONS.md`. | See that document's "Founder decisions required" section (5 items) before this can be built. Not implemented in this package, by design. |
 | Account/settings functionality | IMPLEMENTED | `app/account/index.tsx` — display name, draft management, "show intro" toggle, sign out. | |
 | Support/contact surface | PARTIAL | Real "Contact Kinwin" row in `app/account/index.tsx`, wired to open a `mailto:` link to `EXPO_PUBLIC_SUPPORT_EMAIL`. No real address is configured yet — `lib/support/config.ts` reads the env var and the screen honestly shows "Support contact is not configured in this build yet" until it's set, rather than shipping a fake address. | **Founder action needed:** set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address once one exists. |
-| Privacy policy / Terms surfaces | NOT IMPLEMENTED — PLANNED | No privacy policy or ToS document. A functional (not legally reviewed) consequence-disclosure exists in the creation flow — see §2. | |
+| Privacy policy surface | PARTIAL | `app/legal/privacy.tsx` is a real, publicly reachable (no sign-in required) factual DRAFT built strictly from `docs/PRIVACY_DATA_INVENTORY.md`, linked from Account settings; explicitly self-labeled as a draft. A functional (not legally reviewed) consequence-disclosure also exists in the creation flow — see §2 and `docs/PRODUCT_DECISIONS.md`'s gap analysis. | Not yet a finished, publication-ready policy satisfying Apple Guideline 5.1.1 — its retention/deletion story is incomplete because account deletion isn't implemented yet, not because it lacks a lawyer's sign-off (Apple's rule doesn't require legal review). Conditional external-TestFlight blocker as well as a public-launch one — see `LAUNCH_READINESS.md`. A separate legal review of the final wording is recommended before public real-money launch. |
+| Custom Kinwin Terms of Service | PRODUCT DECISION NEEDED | No custom Kinwin Terms exist today. Apple applies its own standard EULA to App Store Connect submissions by default when no custom EULA is supplied, so this is not a generic Apple technical requirement. The previous unlinked internal-placeholder route (`app/legal/terms.tsx`) has been removed from the shipping app in this pass — Apple's App Review guidance discourages placeholder/incomplete content, and there was no product need to ship it. | Whether Kinwin's consequence/payment/reward model needs its own Terms before real-money public launch is a legal/business decision requiring real review, not an engineering assumption. |
 
 ### 2. Challenge creation
 
@@ -220,7 +221,7 @@ High-level; see `docs/CHECK_IN_ENGINE.md` and `docs/SCHEDULED_CHALLENGE_COMPLETI
 | Per-challenge audience (Only me / All Kin / Selected Kin) | SUPERSEDED / PROTOTYPE ONLY | Fully modeled in the disconnected prototype (`lib/social/projection.ts`), never wired to the real backend. The shipped model is the simpler binary one above instead. | Whether that's the intentional final design is a product decision — see `LAUNCH_READINESS.md`. |
 | Detail visibility (Exact / General / Progress only) | SUPERSEDED / PROTOTYPE ONLY | Same prototype as above. | |
 | Social profiles / history pages | OUT OF CURRENT SCOPE | Not built anywhere, including the prototype. | |
-| Reporting / moderation | PARTIAL | A relationship-level block exists and is tested; a content-report/moderation system does not. | Reasonable for current network size. |
+| Reporting / moderation | PARTIAL | A relationship-level block exists and is tested; a content-report/moderation system does not. | Corrected note: not simply "reasonable for current network size" — Apple App Review Guideline 1.2 (content filtering, reporting, published contact info) applies once distributed to outside testers via TestFlight or submitted for public release, with no network-size exemption. See `LAUNCH_READINESS.md`'s External beta gate / Public App Store gate tables. Not implemented in this PR. |
 | Kin-request / activity notifications | See §11 | | |
 | Challenge invitations between Kin (inviting a Kin connection into your own challenge) | OUT OF CURRENT SCOPE | Zero code anywhere. Distinct from recipient/organizer invitations, which are real (§7). | |
 | Joining someone else's challenge | OUT OF CURRENT SCOPE | Zero code anywhere. A challenge has exactly one owner today. | |
@@ -278,7 +279,8 @@ Implementation status only — release-blocking classification lives entirely in
 | AASA | PARTIAL | Deterministic generator script exists and works; requires the real Apple Team ID to produce final content — deliberately not deployed yet. | |
 | Universal Links | PARTIAL | See §7 — iOS-only, beta-gated; Android has none. | |
 | TestFlight | NOT IMPLEMENTED — PLANNED | Needs an App Store Connect app record + export-compliance answers first. | |
-| App Store Connect | NOT IMPLEMENTED — PLANNED | No metadata, screenshots, or privacy-label prep exists yet. | |
+| App Store Connect | NOT IMPLEMENTED — PLANNED | No metadata, screenshots, or privacy-label prep exists yet. A working App Store Privacy declaration map exists in `docs/PRIVACY_DATA_INVENTORY.md` to prepare for the real questionnaire, but it is not itself a submission. | |
+| Export compliance (`ITSAppUsesNonExemptEncryption`) | IMPLEMENTED | `app.config.js` declares `ios.config.usesNonExemptEncryption: false`, justified by direct dependency/code inspection (HTTPS/TLS-only networking, Stripe's standard native SDK, `expo-crypto`'s `randomUUID()` only, no custom/bundled cryptography anywhere in the app). Verified the evaluated Expo config actually contains the expected value. | |
 | Production bundle identifier | PRODUCT DECISION NEEDED | Current identifier (`com.kinwin.mobile.beta`) is explicitly not the final one. | |
 
 ## Real user journeys currently available
@@ -296,12 +298,16 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 
 ### Near-term
 - A real progress/statistics feature — the fixture-only prototype was removed from shipping navigation (§5), but nothing real replaces it yet.
-- Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface.
+- Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface, also part of satisfying Apple Guideline 1.2's published-contact-info requirement (see below).
+- Small TEST-mode payment disclosure copy addition to the existing consequence-consent UI, so outside testers can tell no real money moves — see `LAUNCH_READINESS.md`'s External beta gate table. Not implemented yet.
 
 ### Public-launch work
-- Account deletion (pending the data-retention decisions).
-- Privacy policy, Terms of Service.
-- Apple signing chain, App Store Connect setup, production bundle identifier.
+- Account deletion implementation (decision package exists in `docs/ACCOUNT_DELETION_DECISIONS.md`; still pending the five founder decisions it closes with). Conditionally an external-beta requirement too, not only a public-launch one, if the distribution-model decision lands on TestFlight (Apple Guideline 2.2) — see `LAUNCH_READINESS.md`.
+- UGC / social-networking compliance (Apple Guideline 1.2): content filtering and a reporting mechanism, on top of the existing `block_kin` mechanism. Same TestFlight-vs-ad-hoc conditionality as account deletion. Not implemented yet.
+- Finishing the Privacy policy into a publication-ready document satisfying Apple Guideline 5.1.1 (`app/legal/privacy.tsx` currently self-labels as a factual DRAFT with an incomplete retention/deletion story). Also a conditional external-TestFlight blocker, not only public-launch, if TestFlight is the chosen distribution model. A separate legal review of the final wording is recommended before public real-money launch, but is not itself the Apple requirement.
+- Legal/business decision on whether Kinwin needs a custom Terms document at all, given Apple's standard-EULA fallback — not a generic App Store requirement.
+- Legal review of the consequence-consent/payment/reward copy before real money is at stake for outside people — not an external TEST-beta blocker (see `LAUNCH_READINESS.md`).
+- Apple signing chain, App Store Connect setup (metadata, screenshots, privacy nutrition label using `docs/PRIVACY_DATA_INVENTORY.md`'s working map), production bundle identifier.
 - Production Stripe/Tremendous provisioning (if real money is intended at launch).
 
 ### Post-launch expansion
@@ -318,13 +324,14 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 
 Only real decisions engineering shouldn't make automatically — full detail in `LAUNCH_READINESS.md`:
 
-1. Account deletion semantics (active challenge, pending obligation, history retention, social activity, invitations, provider references, legally required records).
-2. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
-3. Currency scope beyond USD.
-4. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.
-5. Production bundle identifier.
-6. Distribution model for external beta (ad-hoc device registration vs. TestFlight).
-7. Whether public launch is free or paid.
+1. Account deletion semantics — see `docs/ACCOUNT_DELETION_DECISIONS.md`'s 5-item "Founder decisions required" section (completed-history model, whether the existing Kin-connection cascade is acceptable, minimal retained-record design and retention length, whether to block deletion during any non-terminal state, and recipient display-name retention).
+2. Timing of UGC/social-networking compliance work (Apple Guideline 1.2 content filtering and reporting) — now, ahead of TestFlight, or gated on the distribution-model decision below.
+3. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
+4. Currency scope beyond USD.
+5. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.
+6. Production bundle identifier.
+7. Distribution model for external beta (ad-hoc device registration vs. TestFlight) — also determines whether items 1 and 2 above become required before that step, not only at public launch.
+8. Whether public launch is free or paid.
 
 Not a founder product decision (listed here only for completeness): the Apple Team ID is an external platform/account value Apple assigns after Developer Program enrollment completes, not something engineering or the founder chooses as product design. Tracked as a Platform & release surfaces inventory item (§13), not here.
 

@@ -104,6 +104,25 @@
   This is a list of the data the copy must convey, not approved legal wording — final
   consent copy requires legal review before shipping, and nothing in this package
   should be read as having already received it.
+
+### Consequence-consent / Terms gap analysis (evidence-based, added by the launch-compliance package)
+
+**What the current UI already discloses**, confirmed directly in the code:
+- `app/create/review.tsx`: a required checkbox — *"If the challenge fails, the reward is for my recipients. I will not take part in their experience."*
+- `app/account/payment-setup.tsx`: a required checkbox plus a four-point disclosure list — no charge now; card saved securely with Stripe; a charge can happen automatically, even while offline; the card is used only for this commitment.
+- `app/create/review.tsx`: *"Kinwin membership is free during the beta. No card is charged for membership."*
+
+**A real gap this package found**: none of the above, nor any other user-facing screen prior to `app/legal/privacy.tsx` (new in this package), tells the tester that the stake amount itself is a TEST-mode value with no real money at risk. The existing copy says a charge "can happen automatically" without saying that charge is fake in the current build. This matters because a beta tester reading only the in-app copy has no way to know the dollar figure they're agreeing to isn't real — worth closing before external beta scales past people the founder can personally brief.
+
+**What remains legally/product-review dependent** (unchanged from the existing note above, restated for completeness): the exact wording of every consent point listed is founder/product-drafted, not legally reviewed. None of it should be treated as sufficient for a real-money public launch as-is.
+
+**Language that needs external legal review before real-money public launch:**
+- The sit-out acknowledgment and payment-disclosure copy above, verbatim.
+- A real Terms of Service, if legal/business review decides Kinwin needs one — Apple's own standard EULA otherwise applies to the App Store submission by default, so this is not a generic Apple requirement. No route currently exists for this (the earlier unlinked placeholder route was removed as unnecessary; see `docs/PRODUCT_STATUS.md`).
+- A refund/dispute policy — none exists in any form today; not addressed by this package.
+- Explicit "this is a TEST/beta build, no real money" disclosure at the point the stake amount is set and at payment authorization, not just in the Privacy page.
+
+TEST beta and a real-money production launch must remain clearly distinguishable to users, not just enforced in build config — see the gap above.
 * Implemented by `supabase/functions/create-consequence-setup-intent` and
   `supabase/functions/stripe-consequence-webhook`, and by the client consent + native
   PaymentSheet flow at `app/account/payment-setup.tsx`; see `docs/SUPABASE_SCHEMA.md`'s

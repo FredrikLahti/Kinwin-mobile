@@ -21,6 +21,7 @@ const SCAN_DIRS = [
   'app/home',
   'app/auth',
   'app/invite',
+  'app/legal',
   'components/v2',
   'components/onboarding',
   'components/share',

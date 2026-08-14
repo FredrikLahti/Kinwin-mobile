@@ -243,6 +243,25 @@ export default function AccountScreen() {
             )}
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>LEGAL</Text>
+            <Pressable
+              accessibilityHint="Opens Kinwin's privacy page"
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); router.push('/legal/privacy' as Href); }}
+              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+            >
+              <Text style={styles.textButtonLabel}>Privacy</Text>
+            </Pressable>
+            {/* No Terms row: Kinwin has no custom Terms of Service yet.
+                Apple's standard EULA applies to App Store submissions by
+                default when no custom EULA is supplied, so this is not a
+                generic App Store blocker; whether Kinwin needs its own
+                Terms before real-money public launch is a separate legal/
+                business question, not resolved here. See
+                docs/LAUNCH_READINESS.md. */}
+          </View>
+
           <Pressable
             accessibilityHint="Signs out of your Kinwin account"
             accessibilityRole="button"
