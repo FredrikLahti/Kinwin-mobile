@@ -253,11 +253,13 @@ export default function AccountScreen() {
             >
               <Text style={styles.textButtonLabel}>Privacy</Text>
             </Pressable>
-            {/* Terms of Service is intentionally not linked here yet: no
-                real Terms exist. The route (app/legal/terms.tsx) exists for
-                internal review only until real Terms are written and
-                reviewed; linking a page that says "not ready" would be
-                more confusing than just not linking it. */}
+            {/* No Terms row: Kinwin has no custom Terms of Service yet.
+                Apple's standard EULA applies to App Store submissions by
+                default when no custom EULA is supplied, so this is not a
+                generic App Store blocker; whether Kinwin needs its own
+                Terms before real-money public launch is a separate legal/
+                business question, not resolved here. See
+                docs/LAUNCH_READINESS.md. */}
           </View>
 
           <Pressable

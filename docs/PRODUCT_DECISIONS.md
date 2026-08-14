@@ -118,7 +118,7 @@
 
 **Language that needs external legal review before real-money public launch:**
 - The sit-out acknowledgment and payment-disclosure copy above, verbatim.
-- A real Terms of Service (`app/legal/terms.tsx` currently holds route infrastructure only, explicitly marked not ready, not linked from shipping navigation — see `docs/PRODUCT_STATUS.md`).
+- A real Terms of Service, if legal/business review decides Kinwin needs one — Apple's own standard EULA otherwise applies to the App Store submission by default, so this is not a generic Apple requirement. No route currently exists for this (the earlier unlinked placeholder route was removed as unnecessary; see `docs/PRODUCT_STATUS.md`).
 - A refund/dispute policy — none exists in any form today; not addressed by this package.
 - Explicit "this is a TEST/beta build, no real money" disclosure at the point the stake amount is set and at payment authorization, not just in the Privacy page.
 
