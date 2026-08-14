@@ -220,7 +220,7 @@ High-level; see `docs/CHECK_IN_ENGINE.md` and `docs/SCHEDULED_CHALLENGE_COMPLETI
 | Per-challenge audience (Only me / All Kin / Selected Kin) | SUPERSEDED / PROTOTYPE ONLY | Fully modeled in the disconnected prototype (`lib/social/projection.ts`), never wired to the real backend. The shipped model is the simpler binary one above instead. | Whether that's the intentional final design is a product decision — see `LAUNCH_READINESS.md`. |
 | Detail visibility (Exact / General / Progress only) | SUPERSEDED / PROTOTYPE ONLY | Same prototype as above. | |
 | Social profiles / history pages | OUT OF CURRENT SCOPE | Not built anywhere, including the prototype. | |
-| Reporting / moderation | PARTIAL | A relationship-level block exists and is tested; a content-report/moderation system does not. | Reasonable for current network size. |
+| Reporting / moderation | PARTIAL | A relationship-level block exists and is tested; a content-report/moderation system does not. | Corrected note: not simply "reasonable for current network size" — Apple App Review Guideline 1.2 (content filtering, reporting, published contact info) applies once distributed to outside testers via TestFlight or submitted for public release, with no network-size exemption. See `LAUNCH_READINESS.md`'s External beta gate / Public App Store gate tables. Not implemented in this PR. |
 | Kin-request / activity notifications | See §11 | | |
 | Challenge invitations between Kin (inviting a Kin connection into your own challenge) | OUT OF CURRENT SCOPE | Zero code anywhere. Distinct from recipient/organizer invitations, which are real (§7). | |
 | Joining someone else's challenge | OUT OF CURRENT SCOPE | Zero code anywhere. A challenge has exactly one owner today. | |
@@ -297,10 +297,12 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 
 ### Near-term
 - A real progress/statistics feature — the fixture-only prototype was removed from shipping navigation (§5), but nothing real replaces it yet.
-- Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface.
+- Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface, also part of satisfying Apple Guideline 1.2's published-contact-info requirement (see below).
+- Small TEST-mode payment disclosure copy addition to the existing consequence-consent UI, so outside testers can tell no real money moves — see `LAUNCH_READINESS.md`'s External beta gate table. Not implemented yet.
 
 ### Public-launch work
-- Account deletion implementation (decision package exists in `docs/ACCOUNT_DELETION_DECISIONS.md`; still pending the five founder decisions it closes with).
+- Account deletion implementation (decision package exists in `docs/ACCOUNT_DELETION_DECISIONS.md`; still pending the five founder decisions it closes with). Conditionally an external-beta requirement too, not only a public-launch one, if the distribution-model decision lands on TestFlight (Apple Guideline 2.2) — see `LAUNCH_READINESS.md`.
+- UGC / social-networking compliance (Apple Guideline 1.2): content filtering and a reporting mechanism, on top of the existing `block_kin` mechanism. Same TestFlight-vs-ad-hoc conditionality as account deletion. Not implemented yet.
 - Legal review of the Privacy draft (`app/legal/privacy.tsx`) and writing real Terms of Service (`app/legal/terms.tsx` has route infrastructure only).
 - Apple signing chain, App Store Connect setup (metadata, screenshots, privacy nutrition label using `docs/PRIVACY_DATA_INVENTORY.md`'s working map), production bundle identifier.
 - Production Stripe/Tremendous provisioning (if real money is intended at launch).
@@ -319,13 +321,14 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 
 Only real decisions engineering shouldn't make automatically — full detail in `LAUNCH_READINESS.md`:
 
-1. Account deletion semantics — see `docs/ACCOUNT_DELETION_DECISIONS.md`'s 5-item "Founder decisions required" section (completed-history model, Kin-connection deletion mechanics, payment-record retention length, whether to block deletion during any non-terminal state, and recipient display-name retention).
-2. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
-3. Currency scope beyond USD.
-4. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.
-5. Production bundle identifier.
-6. Distribution model for external beta (ad-hoc device registration vs. TestFlight).
-7. Whether public launch is free or paid.
+1. Account deletion semantics — see `docs/ACCOUNT_DELETION_DECISIONS.md`'s 5-item "Founder decisions required" section (completed-history model, whether the existing Kin-connection cascade is acceptable, minimal retained-record design and retention length, whether to block deletion during any non-terminal state, and recipient display-name retention).
+2. Timing of UGC/social-networking compliance work (Apple Guideline 1.2 content filtering and reporting) — now, ahead of TestFlight, or gated on the distribution-model decision below.
+3. Subscription/membership payment-platform architecture — requires a current Apple/Google in-app-purchase rules review.
+4. Currency scope beyond USD.
+5. Whether the binary Kin-visibility model is the intentional public-launch design, or whether per-challenge audience control needs to ship first.
+6. Production bundle identifier.
+7. Distribution model for external beta (ad-hoc device registration vs. TestFlight) — also determines whether items 1 and 2 above become required before that step, not only at public launch.
+8. Whether public launch is free or paid.
 
 Not a founder product decision (listed here only for completeness): the Apple Team ID is an external platform/account value Apple assigns after Developer Program enrollment completes, not something engineering or the founder chooses as product design. Tracked as a Platform & release surfaces inventory item (§13), not here.
 

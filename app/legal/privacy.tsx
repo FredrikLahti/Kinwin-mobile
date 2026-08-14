@@ -46,21 +46,21 @@ const SECTIONS: readonly Section[] = [
   {
     heading: 'Recipients, organizers, and rewards',
     body: [
-      'If your challenge fails, the recipients and reward organizer you name (by display name only; we do not collect their email, phone number, or address) can access a private page using a one-time link. We store only a hashed version of that link’s token, never the raw link itself.',
+      'If your challenge fails, the recipients and reward organizer you name (by display name only; we do not collect their email, phone number, or address) can access a private page using a private bearer link. We store only a hashed version of that link’s token, never the raw link itself. Sharing the link again can replace it with a new one, which invalidates the previous link.',
       'Reward fulfillment uses Tremendous, a third-party rewards provider. Kinwin sends Tremendous the organizer’s display name and the reward amount/currency, and nothing else. Kinwin is currently in a TEST/sandbox phase with Tremendous: no real reward has been or can currently be issued.',
     ],
   },
   {
     heading: 'What we do not collect',
     body: [
-      'Kinwin does not use analytics, advertising, or crash-reporting software of any kind. We do not track you across other apps or websites, and we do not sell or share your data with data brokers.',
+      'Kinwin does not integrate any analytics, advertising, or crash-reporting software into the app. We do not track you across other apps or websites, and we do not sell or share your data with data brokers. This describes what Kinwin itself adds to the app; the app stores and hosting providers we rely on may separately collect their own operational data as part of running their own platforms.',
       'We do not access your device’s contact list. We do not collect location data.',
     ],
   },
   {
     heading: 'Third parties who process data on our behalf',
     body: [
-      'Supabase (database, authentication, and backend functions), Stripe (payments), Tremendous (reward fulfillment), and Expo/EAS (app hosting and distribution). Each processes only the data described above, only to provide Kinwin’s own functionality to you.',
+      'Supabase (database, authentication, and backend functions), Stripe (payments), Tremendous (reward fulfillment), and Expo/EAS (app hosting and distribution). Each processes the data described above to provide Kinwin’s own functionality to you. As our hosting and infrastructure providers, Supabase and Expo/EAS may also log technical request information (such as IP addresses) as part of operating their own services, under their own terms.',
     ],
   },
   {
