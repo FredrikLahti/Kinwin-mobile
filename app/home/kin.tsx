@@ -22,7 +22,9 @@ import {
   KinCurrentChallenge,
   KinSearchResult,
   REACTION_KINDS,
+  REPORT_REASONS,
   ReactionKind,
+  ReportReason,
   acceptKinRequest,
   blockKin,
   cancelKinRequest,
@@ -37,6 +39,7 @@ import {
   searchKin,
   sendKinRequest,
   setMyReaction,
+  submitSocialReport,
 } from '@/lib/supabase/kin-repository';
 
 type Tab = 'activity' | 'people';
@@ -44,6 +47,16 @@ type Tab = 'activity' | 'people';
 const REACTION_LABELS: Record<ReactionKind, string> = {
   respect: 'Respect', nice: 'Nice', worth_it: 'Worth it', ouch: 'Ouch', brutal: 'Brutal',
 };
+
+const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+  harassment: 'Harassment or bullying',
+  hate_or_abuse: 'Hate or abusive content',
+  sexual_content: 'Sexual or inappropriate content',
+  spam: 'Spam',
+  other: 'Other',
+};
+
+type ReportTarget = { readonly userId: string; readonly displayName: string; readonly activityId: string | null };
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -68,6 +81,8 @@ export default function KinV2() {
   const [currentChallenges, setCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
   const [addKinOpen, setAddKinOpen] = useState(false);
   const [manageTarget, setManageTarget] = useState<KinConnection | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [submittingReport, setSubmittingReport] = useState(false);
   const [myCode, setMyCode] = useState<string | null>(null);
   const [codeInput, setCodeInput] = useState('');
   const [redeemFeedback, setRedeemFeedback] = useState<string | null>(null);
@@ -251,6 +266,37 @@ export default function KinV2() {
     ]);
   };
 
+  const openReport = (target: ReportTarget) => {
+    void playSelectionHaptic();
+    setManageTarget(null);
+    setReportTarget(target);
+  };
+
+  const submitReport = async (reason: ReportReason) => {
+    if (!reportTarget) return;
+    void playSelectionHaptic();
+    setSubmittingReport(true);
+    const target = reportTarget;
+    const result = await submitSocialReport(target.userId, reason, target.activityId);
+    setSubmittingReport(false);
+    setReportTarget(null);
+    if (!result.ok) {
+      Alert.alert('Could not send that report', result.kind === 'rejected' ? (result.message ?? '') : 'Please try again.');
+      return;
+    }
+    // Only offered from an activity card (target.activityId set) — the
+    // People tab's manage sheet already has its own separate Block action
+    // right next to Report, so a second prompt there would be redundant.
+    if (target.activityId) {
+      Alert.alert('Report sent', 'Thanks for letting us know. Our team will review this.', [
+        { text: 'Done', style: 'cancel' },
+        { text: `Also block ${target.displayName}`, style: 'destructive', onPress: () => void blockKin(target.userId).then(() => void refresh()) },
+      ]);
+    } else {
+      Alert.alert('Report sent', 'Thanks for letting us know. Our team will review this.');
+    }
+  };
+
   const toggleReaction = async (item: ActivityItem, kind: ReactionKind) => {
     if (!user) return;
     void playSelectionHaptic();
@@ -377,6 +423,17 @@ export default function KinV2() {
                         <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
                       </View>
                       <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
+                      {item.ownerId !== user?.id && (
+                        <Pressable
+                          accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
+                          accessibilityRole="button"
+                          hitSlop={8}
+                          onPress={() => openReport({ userId: item.ownerId, displayName: item.ownerDisplayName, activityId: item.id })}
+                          style={styles.reportButton}
+                        >
+                          <Feather color={theme.colors.warmGrey} name="flag" size={14} />
+                        </Pressable>
+                      )}
                     </View>
                     <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
                       {describeActivityEvent(item)}
@@ -586,9 +643,36 @@ export default function KinV2() {
             <Pressable accessibilityRole="button" onPress={() => confirmRemove(manageTarget)} style={styles.sheetAction}>
               <Text style={styles.sheetActionLabel}>Remove Kin</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => openReport({ userId: manageTarget.otherUserId, displayName: manageTarget.otherDisplayName, activityId: null })}
+              style={styles.sheetAction}
+            >
+              <Text style={styles.sheetActionLabel}>Report</Text>
+            </Pressable>
             <Pressable accessibilityRole="button" onPress={() => confirmBlock(manageTarget)} style={styles.sheetAction}>
               <Text style={[styles.sheetActionLabel, styles.sheetActionDestructive]}>Block</Text>
             </Pressable>
+          </>
+        )}
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setReportTarget(null)} reducedMotion={reducedMotion} visible={reportTarget !== null}>
+        {reportTarget && (
+          <>
+            <Text style={styles.sheetTitle}>Report {reportTarget.displayName}</Text>
+            <Text style={styles.sheetFeedback}>Why are you reporting this?</Text>
+            {REPORT_REASONS.map((reason) => (
+              <Pressable
+                accessibilityRole="button"
+                disabled={submittingReport}
+                key={reason}
+                onPress={() => void submitReport(reason)}
+                style={styles.sheetAction}
+              >
+                <Text style={styles.sheetActionLabel}>{REPORT_REASON_LABELS[reason]}</Text>
+              </Pressable>
+            ))}
           </>
         )}
       </BottomSheetV2>
@@ -641,6 +725,7 @@ const styles = StyleSheet.create({
   activityName: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
   activityBehavior: { color: theme.colors.ivoryMuted, fontSize: 12 },
   activityTime: { color: theme.colors.warmGrey, fontSize: 11 },
+  reportButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', marginLeft: 2 },
   activityEvent: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   activityEventFailure: { color: theme.colors.crimsonBright },
   activityEventSuccess: { color: theme.colors.sage },
