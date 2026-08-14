@@ -9,6 +9,7 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
 import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readStripeConfig } from '@/lib/stripe/config';
 import { useStripe, usePaymentSheet } from '@/lib/stripe/native-stripe';
@@ -356,8 +357,11 @@ export default function PaymentSetupScreen() {
 // The points docs/PRODUCT_DECISIONS.md's "Consequence payment setup" section
 // requires the consent screen to convey — plain product copy, not approved legal
 // wording (see that section's own caveat: final consent copy requires legal review
-// before shipping).
+// before shipping). The first line is the beta TEST-mode notice
+// (lib/copy/beta-payment-notice.ts) — shown here, before Stripe's PaymentSheet
+// opens, so it's the first thing a tester reads before authorizing a card.
 const DISCLOSURE_POINTS: readonly string[] = [
+  BETA_PAYMENT_TEST_MODE_NOTICE,
   'No money is charged now.',
   'Your card is saved securely with Stripe.',
   'A charge can happen automatically, even while you’re not using Kinwin.',

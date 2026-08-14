@@ -12,6 +12,7 @@ import { applyResolvedRecipientIds } from '@/domain/challenge/recipient-ids';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
+import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
@@ -318,6 +319,8 @@ export default function CreateReviewScreen() {
         </View>
       </View>
 
+      <Text style={styles.testModeNotice}>{BETA_PAYMENT_TEST_MODE_NOTICE}</Text>
+
       <View style={styles.summaryTable}>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>RECIPIENTS</Text>
@@ -367,6 +370,7 @@ const styles = StyleSheet.create({
   missedRecipients: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
   missedCategory: { color: theme.colors.ivoryMuted, fontSize: 12 },
   missedStake: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
+  testModeNotice: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
   summaryTable: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
   summaryRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
   summaryRowLast: { borderBottomWidth: 0 },
