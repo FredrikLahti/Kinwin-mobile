@@ -299,7 +299,6 @@ Full release-blocking detail lives in `LAUNCH_READINESS.md` — this is a shorte
 ### Near-term
 - A real progress/statistics feature — the fixture-only prototype was removed from shipping navigation (§5), but nothing real replaces it yet.
 - Set `EXPO_PUBLIC_SUPPORT_EMAIL` to a real support address (§1, §12) — the only remaining piece of the support surface, also part of satisfying Apple Guideline 1.2's published-contact-info requirement (see below).
-- Small TEST-mode payment disclosure copy addition to the existing consequence-consent UI, so outside testers can tell no real money moves — see `LAUNCH_READINESS.md`'s External beta gate table. Not implemented yet.
 
 ### Public-launch work
 - Account deletion implementation (decision package exists in `docs/ACCOUNT_DELETION_DECISIONS.md`; still pending the five founder decisions it closes with). Conditionally an external-beta requirement too, not only a public-launch one, if the distribution-model decision lands on TestFlight (Apple Guideline 2.2) — see `LAUNCH_READINESS.md`.

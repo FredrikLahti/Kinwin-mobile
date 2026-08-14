@@ -19,6 +19,7 @@ import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
 import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readStripeConfig } from '@/lib/stripe/config';
 import { useStripe, usePaymentSheet } from '@/lib/stripe/native-stripe';
@@ -315,8 +316,11 @@ export default function PaymentRecoveryScreen() {
 
 // Same points as payment-setup.tsx's DisclosureList — still accurate here:
 // this screen only ever saves a card through a SetupIntent, it never
-// charges one directly.
+// charges one directly. First line is the same shared beta TEST-mode
+// notice as payment-setup.tsx (lib/copy/beta-payment-notice.ts), shown
+// here too since this screen also opens Stripe's PaymentSheet.
 const DISCLOSURE_POINTS: readonly string[] = [
+  BETA_PAYMENT_TEST_MODE_NOTICE,
   'No money is charged now.',
   'Your card is saved securely with Stripe.',
   'Kinwin will automatically retry the existing charge once your card is saved.',
