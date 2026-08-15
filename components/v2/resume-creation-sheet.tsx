@@ -5,6 +5,7 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 
 type ResumeCreationSheetV2Props = {
   confirmingDiscard: boolean;
+  discardFailed: boolean;
   discardingSession: boolean;
   onCancelDiscard: () => void;
   onClose: () => void;
@@ -25,6 +26,7 @@ type ResumeCreationSheetV2Props = {
  */
 export function ResumeCreationSheetV2({
   confirmingDiscard,
+  discardFailed,
   discardingSession,
   onCancelDiscard,
   onClose,
@@ -41,6 +43,9 @@ export function ResumeCreationSheetV2({
         <>
           <Text accessibilityRole="header" style={styles.sheetTitle}>Discard this challenge?</Text>
           <Text style={styles.sheetBody}>This permanently deletes everything entered so far. This can’t be undone.</Text>
+          {discardFailed && (
+            <Text style={styles.sheetError}>Kinwin couldn’t discard this challenge. Try again.</Text>
+          )}
           <View style={styles.sheetActions}>
             <Pressable
               accessibilityHint="Keeps your unfinished challenge and closes this sheet"
@@ -57,7 +62,7 @@ export function ResumeCreationSheetV2({
               onPress={onConfirmDiscard}
               style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
             >
-              <Text style={styles.destructiveButtonLabel}>{discardingSession ? 'Discarding…' : 'Discard and start new'}</Text>
+              <Text style={styles.destructiveButtonLabel}>{discardingSession ? 'Discarding…' : discardFailed ? 'Retry' : 'Discard and start new'}</Text>
             </Pressable>
           </View>
         </>
@@ -94,7 +99,8 @@ export function ResumeCreationSheetV2({
 const styles = StyleSheet.create({
   sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
   sheetBody: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
-  sheetActions: { gap: 10 },
+  sheetError: { marginTop: 8, color: '#E37D6A', fontSize: 13, lineHeight: 18 },
+  sheetActions: { marginTop: 20, gap: 10 },
   keepButton: {
     minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,

@@ -230,6 +230,44 @@ export async function readCreationSession(
   return parsed;
 }
 
+// A generation is bumped exactly when a user's creation lifecycle closes —
+// server conversion (prepareChallengeFromDraft succeeds) or explicit
+// discard. The mutation queue below correctly orders a write that has
+// *already* reached it before a subsequent clear, but it cannot help with
+// a debounced autosave timer that is still waiting to fire: that write has
+// not called writeCreationSession yet, so it is not in the queue at all
+// when the lifecycle closes, and could otherwise land well after the
+// clear that was supposed to be final. A write captures the generation
+// that was current when it was *scheduled* (e.g. the instant autosave
+// arms its debounce timer), not when it finally runs; if that generation
+// has since moved on by the time the write reaches the front of the
+// queue, it is recognized as belonging to an already-abandoned lifecycle
+// and silently skipped — never a failure, just no longer applicable. This
+// holds regardless of queue position or timer/unmount timing, which is
+// exactly what a debounce-window race needs.
+const creationSessionGenerations = new Map<string, number>();
+
+/** The generation currently active for a user's creation session. Capture this at the moment a write is scheduled, not when it finally executes. */
+export function currentCreationSessionGeneration(userId: string): number {
+  return creationSessionGenerations.get(userId) ?? 0;
+}
+
+/**
+ * Closes out a user's current creation-session generation. Call this at
+ * the server-conversion boundary and on explicit discard, before clearing
+ * the persisted snapshot — any write already captured under the
+ * now-stale generation becomes a permanent no-op the moment it reaches
+ * the mutation queue, no matter how long after this call its underlying
+ * timer eventually fires. Returns the new generation, which a
+ * subsequently-started fresh creation flow captures and writes under
+ * normally.
+ */
+export function closeCreationSessionGeneration(userId: string): number {
+  const next = currentCreationSessionGeneration(userId) + 1;
+  creationSessionGenerations.set(userId, next);
+  return next;
+}
+
 // Serializes every write and clear for one user's creation session through
 // the same ordered queue, keyed by user id. Without this, a slow
 // background autosave `setItem` already in flight when creation converts
@@ -263,16 +301,28 @@ function enqueueCreationSessionMutation<T>(userId: string, mutation: () => Promi
  * "saved" as a side note (autosave's own debounced background writes) can
  * ignore it, but hooks/use-creation-session-autosave.ts's flush() must not:
  * an explicit Exit that tells the user their progress is saved needs to
- * know the write really landed before it says so.
+ * know the write really landed before it says so. `generation` must be
+ * whatever currentCreationSessionGeneration(userId) returned at the moment
+ * this write was scheduled — see the block comment above
+ * creationSessionGenerations for why this is what actually closes the
+ * debounce-window race a queue position alone cannot.
  */
 export async function writeCreationSession(
   userId: string,
   fields: CreationSessionFields,
   lastRoute: string,
   storage: CreationSessionStorage,
+  generation: number,
 ): Promise<boolean> {
   if (!userId) return true;
   return enqueueCreationSessionMutation(userId, async () => {
+    if (generation !== currentCreationSessionGeneration(userId)) {
+      // This write belongs to a creation lifecycle that has since been
+      // closed (converted or discarded) — not a failure, just no longer
+      // applicable. Actually writing it now would resurrect a session
+      // that is supposed to stay gone.
+      return true;
+    }
     const snapshot: CreationSessionSnapshot = {
       schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
       updatedAt: new Date().toISOString(),

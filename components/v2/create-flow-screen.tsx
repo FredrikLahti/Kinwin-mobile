@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useCreationSessionAutosave } from '@/hooks/use-creation-session-autosave';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { clearCreationSession, planExitAttempt } from '@/lib/challenge-creation/creation-session';
+import { clearCreationSession, closeCreationSessionGeneration, planExitAttempt } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -49,6 +49,7 @@ export function CreateFlowScreenV2({
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [retryingSave, setRetryingSave] = useState(false);
   const [signedOutLeaveSheetOpen, setSignedOutLeaveSheetOpen] = useState(false);
+  const [discardFailed, setDiscardFailed] = useState(false);
 
   // '/' rather than '/home' directly: creation is reachable while signed
   // out (see app/_layout.tsx's AuthGate — 'create' sits outside the
@@ -124,8 +125,21 @@ export function CreateFlowScreenV2({
   const confirmDiscard = async () => {
     void playImportantHaptic();
     setDiscarding(true);
+    setDiscardFailed(false);
     if (authStatus === 'signed_in' && user) {
-      await clearCreationSession(user.id, creationSessionStorage);
+      // Closed first: any autosave debounce timer still waiting to fire
+      // for this draft must recognize itself as stale once it eventually
+      // runs, regardless of whether the clear immediately below succeeds.
+      closeCreationSessionGeneration(user.id);
+      const cleared = await clearCreationSession(user.id, creationSessionStorage);
+      if (!cleared) {
+        // Do not present this as a successful discard while the old
+        // snapshot might still be sitting in storage — that would let it
+        // reappear later. Stay on this sheet so the user can retry.
+        setDiscarding(false);
+        setDiscardFailed(true);
+        return;
+      }
     }
     onboarding.resetDraft();
     setDiscarding(false);
@@ -222,14 +236,17 @@ export function CreateFlowScreenV2({
         </View>
       </BottomSheetV2>
 
-      <BottomSheetV2 onClose={() => setDiscardSheetOpen(false)} reducedMotion={reducedMotion} visible={discardSheetOpen}>
+      <BottomSheetV2 onClose={() => { setDiscardSheetOpen(false); setDiscardFailed(false); }} reducedMotion={reducedMotion} visible={discardSheetOpen}>
         <Text accessibilityRole="header" style={styles.sheetTitle}>Discard this draft?</Text>
         <Text style={styles.sheetBody}>This permanently deletes everything entered so far. This can’t be undone.</Text>
+        {discardFailed && (
+          <Text style={styles.sheetError}>Kinwin couldn’t discard this draft. Try again.</Text>
+        )}
         <View style={styles.sheetActions}>
           <Pressable
             accessibilityHint="Keeps your draft and closes this sheet"
             accessibilityRole="button"
-            onPress={() => { void playSelectionHaptic(); setDiscardSheetOpen(false); }}
+            onPress={() => { void playSelectionHaptic(); setDiscardSheetOpen(false); setDiscardFailed(false); }}
             style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
           >
             <Text style={styles.secondarySheetButtonLabel}>Keep draft</Text>
@@ -241,7 +258,7 @@ export function CreateFlowScreenV2({
             onPress={() => void confirmDiscard()}
             style={({ pressed }) => [styles.destructiveSheetButton, pressed && styles.destructiveSheetButtonPressed]}
           >
-            <Text style={styles.destructiveSheetButtonLabel}>{discarding ? 'Discarding…' : 'Discard draft'}</Text>
+            <Text style={styles.destructiveSheetButtonLabel}>{discarding ? 'Discarding…' : discardFailed ? 'Retry' : 'Discard draft'}</Text>
           </Pressable>
         </View>
       </BottomSheetV2>
@@ -329,6 +346,7 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
   sheetBody: { marginTop: 8, color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
+  sheetError: { marginTop: 8, color: '#E37D6A', fontSize: 13, lineHeight: 18 },
   sheetActions: { marginTop: 20, gap: 10 },
   primarySheetButton: {
     minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,

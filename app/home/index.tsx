@@ -392,6 +392,7 @@ export default function HomeV2() {
 
       <ResumeCreationSheetV2
         confirmingDiscard={createChallengeEntry.confirmingDiscard}
+        discardFailed={createChallengeEntry.discardFailed}
         discardingSession={createChallengeEntry.discardingSession}
         onCancelDiscard={createChallengeEntry.cancelDiscardConfirmation}
         onClose={createChallengeEntry.closeResumeSheet}

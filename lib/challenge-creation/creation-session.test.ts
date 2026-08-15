@@ -6,10 +6,12 @@ import { mapOnboardingDraft, OnboardingDraftData } from '../../domain/challenge/
 
 import {
   clearCreationSession,
+  closeCreationSessionGeneration,
   createLatestRequestGuard,
   CreationSessionFields,
   CreationSessionStorage,
   creationSessionStorageKey,
+  currentCreationSessionGeneration,
   decideCreateChallengeEntryAction,
   hasMeaningfulCreationProgress,
   planExitAttempt,
@@ -18,6 +20,13 @@ import {
   RESUMABLE_CREATION_ROUTES,
   writeCreationSession,
 } from './creation-session';
+
+// Most tests below aren't exercising the generation/lifecycle mechanism at
+// all, so they just capture "whatever generation is current right now" —
+// exactly what a real caller does for a normal, non-stale write.
+function write(userId: string, fields: CreationSessionFields, lastRoute: string, storage: CreationSessionStorage) {
+  return writeCreationSession(userId, fields, lastRoute, storage, currentCreationSessionGeneration(userId));
+}
 
 function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -85,7 +94,7 @@ test('writeCreationSession then readCreationSession round-trips every field, inc
     recipients: [{ id: 'recipient-a', name: 'Mom' }, { id: 'recipient-b', name: 'Dad' }],
     rewardOrganizer: { type: 'recipient', recipientId: 'recipient-a' },
   };
-  const ok = await writeCreationSession('user-1', fields, '/create/frequency', storage);
+  const ok = await write('user-1', fields, '/create/frequency', storage);
   assert.equal(ok, true, 'a successful write must report success');
   const restored = await readCreationSession('user-1', storage);
   assert.ok(restored);
@@ -99,7 +108,7 @@ test('writeCreationSession honestly reports failure when the underlying storage 
     setItem: async () => { throw new Error('disk full'); },
     removeItem: async () => undefined,
   };
-  const ok = await writeCreationSession('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
+  const ok = await write('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
   assert.equal(ok, false);
 });
 
@@ -110,8 +119,8 @@ test('readCreationSession returns null when nothing has ever been saved for that
 
 test('user isolation: one signed-in user can never read another signed-in user\'s session', async () => {
   const storage = inMemoryStorage();
-  await writeCreationSession('user-a', { ...emptyFields(), goal: 'User A\'s goal' }, '/create/goal', storage);
-  await writeCreationSession('user-b', { ...emptyFields(), goal: 'User B\'s goal' }, '/create/goal', storage);
+  await write('user-a', { ...emptyFields(), goal: 'User A\'s goal' }, '/create/goal', storage);
+  await write('user-b', { ...emptyFields(), goal: 'User B\'s goal' }, '/create/goal', storage);
 
   const forA = await readCreationSession('user-a', storage);
   const forB = await readCreationSession('user-b', storage);
@@ -122,7 +131,7 @@ test('user isolation: one signed-in user can never read another signed-in user\'
 
 test('explicit discard: clearCreationSession removes the session so it is no longer readable', async () => {
   const storage = inMemoryStorage();
-  await writeCreationSession('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
+  await write('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
   assert.ok(await readCreationSession('user-1', storage));
   await clearCreationSession('user-1', storage);
   assert.equal(await readCreationSession('user-1', storage), null);
@@ -147,7 +156,7 @@ test('write/clear ordering: a clear requested while an earlier write is still in
     removeItem: async (key) => { store.delete(key); },
   };
 
-  const writePromise = writeCreationSession('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  const writePromise = write('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
   await Promise.resolve().then(() => Promise.resolve()); // let the write actually enter setItem and hang on the gate
   assert.equal(writeStarted, true, 'the write must genuinely be in flight before the clear is requested');
 
@@ -164,12 +173,12 @@ test('write/clear ordering: a clear requested while an earlier write is still in
 
 test('write/clear ordering: a new write intentionally started after a clear still persists normally', async () => {
   const storage = inMemoryStorage();
-  await writeCreationSession('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  await write('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
   const cleared = await clearCreationSession('user-1', storage);
   assert.equal(cleared, true);
   assert.equal(await readCreationSession('user-1', storage), null);
 
-  const wroteAfterClear = await writeCreationSession('user-1', { ...emptyFields(), goal: 'New goal' }, '/create/type', storage);
+  const wroteAfterClear = await write('user-1', { ...emptyFields(), goal: 'New goal' }, '/create/type', storage);
   assert.equal(wroteAfterClear, true);
   const restored = await readCreationSession('user-1', storage);
   assert.equal(restored?.fields.goal, 'New goal', 'a legitimate new write after a clear must not be blocked or lost');
@@ -187,8 +196,8 @@ test('write/clear ordering: mutations for different users are independent — on
     removeItem: async (key) => { store.delete(key); },
   };
 
-  const slowWriteA = writeCreationSession('user-a', { ...emptyFields(), goal: 'A' }, '/create/goal', storage);
-  const fastWriteB = await writeCreationSession('user-b', { ...emptyFields(), goal: 'B' }, '/create/goal', storage);
+  const slowWriteA = write('user-a', { ...emptyFields(), goal: 'A' }, '/create/goal', storage);
+  const fastWriteB = await write('user-b', { ...emptyFields(), goal: 'B' }, '/create/goal', storage);
   assert.equal(fastWriteB, true, 'user-b\'s write must complete without waiting on user-a\'s still-pending write');
   assert.equal((await readCreationSession('user-b', storage))?.fields.goal, 'B');
 
@@ -205,6 +214,79 @@ test('write/clear ordering: a failing clear is reported honestly rather than thr
   };
   const cleared = await clearCreationSession('user-1', storage);
   assert.equal(cleared, false);
+});
+
+// The queue above orders operations that have already been *called* — but
+// a debounced autosave timer that has not fired yet has not called
+// writeCreationSession at all, so it isn't in the queue when a conversion
+// or discard closes the lifecycle. This is exactly the scenario the
+// generation barrier exists for: (A) an old write is already running and
+// held open, (B) a second, logically-scheduled old-session write has only
+// captured its generation token so far — writeCreationSession has not
+// been called for it yet, exactly like a still-pending setTimeout — (C)
+// conversion/discard closes the lifecycle and clears, (D) only *then* does
+// the delayed write actually attempt to run, (E) everything settles, (F)
+// no resumable snapshot exists.
+test('lifecycle: a write only "scheduled" (generation captured, but writeCreationSession not yet called) before conversion must not resurrect the session after the conversion clear', async () => {
+  const userId = 'user-lifecycle-1';
+  const store = new Map<string, string>();
+  const writeAGate = deferred<void>();
+  let writeAStarted = false;
+  const storage: CreationSessionStorage = {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      writeAStarted = true;
+      await writeAGate.promise;
+      store.set(key, value);
+    },
+    removeItem: async (key) => { store.delete(key); },
+  };
+
+  // A: write A starts and is deliberately held open — already inside storage.setItem.
+  const writeAPromise = writeCreationSession(userId, { ...emptyFields(), goal: 'A' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  await Promise.resolve().then(() => Promise.resolve());
+  assert.equal(writeAStarted, true, 'write A must genuinely be in flight');
+
+  // B: a second, old-session write is only scheduled — exactly what autosave does the instant it arms its 500ms debounce timer: capture the generation now, call writeCreationSession only once the timer actually fires.
+  const staleGenerationForWriteB = currentCreationSessionGeneration(userId);
+
+  // C: conversion (or discard) closes this creation lifecycle and clears the persisted session — write A is allowed to finish; the clear, queued after it, still wins.
+  closeCreationSessionGeneration(userId);
+  const clearPromise = clearCreationSession(userId, storage);
+  writeAGate.resolve();
+  await Promise.all([writeAPromise, clearPromise]);
+
+  // D: only now — well after conversion — does write B's debounce timer actually fire and call writeCreationSession, using the generation it captured back in step B, which is now stale.
+  const writeBResult = await writeCreationSession(userId, { ...emptyFields(), goal: 'B (stale, must be dropped)' }, '/create/type', storage, staleGenerationForWriteB);
+  assert.equal(writeBResult, true, 'a stale-generation write is treated as a no-op, not a failure');
+
+  // E/F: after everything settles, no resumable snapshot exists — the delayed old-session write must not have resurrected it.
+  assert.equal(await readCreationSession(userId, storage), null);
+});
+
+test('lifecycle: a genuinely new creation flow started after conversion/discard captures the new generation and persists normally', async () => {
+  const userId = 'user-lifecycle-2';
+  const storage = inMemoryStorage();
+
+  // G: an old lifecycle closes (conversion or discard).
+  closeCreationSessionGeneration(userId);
+
+  // H: a brand new creation flow starts afterward — a freshly-mounted screen captures whatever generation is current *now*, which already reflects the close above, and writes under it normally.
+  const freshGeneration = currentCreationSessionGeneration(userId);
+  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'Fresh challenge' }, '/create/goal', storage, freshGeneration);
+  assert.equal(ok, true);
+  const restored = await readCreationSession(userId, storage);
+  assert.equal(restored?.fields.goal, 'Fresh challenge');
+});
+
+test('lifecycle: closing a generation twice (e.g. a failed discard retried) still lets a subsequent fresh write through', async () => {
+  const userId = 'user-lifecycle-3';
+  const storage = inMemoryStorage();
+  closeCreationSessionGeneration(userId);
+  closeCreationSessionGeneration(userId);
+  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'After retried close' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  assert.equal(ok, true);
+  assert.equal((await readCreationSession(userId, storage))?.fields.goal, 'After retried close');
 });
 
 test('readCreationSession discards and returns null for unparsable stored data (corrupt snapshot)', async () => {

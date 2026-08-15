@@ -3,7 +3,12 @@ import { useEffect, useRef } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
-import { CreationSessionFields, hasMeaningfulCreationProgress, writeCreationSession } from '@/lib/challenge-creation/creation-session';
+import {
+  CreationSessionFields,
+  currentCreationSessionGeneration,
+  hasMeaningfulCreationProgress,
+  writeCreationSession,
+} from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
@@ -53,19 +58,28 @@ export function useCreationSessionAutosave(): {
   const meaningfulProgress = hasMeaningfulCreationProgress(fields);
   const userId = status === 'signed_in' ? user?.id ?? null : null;
 
-  const save = async (): Promise<boolean> => {
+  const save = async (generation: number): Promise<boolean> => {
     if (!userId || !meaningfulProgress) return true;
-    return writeCreationSession(userId, fields, pathname, creationSessionStorage);
+    return writeCreationSession(userId, fields, pathname, creationSessionStorage, generation);
   };
 
   useEffect(() => {
     if (!userId || !meaningfulProgress) return undefined;
     if (timerRef.current) clearTimeout(timerRef.current);
+    // Captured now, when the debounced write is scheduled — not when the
+    // timer eventually fires. If the creation lifecycle this edit belongs
+    // to has been closed (server conversion or explicit discard) by the
+    // time this timer fires, writeCreationSession recognizes the
+    // generation as stale and skips the write, however long that takes —
+    // see lib/challenge-creation/creation-session.ts's
+    // creationSessionGenerations for why this can't just rely on
+    // clearTimeout-on-unmount or queue position alone.
+    const generation = currentCreationSessionGeneration(userId);
     // Background autosave is fire-and-forget by design — a failure here is
     // not fatal, since the very next change re-arms this same debounce and
     // tries again. Only an explicit flush() (see below) needs to know
     // whether a save actually landed.
-    timerRef.current = setTimeout(() => { void save(); }, AUTOSAVE_DEBOUNCE_MS);
+    timerRef.current = setTimeout(() => { void save(generation); }, AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
@@ -74,7 +88,10 @@ export function useCreationSessionAutosave(): {
 
   const flush = async (): Promise<boolean> => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    return save();
+    // An explicit, synchronous user action (Exit) rather than a delayed
+    // timer — reading the generation fresh right now is correct, there is
+    // no meaningful debounce window here to race against.
+    return save(userId ? currentCreationSessionGeneration(userId) : 0);
   };
 
   return { meaningfulProgress, flush };

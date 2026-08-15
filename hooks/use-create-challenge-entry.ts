@@ -4,7 +4,12 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useResumableCreationSession } from '@/hooks/use-resumable-creation-session';
-import { clearCreationSession, decideCreateChallengeEntryAction, resolveResumeRoute } from '@/lib/challenge-creation/creation-session';
+import {
+  clearCreationSession,
+  closeCreationSessionGeneration,
+  decideCreateChallengeEntryAction,
+  resolveResumeRoute,
+} from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
@@ -15,6 +20,7 @@ export type CreateChallengeEntryController = {
   readonly confirmDiscardResumableSession: () => Promise<void>;
   readonly confirmingDiscard: boolean;
   readonly continueResumableSession: () => void;
+  readonly discardFailed: boolean;
   readonly discardingSession: boolean;
   readonly hasResumableSession: boolean;
   readonly refreshResumableSession: () => void;
@@ -44,6 +50,7 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const [resumeSheetOpen, setResumeSheetOpen] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [discardingSession, setDiscardingSession] = useState(false);
+  const [discardFailed, setDiscardFailed] = useState(false);
 
   const startFreshCreation = () => {
     onboarding.resetDraft();
@@ -60,6 +67,7 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
     void playImportantHaptic();
     if (action === 'prompt_resume') {
       setConfirmingDiscard(false);
+      setDiscardFailed(false);
       setResumeSheetOpen(true);
       return;
     }
@@ -69,14 +77,19 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const closeResumeSheet = () => {
     setResumeSheetOpen(false);
     setConfirmingDiscard(false);
+    setDiscardFailed(false);
   };
 
   const requestDiscardConfirmation = () => {
     void playSelectionHaptic();
+    setDiscardFailed(false);
     setConfirmingDiscard(true);
   };
 
-  const cancelDiscardConfirmation = () => setConfirmingDiscard(false);
+  const cancelDiscardConfirmation = () => {
+    setConfirmingDiscard(false);
+    setDiscardFailed(false);
+  };
 
   const continueResumableSession = () => {
     if (resumableSession.status !== 'found') return;
@@ -90,8 +103,20 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
     if (!user) return;
     void playImportantHaptic();
     setDiscardingSession(true);
-    await clearCreationSession(user.id, creationSessionStorage);
+    setDiscardFailed(false);
+    // Closed first: any autosave debounce timer still waiting to fire for
+    // this session must recognize itself as stale once it eventually
+    // runs, regardless of whether the clear immediately below succeeds.
+    closeCreationSessionGeneration(user.id);
+    const cleared = await clearCreationSession(user.id, creationSessionStorage);
     setDiscardingSession(false);
+    if (!cleared) {
+      // Do not present this as a successful discard while the old
+      // snapshot might still be sitting in storage — that would let it
+      // reappear later. Stay on this sheet so the user can retry.
+      setDiscardFailed(true);
+      return;
+    }
     setResumeSheetOpen(false);
     setConfirmingDiscard(false);
     startFreshCreation();
@@ -113,6 +138,7 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
     confirmDiscardResumableSession,
     confirmingDiscard,
     continueResumableSession,
+    discardFailed,
     discardingSession,
     hasResumableSession: resumableSession.status === 'found',
     refreshResumableSession: resumableSession.refresh,

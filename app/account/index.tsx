@@ -288,6 +288,7 @@ export default function AccountScreen() {
 
       <ResumeCreationSheetV2
         confirmingDiscard={createChallengeEntry.confirmingDiscard}
+        discardFailed={createChallengeEntry.discardFailed}
         discardingSession={createChallengeEntry.discardingSession}
         onCancelDiscard={createChallengeEntry.cancelDiscardConfirmation}
         onClose={createChallengeEntry.closeResumeSheet}
