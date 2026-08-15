@@ -12,11 +12,18 @@ import {
   creationSessionStorageKey,
   decideCreateChallengeEntryAction,
   hasMeaningfulCreationProgress,
+  planExitAttempt,
   readCreationSession,
   resolveResumeRoute,
   RESUMABLE_CREATION_ROUTES,
   writeCreationSession,
 } from './creation-session';
+
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
 
 function emptyFields(): CreationSessionFields {
   return {
@@ -124,6 +131,80 @@ test('explicit discard: clearCreationSession removes the session so it is no lon
 test('clearCreationSession on a user with no session is a safe no-op', async () => {
   const storage = inMemoryStorage();
   await assert.doesNotReject(clearCreationSession('user-1', storage));
+});
+
+test('write/clear ordering: a clear requested while an earlier write is still in flight always wins, even once that write is allowed to finish', async () => {
+  const store = new Map<string, string>();
+  const writeGate = deferred<void>();
+  let writeStarted = false;
+  const storage: CreationSessionStorage = {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      writeStarted = true;
+      await writeGate.promise; // (A) the write has started but deliberately cannot finish yet
+      store.set(key, value);
+    },
+    removeItem: async (key) => { store.delete(key); },
+  };
+
+  const writePromise = writeCreationSession('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  await Promise.resolve().then(() => Promise.resolve()); // let the write actually enter setItem and hang on the gate
+  assert.equal(writeStarted, true, 'the write must genuinely be in flight before the clear is requested');
+
+  const clearPromise = clearCreationSession('user-1', storage); // (B) clear requested before the write finishes — must queue behind it, not race it
+
+  writeGate.resolve(); // (C) the old write is now allowed to finish
+  const [writeOk, clearOk] = await Promise.all([writePromise, clearPromise]);
+  assert.equal(writeOk, true);
+  assert.equal(clearOk, true);
+
+  // (D) after both settle, no resumable snapshot exists: the clear, requested after the write started, still executed after it and therefore won.
+  assert.equal(await readCreationSession('user-1', storage), null);
+});
+
+test('write/clear ordering: a new write intentionally started after a clear still persists normally', async () => {
+  const storage = inMemoryStorage();
+  await writeCreationSession('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  const cleared = await clearCreationSession('user-1', storage);
+  assert.equal(cleared, true);
+  assert.equal(await readCreationSession('user-1', storage), null);
+
+  const wroteAfterClear = await writeCreationSession('user-1', { ...emptyFields(), goal: 'New goal' }, '/create/type', storage);
+  assert.equal(wroteAfterClear, true);
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.fields.goal, 'New goal', 'a legitimate new write after a clear must not be blocked or lost');
+});
+
+test('write/clear ordering: mutations for different users are independent — one user\'s slow write never blocks another user\'s write or clear', async () => {
+  const store = new Map<string, string>();
+  const userAGate = deferred<void>();
+  const storage: CreationSessionStorage = {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      if (key.endsWith(':user-a')) await userAGate.promise;
+      store.set(key, value);
+    },
+    removeItem: async (key) => { store.delete(key); },
+  };
+
+  const slowWriteA = writeCreationSession('user-a', { ...emptyFields(), goal: 'A' }, '/create/goal', storage);
+  const fastWriteB = await writeCreationSession('user-b', { ...emptyFields(), goal: 'B' }, '/create/goal', storage);
+  assert.equal(fastWriteB, true, 'user-b\'s write must complete without waiting on user-a\'s still-pending write');
+  assert.equal((await readCreationSession('user-b', storage))?.fields.goal, 'B');
+
+  userAGate.resolve();
+  assert.equal(await slowWriteA, true);
+  assert.equal((await readCreationSession('user-a', storage))?.fields.goal, 'A');
+});
+
+test('write/clear ordering: a failing clear is reported honestly rather than throwing an unhandled rejection', async () => {
+  const storage: CreationSessionStorage = {
+    getItem: async () => null,
+    setItem: async () => undefined,
+    removeItem: async () => { throw new Error('storage unavailable'); },
+  };
+  const cleared = await clearCreationSession('user-1', storage);
+  assert.equal(cleared, false);
 });
 
 test('readCreationSession discards and returns null for unparsable stored data (corrupt snapshot)', async () => {
@@ -243,6 +324,19 @@ test('decideCreateChallengeEntryAction: a resumable session prompts resume when 
 
 test('decideCreateChallengeEntryAction: neither present starts a completely fresh creation', () => {
   assert.equal(decideCreateChallengeEntryAction(false, false), 'start_fresh');
+});
+
+test('planExitAttempt: no meaningful progress always leaves immediately, signed in or not', () => {
+  assert.equal(planExitAttempt(false, true), 'leave_immediately');
+  assert.equal(planExitAttempt(false, false), 'leave_immediately');
+});
+
+test('planExitAttempt: meaningful progress while signed out must never attempt a save — it can never actually persist, so it gets its own honest confirmation', () => {
+  assert.equal(planExitAttempt(true, false), 'confirm_unsaved_signed_out');
+});
+
+test('planExitAttempt: meaningful progress while signed in attempts a real save', () => {
+  assert.equal(planExitAttempt(true, true), 'attempt_save');
 });
 
 test('the complete ChallengeDraft boundary is not weakened: a genuinely partial creation-session snapshot still fails mapOnboardingDraft', () => {

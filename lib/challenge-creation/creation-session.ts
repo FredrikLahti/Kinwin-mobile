@@ -230,6 +230,34 @@ export async function readCreationSession(
   return parsed;
 }
 
+// Serializes every write and clear for one user's creation session through
+// the same ordered queue, keyed by user id. Without this, a slow
+// background autosave `setItem` already in flight when creation converts
+// into a real server commitment could finish *after* the clear that marks
+// that conversion, silently resurrecting a stale resumable snapshot. A
+// promise chain per key is the smallest mechanism that gives this
+// guarantee: each new mutation for a user is appended after whatever is
+// already queued for that same user, and always runs (even if the mutation
+// ahead of it failed) so one failure can never jam the queue forever.
+// Mutations for different users are independent — completely separate map
+// entries, never waiting on each other. Reads are deliberately not queued:
+// they are naturally eventually-consistent, and this mechanism exists
+// specifically to order writes/clears, not reads.
+const creationSessionMutationQueues = new Map<string, Promise<unknown>>();
+
+function enqueueCreationSessionMutation<T>(userId: string, mutation: () => Promise<T>): Promise<T> {
+  const queuedAfter = creationSessionMutationQueues.get(userId) ?? Promise.resolve();
+  const result = queuedAfter.then(mutation, mutation);
+  creationSessionMutationQueues.set(
+    userId,
+    result.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return result;
+}
+
 /**
  * Returns whether the write actually succeeded — callers that only promise
  * "saved" as a side note (autosave's own debounced background writes) can
@@ -244,23 +272,33 @@ export async function writeCreationSession(
   storage: CreationSessionStorage,
 ): Promise<boolean> {
   if (!userId) return true;
-  const snapshot: CreationSessionSnapshot = {
-    schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
-    updatedAt: new Date().toISOString(),
-    lastRoute,
-    fields,
-  };
-  try {
-    await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
-    return true;
-  } catch {
-    return false;
-  }
+  return enqueueCreationSessionMutation(userId, async () => {
+    const snapshot: CreationSessionSnapshot = {
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString(),
+      lastRoute,
+      fields,
+    };
+    try {
+      await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
-export async function clearCreationSession(userId: string, storage: CreationSessionStorage): Promise<void> {
-  if (!userId) return;
-  await storage.removeItem(creationSessionStorageKey(userId));
+/** Returns whether the clear actually succeeded, for the same reason writeCreationSession does — callers at a real conversion boundary must handle a failure deliberately rather than fire-and-forget it. */
+export async function clearCreationSession(userId: string, storage: CreationSessionStorage): Promise<boolean> {
+  if (!userId) return true;
+  return enqueueCreationSessionMutation(userId, async () => {
+    try {
+      await storage.removeItem(creationSessionStorageKey(userId));
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export type LatestRequestGuard = {
@@ -304,4 +342,21 @@ export function decideCreateChallengeEntryAction(
   if (hasPendingCommitment) return 'open_pending_commitment';
   if (hasResumableSession) return 'prompt_resume';
   return 'start_fresh';
+}
+
+export type ExitAttemptPlan = 'leave_immediately' | 'confirm_unsaved_signed_out' | 'attempt_save';
+
+/**
+ * What components/v2/create-flow-screen.tsx's Close button should do next,
+ * decided *before* any save is attempted. Autosave only ever persists for a
+ * signed-in user (see hooks/use-creation-session-autosave.ts), so a
+ * signed-out user with meaningful progress must never be told a save
+ * happened — this exists specifically so that case gets its own honest
+ * "leave without saving" confirmation instead of silently falling through
+ * to the signed-in "your progress is saved" path.
+ */
+export function planExitAttempt(meaningfulProgress: boolean, isSignedIn: boolean): ExitAttemptPlan {
+  if (!meaningfulProgress) return 'leave_immediately';
+  if (!isSignedIn) return 'confirm_unsaved_signed_out';
+  return 'attempt_save';
 }

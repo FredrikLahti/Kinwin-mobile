@@ -186,8 +186,22 @@ export default function CreateReviewScreen() {
     // user who closes the app on Share never leaves behind a stale local
     // snapshot that could resurface as a duplicate later. Only the
     // persisted snapshot is cleared; the in-memory onboarding fields stay
-    // put, since Share still needs them.
-    void clearCreationSession(ownerId, creationSessionStorage);
+    // put, since Share still needs them. Awaited (not fire-and-forget) so
+    // this clear is enqueued and ordered against any autosave write still
+    // in flight for this same user before the local persistence lifecycle
+    // is considered closed (lib/challenge-creation/creation-session.ts's
+    // per-user mutation queue guarantees it runs, and therefore wins,
+    // after any write already queued ahead of it).
+    const sessionCleared = await clearCreationSession(ownerId, creationSessionStorage);
+    if (!sessionCleared) {
+      // Best-effort cleanup only: the server pending commitment created
+      // above is already the authoritative truth regardless of whether
+      // this local tidy-up succeeded, so a failure here must never block
+      // or appear to fail the real conversion that already happened. If a
+      // stale local snapshot does linger, Home's own pending-commitment
+      // check — which always outranks a resumable-session prompt — keeps
+      // it from ever being surfaced as something to "continue."
+    }
     advanceToShare();
   }, [advanceToShare]);
 

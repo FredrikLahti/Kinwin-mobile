@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useCreationSessionAutosave } from '@/hooks/use-creation-session-autosave';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { clearCreationSession } from '@/lib/challenge-creation/creation-session';
+import { clearCreationSession, planExitAttempt } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -48,6 +48,7 @@ export function CreateFlowScreenV2({
   const [discarding, setDiscarding] = useState(false);
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [retryingSave, setRetryingSave] = useState(false);
+  const [signedOutLeaveSheetOpen, setSignedOutLeaveSheetOpen] = useState(false);
 
   // '/' rather than '/home' directly: creation is reachable while signed
   // out (see app/_layout.tsx's AuthGate — 'create' sits outside the
@@ -58,8 +59,17 @@ export function CreateFlowScreenV2({
 
   const attemptExit = async () => {
     void playSelectionHaptic();
-    if (!meaningfulProgress) {
+    // Decided before any save is attempted: autosave only ever persists for
+    // a signed-in user (hooks/use-creation-session-autosave.ts), so a
+    // signed-out user with meaningful progress must never fall through to
+    // the "your progress is saved" path below — that would be a lie.
+    const plan = planExitAttempt(meaningfulProgress, authStatus === 'signed_in');
+    if (plan === 'leave_immediately') {
       leaveCreation();
+      return;
+    }
+    if (plan === 'confirm_unsaved_signed_out') {
+      setSignedOutLeaveSheetOpen(true);
       return;
     }
     // The Leave sheet below promises "your progress is saved" — that must
@@ -72,6 +82,18 @@ export function CreateFlowScreenV2({
       return;
     }
     setLeaveSheetOpen(true);
+  };
+
+  const confirmLeaveWithoutSaving = () => {
+    void playImportantHaptic();
+    // Told explicitly that nothing will be saved, so there is nothing
+    // worth keeping in memory either — avoids bleeding partial state into
+    // whatever this device does next (a later sign-in, a fresh anonymous
+    // visit), consistent with how the explicit Discard path already
+    // resets the draft.
+    onboarding.resetDraft();
+    setSignedOutLeaveSheetOpen(false);
+    leaveCreation();
   };
 
   const retrySave = async () => {
@@ -226,7 +248,7 @@ export function CreateFlowScreenV2({
 
       <BottomSheetV2 onClose={() => setSaveFailedSheetOpen(false)} reducedMotion={reducedMotion} visible={saveFailedSheetOpen}>
         <Text accessibilityRole="header" style={styles.sheetTitle}>Could not save your progress</Text>
-        <Text style={styles.sheetBody}>Check your connection and try again before leaving, so nothing you entered is lost.</Text>
+        <Text style={styles.sheetBody}>Kinwin couldn’t save your progress. Try again before leaving so nothing you entered is lost.</Text>
         <View style={styles.sheetActions}>
           <Pressable
             accessibilityHint="Tries saving your progress again"
@@ -244,6 +266,29 @@ export function CreateFlowScreenV2({
             style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
           >
             <Text style={styles.secondarySheetButtonLabel}>Keep editing</Text>
+          </Pressable>
+        </View>
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setSignedOutLeaveSheetOpen(false)} reducedMotion={reducedMotion} visible={signedOutLeaveSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Leave challenge setup?</Text>
+        <Text style={styles.sheetBody}>You’re not signed in, so this progress can’t be saved if you leave.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Closes this and continues setting up your challenge"
+            accessibilityRole="button"
+            onPress={() => { void playSelectionHaptic(); setSignedOutLeaveSheetOpen(false); }}
+            style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
+          >
+            <Text style={styles.secondarySheetButtonLabel}>Keep editing</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Leaves without saving. Everything entered so far will be lost."
+            accessibilityRole="button"
+            onPress={confirmLeaveWithoutSaving}
+            style={({ pressed }) => [styles.destructiveSheetButton, pressed && styles.destructiveSheetButtonPressed]}
+          >
+            <Text style={styles.destructiveSheetButtonLabel}>Leave without saving</Text>
           </Pressable>
         </View>
       </BottomSheetV2>
