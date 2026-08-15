@@ -18,6 +18,8 @@ import { kinwinTheme as theme } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { clearCreationSession } from '@/lib/challenge-creation/creation-session';
+import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readSupportConfig } from '@/lib/support/config';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
@@ -96,6 +98,10 @@ export default function AccountScreen() {
       router.push('/account/pending-commitment' as Href);
       return;
     }
+    // Also clears any unrelated local creation-session snapshot (see
+    // hooks/use-resumable-creation-session.ts) so Home doesn't later offer
+    // to "continue" a draft the user just explicitly chose to abandon here.
+    if (user) void clearCreationSession(user.id, creationSessionStorage);
     onboarding.resetDraft();
     router.push('/create/intro' as Href);
   };
@@ -165,6 +171,10 @@ export default function AccountScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>SAVED PROGRESS</Text>
+            <Text style={styles.body}>
+              This is a draft already saved on Kinwin’s servers, separate from any unfinished challenge you
+              haven’t reached Review with yet. Resume that instead from + Create challenge on Home.
+            </Text>
             {draftLookup.status === 'loading' && <Text style={styles.body}>Checking for a saved draft…</Text>}
             {draftLookup.status === 'error' && <Text style={styles.error}>{draftLookup.message}</Text>}
             {draftLookup.status === 'none' && (

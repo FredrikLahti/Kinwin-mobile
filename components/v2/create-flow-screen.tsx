@@ -1,10 +1,19 @@
+import { Href, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CreateProgressV2 } from '@/components/v2/create-progress';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
+import { useAuth } from '@/contexts/auth-context';
+import { useOnboarding } from '@/contexts/onboarding-context';
+import { useCreationSessionAutosave } from '@/hooks/use-creation-session-autosave';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { clearCreationSession } from '@/lib/challenge-creation/creation-session';
+import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 type CreateFlowScreenV2Props = {
   backHint: string;
@@ -29,6 +38,58 @@ export function CreateFlowScreenV2({
   supportingCopy,
   totalSteps,
 }: CreateFlowScreenV2Props) {
+  const router = useRouter();
+  const reducedMotion = useReducedMotion();
+  const onboarding = useOnboarding();
+  const { status: authStatus, user } = useAuth();
+  const { flush, meaningfulProgress } = useCreationSessionAutosave();
+  const [leaveSheetOpen, setLeaveSheetOpen] = useState(false);
+  const [discardSheetOpen, setDiscardSheetOpen] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+  // '/' rather than '/home' directly: creation is reachable while signed
+  // out (see app/_layout.tsx's AuthGate — 'create' sits outside the
+  // signed-in Stack.Protected guard), and '/' already redirects a
+  // signed-in user straight to '/home' itself (app/index.tsx) — so this is
+  // the one exit destination that is correct regardless of auth status.
+  const leaveCreation = () => router.replace('/' as Href);
+
+  const attemptExit = () => {
+    void playSelectionHaptic();
+    if (!meaningfulProgress) {
+      leaveCreation();
+      return;
+    }
+    // Autosave already runs on every change, but this guarantees the very
+    // latest keystroke is on disk before the sheet below promises "saved."
+    flush();
+    setLeaveSheetOpen(true);
+  };
+
+  const confirmReturnHome = () => {
+    void playSelectionHaptic();
+    setLeaveSheetOpen(false);
+    leaveCreation();
+  };
+
+  const openDiscardFromLeaveSheet = () => {
+    void playSelectionHaptic();
+    setLeaveSheetOpen(false);
+    setDiscardSheetOpen(true);
+  };
+
+  const confirmDiscard = async () => {
+    void playImportantHaptic();
+    setDiscarding(true);
+    if (authStatus === 'signed_in' && user) {
+      await clearCreationSession(user.id, creationSessionStorage);
+    }
+    onboarding.resetDraft();
+    setDiscarding(false);
+    setDiscardSheetOpen(false);
+    leaveCreation();
+  };
+
   return (
     <SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={styles.safeArea}>
       <StatusBar style="light" />
@@ -60,6 +121,16 @@ export function CreateFlowScreenV2({
               >
                 {currentStep}/{totalSteps}
               </Text>
+              <Pressable
+                accessibilityHint="Leaves challenge setup and returns to Home"
+                accessibilityLabel="Close"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={attemptExit}
+                style={({ pressed }) => [styles.exitButton, pressed && styles.exitButtonPressed]}
+              >
+                <Text aria-hidden style={styles.exitIcon}>✕</Text>
+              </Pressable>
             </View>
 
             <CreateProgressV2 accessibilityLabel={progressLabel} currentStep={currentStep} totalSteps={totalSteps} />
@@ -75,6 +146,62 @@ export function CreateFlowScreenV2({
         </ScrollView>
         <View style={styles.footer}>{footer}</View>
       </KeyboardAvoidingView>
+
+      <BottomSheetV2 onClose={() => setLeaveSheetOpen(false)} reducedMotion={reducedMotion} visible={leaveSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Leave challenge setup?</Text>
+        <Text style={styles.sheetBody}>Your progress is saved. You can pick up right where you left off next time.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Returns to Home. Your progress stays saved."
+            accessibilityRole="button"
+            onPress={confirmReturnHome}
+            style={({ pressed }) => [styles.primarySheetButton, pressed && styles.primarySheetButtonPressed]}
+          >
+            <Text style={styles.primarySheetButtonLabel}>Return home</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Closes this and continues setting up your challenge"
+            accessibilityRole="button"
+            onPress={() => { void playSelectionHaptic(); setLeaveSheetOpen(false); }}
+            style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
+          >
+            <Text style={styles.secondarySheetButtonLabel}>Keep editing</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Opens a confirmation to permanently discard this challenge draft instead"
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={openDiscardFromLeaveSheet}
+            style={styles.discardLink}
+          >
+            <Text style={styles.discardLinkText}>Discard draft instead</Text>
+          </Pressable>
+        </View>
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setDiscardSheetOpen(false)} reducedMotion={reducedMotion} visible={discardSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Discard this draft?</Text>
+        <Text style={styles.sheetBody}>This permanently deletes everything entered so far. This can’t be undone.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Keeps your draft and closes this sheet"
+            accessibilityRole="button"
+            onPress={() => { void playSelectionHaptic(); setDiscardSheetOpen(false); }}
+            style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
+          >
+            <Text style={styles.secondarySheetButtonLabel}>Keep draft</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Permanently discards this challenge draft and returns to Home"
+            accessibilityRole="button"
+            disabled={discarding}
+            onPress={() => void confirmDiscard()}
+            style={({ pressed }) => [styles.destructiveSheetButton, pressed && styles.destructiveSheetButtonPressed]}
+          >
+            <Text style={styles.destructiveSheetButtonLabel}>{discarding ? 'Discarding…' : 'Discard draft'}</Text>
+          </Pressable>
+        </View>
+      </BottomSheetV2>
     </SafeAreaView>
   );
 }
@@ -96,6 +223,12 @@ const styles = StyleSheet.create({
   backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
   wordmark: { flex: 1, color: theme.colors.ivory, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
   stepLabel: { color: theme.colors.warmGrey, fontSize: 12, fontWeight: '600' },
+  exitButton: {
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    marginRight: -9, borderRadius: theme.radius.precise,
+  },
+  exitButtonPressed: { backgroundColor: theme.colors.surface },
+  exitIcon: { color: theme.colors.ivoryMuted, fontSize: 16, fontWeight: '700' },
   main: { gap: 22, paddingTop: 18 },
   intro: { gap: 8 },
   headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
@@ -104,4 +237,27 @@ const styles = StyleSheet.create({
     width: '100%', maxWidth: 560, alignSelf: 'center',
     paddingHorizontal: theme.spacing.medium, paddingTop: 10, paddingBottom: theme.spacing.small,
   },
+  sheetTitle: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
+  sheetBody: { marginTop: 8, color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
+  sheetActions: { marginTop: 20, gap: 10 },
+  primarySheetButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    backgroundColor: theme.colors.oxblood,
+  },
+  primarySheetButtonPressed: { backgroundColor: theme.colors.oxbloodDeep },
+  primarySheetButtonLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  secondarySheetButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    borderWidth: 1, borderColor: theme.colors.structureLineStrong, backgroundColor: theme.colors.surface,
+  },
+  secondarySheetButtonPressed: { backgroundColor: theme.colors.surfaceRaised },
+  secondarySheetButtonLabel: { color: theme.colors.ivory, fontSize: 15, fontWeight: '700' },
+  discardLink: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  discardLinkText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '600' },
+  destructiveSheetButton: {
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.controlled,
+    backgroundColor: '#4A1B1B',
+  },
+  destructiveSheetButtonPressed: { backgroundColor: '#5C2222' },
+  destructiveSheetButtonLabel: { color: '#E37D6A', fontSize: 15, fontWeight: '700' },
 });

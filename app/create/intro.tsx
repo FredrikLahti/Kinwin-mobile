@@ -62,7 +62,19 @@ export default function CreateIntroScreen() {
       <StatusBar style="light" />
       <View style={styles.content}>
         <View style={styles.main}>
-          <Text style={styles.wordmark}>KINWIN</Text>
+          <View style={styles.header}>
+            <Pressable
+              accessibilityHint="Returns to Home"
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.back()}
+              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+            >
+              <Text aria-hidden style={styles.backIcon}>‹</Text>
+            </Pressable>
+            <Text style={styles.wordmark}>KINWIN</Text>
+          </View>
           <Text accessibilityRole="header" style={styles.headline}>How it works</Text>
           <View style={styles.steps}>
             {STEPS.map((step, index) => (
@@ -113,6 +125,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.medium, paddingTop: theme.spacing.large, paddingBottom: theme.spacing.small,
   },
   main: { gap: 28 },
+  header: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backButton: {
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    marginLeft: -9, borderRadius: theme.radius.precise,
+  },
+  backButtonPressed: { backgroundColor: theme.colors.surface },
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
   wordmark: { color: theme.colors.warmGrey, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
   headline: { color: theme.colors.ivory, fontSize: 30, fontWeight: '700' },
   steps: { gap: 18 },

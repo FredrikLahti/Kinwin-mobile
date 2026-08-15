@@ -165,6 +165,34 @@ type OnboardingContextValue = {
   stakeAmountInput: string;
   /** Explicit mapping boundary: hydrates every onboarding field from a normalized, already-validated draft. */
   loadDraftData: (data: OnboardingDraftData, draftId: string) => void;
+  /**
+   * Restores raw, possibly-incomplete fields from a local creation-session
+   * snapshot (lib/challenge-creation/creation-session.ts) — deliberately
+   * separate from loadDraftData, which only ever accepts an already-
+   * validated, complete draft. Never sets savedDraftId: a resumed local
+   * session is not a server draft.
+   */
+  restoreCreationSessionFields: (fields: CreationSessionFieldsInput) => void;
+};
+
+/** Matches lib/challenge-creation/creation-session.ts's CreationSessionFields shape without importing it here, to avoid a context <-> lib circular dependency; kept structurally identical on purpose. */
+type CreationSessionFieldsInput = {
+  behaviorDirection: BehaviorDirection | null;
+  behaviorText: string;
+  definitionText: string;
+  durationWeeks: number | null;
+  experienceCategory: ExperienceCategory | null;
+  goal: string;
+  invitationMessage: string;
+  invitationMessageCustomized: boolean;
+  membershipChoice: 'monthly_trial' | null;
+  measurementMode: MeasurementMode | null;
+  recipients: readonly RecipientDraft[];
+  rewardOrganizer: RewardOrganizer;
+  rhythm: RhythmState;
+  sitOutAcknowledged: boolean;
+  stakeAmount: number | null;
+  stakeAmountInput: string;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -234,6 +262,27 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setSavedDraftId(fields.savedDraftId);
   }, []);
 
+  const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput) => {
+    setGoal(fields.goal);
+    setBehaviorText(fields.behaviorText);
+    setDefinitionText(fields.definitionText);
+    setBehaviorDirection(fields.behaviorDirection);
+    setMeasurementMode(fields.measurementMode);
+    setRhythm({ ...fields.rhythm, selectedWeekdays: [...fields.rhythm.selectedWeekdays] });
+    setDurationWeeks(fields.durationWeeks);
+    setRecipients(fields.recipients.length > 0 ? fields.recipients.map((recipient) => ({ ...recipient })) : [createRecipientDraft()]);
+    setRewardOrganizer(fields.rewardOrganizer);
+    setExperienceCategory(fields.experienceCategory);
+    setStakeAmount(fields.stakeAmount);
+    setStakeAmountInput(fields.stakeAmountInput);
+    setSitOutAcknowledged(fields.sitOutAcknowledged);
+    setInvitationMessage(fields.invitationMessage);
+    setInvitationMessageCustomized(fields.invitationMessageCustomized);
+    setMembershipChoice(fields.membershipChoice);
+    // Deliberately not touched: a resumed local session is never a server
+    // draft, so savedDraftId stays whatever it already was (normally null).
+  }, []);
+
   const value = useMemo(
     () => ({
       behaviorDirection,
@@ -250,6 +299,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       measurementMode,
       recipients,
       resetDraft,
+      restoreCreationSessionFields,
       rewardOrganizer,
       rhythm,
       savedDraftId,
@@ -288,6 +338,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       measurementMode,
       recipients,
       resetDraft,
+      restoreCreationSessionFields,
       rewardOrganizer,
       rhythm,
       savedDraftId,

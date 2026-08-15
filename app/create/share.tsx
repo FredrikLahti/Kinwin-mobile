@@ -14,6 +14,8 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { clearCreationSession } from '@/lib/challenge-creation/creation-session';
+import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -71,7 +73,12 @@ export default function CreateShareScreen() {
     void playImportantHaptic();
     // The draft's local editable representation has done its job — the
     // server-owned pending commitment (fetched fresh on the next screen) is
-    // now the only source of truth for it.
+    // now the only source of truth for it. Creation has genuinely converted
+    // into that real commitment by the time this screen is reachable (see
+    // app/create/review.tsx's runPrepare), so the local resumable-creation
+    // snapshot is cleared here too — resuming it later would only offer a
+    // stale duplicate of work that already exists server-side.
+    if (user) void clearCreationSession(user.id, creationSessionStorage);
     onboarding.resetDraft();
     router.replace('/account/pending-commitment' as Href);
   };
