@@ -12,9 +12,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { LabeledFieldV2 } from '@/components/v2/labeled-field';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { TextInputV2 } from '@/components/v2/text-input';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
@@ -113,7 +114,7 @@ export default function AuthScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidingView}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
@@ -131,17 +132,16 @@ export default function AuthScreen() {
               >
                 <Text aria-hidden style={styles.backIcon}>‹</Text>
               </Pressable>
-              <Text style={styles.wordmark}>KINWIN</Text>
+              <Text numberOfLines={1} style={styles.wordmark}>KINWIN</Text>
             </View>
 
             <View style={styles.intro}>
-              <Text style={styles.phaseLabel}>INTERNAL BETA</Text>
               <Text accessibilityRole="header" style={styles.headline}>
-                {mode === 'sign_in' ? 'Sign in to continue.' : 'Create your account.'}
+                {mode === 'sign_in' ? 'Sign in to continue' : 'Create your account'}
               </Text>
               <Text style={styles.supportingCopy}>
                 {mode === 'sign_in'
-                  ? 'Your saved draft and account stay with your Kinwin sign-in.'
+                  ? 'Your challenges and account stay with your Kinwin sign-in.'
                   : 'Email and password for now. Apple and Google sign-in come later.'}
               </Text>
             </View>
@@ -166,8 +166,7 @@ export default function AuthScreen() {
             </View>
 
             <View style={styles.form}>
-              <View style={styles.field}>
-                <Text style={styles.label}>EMAIL</Text>
+              <LabeledFieldV2 label="Email">
                 <TextInputV2
                   accessibilityLabel="Email"
                   autoCapitalize="none"
@@ -176,25 +175,28 @@ export default function AuthScreen() {
                   onChangeText={setEmail}
                   placeholder="you@example.com"
                   placeholderTextColor={theme.colors.warmGrey}
+                  selectionColor={theme.colors.oxblood}
                   style={styles.input}
                   textContentType="emailAddress"
                   value={email}
                 />
-              </View>
+              </LabeledFieldV2>
               <View style={styles.field}>
-                <Text style={styles.label}>PASSWORD</Text>
-                <TextInputV2
-                  accessibilityLabel="Password"
-                  autoCapitalize="none"
-                  autoComplete={mode === 'sign_in' ? 'password' : 'password-new'}
-                  onChangeText={setPassword}
-                  placeholder="At least 8 characters"
-                  placeholderTextColor={theme.colors.warmGrey}
-                  secureTextEntry
-                  style={styles.input}
-                  textContentType={mode === 'sign_in' ? 'password' : 'newPassword'}
-                  value={password}
-                />
+                <LabeledFieldV2 label="Password">
+                  <TextInputV2
+                    accessibilityLabel="Password"
+                    autoCapitalize="none"
+                    autoComplete={mode === 'sign_in' ? 'password' : 'password-new'}
+                    onChangeText={setPassword}
+                    placeholder="At least 8 characters"
+                    placeholderTextColor={theme.colors.warmGrey}
+                    secureTextEntry
+                    selectionColor={theme.colors.oxblood}
+                    style={styles.input}
+                    textContentType={mode === 'sign_in' ? 'password' : 'newPassword'}
+                    value={password}
+                  />
+                </LabeledFieldV2>
                 {mode === 'sign_in' && (
                   <Pressable
                     accessibilityHint="Opens the password reset request screen"
@@ -241,7 +243,7 @@ export default function AuthScreen() {
               )}
             </View>
 
-            <AnimatedPrimaryButton
+            <PrimaryButtonV2
               accessibilityHint={mode === 'sign_in' ? 'Signs in with your email and password' : 'Creates a new Kinwin account'}
               disabled={!canSubmit}
               label={submitting ? 'Please wait…' : mode === 'sign_in' ? 'Sign in' : 'Create account'}
@@ -257,54 +259,45 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: theme.colors.ink },
+  keyboardAvoidingView: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+    paddingHorizontal: theme.spacing.medium, paddingTop: 6, paddingBottom: theme.spacing.small, gap: 22,
   },
   centeredContent: {
-    flex: 1, justifyContent: 'center', gap: 14, paddingHorizontal: 26,
+    flex: 1, justifyContent: 'center', gap: 14, paddingHorizontal: theme.spacing.medium,
   },
-  header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
+  header: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
   backButton: {
     width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
-    marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
+    marginLeft: -9, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
-  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
+  wordmark: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
   intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.copper, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 32, fontWeight: '400', letterSpacing: -0.5, lineHeight: 38,
-  },
-  supportingCopy: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
-  body: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  supportingCopy: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
+  body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   modeSwitch: {
     flexDirection: 'row', borderWidth: 1, borderColor: theme.colors.structureLineStrong,
     borderRadius: theme.radius.controlled, overflow: 'hidden',
   },
   modeOption: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
-  modeOptionSelected: { backgroundColor: theme.colors.surfaceRaised },
+  modeOptionSelected: { backgroundColor: theme.colors.oxbloodDeep },
   modeText: { color: theme.colors.warmGrey, fontSize: 13, fontWeight: '700', letterSpacing: 0.4 },
-  modeTextSelected: { color: theme.colors.copperBright },
+  modeTextSelected: { color: theme.colors.ivory },
   form: { gap: 16 },
   field: { gap: 8 },
-  label: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
-  input: {
-    minHeight: 50, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 14, color: theme.colors.bone, fontSize: 15,
-  },
-  notice: { color: theme.colors.copperBright, fontSize: 13, lineHeight: 19 },
+  input: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
+  notice: { color: theme.colors.ivory, fontSize: 13, lineHeight: 19 },
   checkEmailBlock: { gap: 8 },
   textButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   forgotPasswordLink: { alignSelf: 'flex-end', minHeight: 32, justifyContent: 'center', marginTop: 2 },
   forgotPasswordLinkPressed: { opacity: 0.7 },
-  forgotPasswordText: { color: theme.colors.copperBright, fontSize: 12, fontWeight: '700' },
+  forgotPasswordText: { color: theme.colors.crimsonBright, fontSize: 12, fontWeight: '700' },
   error: { color: '#E37D6A', fontSize: 13, lineHeight: 19 },
 });
