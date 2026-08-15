@@ -158,7 +158,7 @@ High-level; see `docs/CHECK_IN_ENGINE.md` and `docs/SCHEDULED_CHALLENGE_COMPLETI
 | Decline | IMPLEMENTED | | |
 | Canonical organizer role | IMPLEMENTED | Explicitly chosen at creation time (§2). | |
 | Owner sit-out promise | IMPLEMENTED | Consent checkbox + server-side re-validation. | |
-| Public invitation web fallback | IMPLEMENTED — CURRENTLY LIVE-BROKEN, FIX PENDING REDEPLOY | Live at `https://kinwin-beta.expo.app`, HTTPS-verified (root and `/invite/<token>` both 200). **HTTP 200 only proves routing, not that the page works**: a Metro bundler cache bug in `eas-beta-release.yml` shipped a build with no Supabase config inlined, so both this page's real invitation lookup and Sign in are currently broken on the live site. Fixed in the workflow (see `docs/BETA_TEST_ENVIRONMENT.md`) but not yet redeployed. | |
+| Public invitation web fallback | IMPLEMENTED — NEEDS POST-DEPLOY FUNCTIONAL VERIFICATION | Live at `https://kinwin-beta.expo.app`, HTTPS-verified (root and `/invite/<token>` both 200). **HTTP 200 only proves routing, not that the page works**: a 2026-08-15 Metro bundler cache bug in `eas-beta-release.yml` was found to ship a build with no Supabase config inlined, silently passing the HTTP-200 checks while both this page's real invitation lookup and Sign in were broken. The release pipeline now carries a permanent fix (`--clear` on the real export) and a permanent pre-deploy guard (verifies the exported bundle actually contains the TEST Supabase config before deploying) — see `docs/BETA_TEST_ENVIRONMENT.md`. Functionally spot-check Sign in and an invitation link after each release that touches the web export, the same as any deploy. | |
 | Native Universal Link status | PARTIAL | iOS gets `associatedDomains` — but *only* in beta-gated builds (`KINWIN_VALIDATE_BETA=1`/`EAS_BUILD_PROFILE=beta`); a non-beta build has none. **Android has no App Links configuration at all** — only the custom `kinwin://` scheme, so an `https://` invitation link will never deep-link into the Android app today. | Real gap worth closing before Android testing. |
 | Owner-facing invitation/progress state | IMPLEMENTED | `get_owner_reward_progress` RPC exposes exactly four states (`waiting_for_organizer`, `needs_attention`, `preparing`, `ready`) — no provider IDs or raw errors ever leak to the owner. | |
 
@@ -269,8 +269,8 @@ Implementation status only — release-blocking classification lives entirely in
 | Android support | PARTIAL | Cross-platform Expo/React Native codebase, but no dedicated Android release contract, build profile, or App Links config exists yet (see §7's Universal Links gap). | |
 | Expo / React Native foundation | IMPLEMENTED | | |
 | EAS project | IMPLEMENTED | Linked (`@kinwin/kinwin-mobile`). | |
-| EAS Hosting | IMPLEMENTED | Live beta web host, HTTPS-verified. | See the live-broken caveat in §7. |
-| Beta web invitation fallback | IMPLEMENTED | Deployed at `kinwin-beta.expo.app`. | See the live-broken caveat in §7. |
+| EAS Hosting | IMPLEMENTED | Live beta web host, HTTPS-verified. | See the 2026-08-15 regression/safeguards note in §7. |
+| Beta web invitation fallback | IMPLEMENTED | Deployed at `kinwin-beta.expo.app`. | See the 2026-08-15 regression/safeguards note in §7. |
 | EAS internal build workflow | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | GitHub Actions workflow runs cleanly through hosting/config steps; the actual `eas build` step is blocked on Apple credentials. | |
 | Apple Developer account | NOT IMPLEMENTED — PLANNED | Enrollment pending (external, founder-side). | |
 | iOS signing | NOT IMPLEMENTED — PLANNED | EAS-managed credentials attempted automatically but none exist yet; needs one interactive setup once enrollment clears. | |
