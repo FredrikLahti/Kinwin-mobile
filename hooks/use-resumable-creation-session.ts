@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
 import {
+  CreationSessionCheckpoint,
   createLatestRequestGuard,
   CreationSessionSnapshot,
   isResumeEligibleSession,
@@ -12,7 +13,13 @@ import { creationSessionStorage } from '@/lib/challenge-creation/creation-sessio
 export type ResumableCreationSessionState =
   | { readonly status: 'loading' }
   | { readonly status: 'none' }
-  | { readonly status: 'found'; readonly session: CreationSessionSnapshot };
+  | {
+      readonly status: 'found';
+      // checkpoint narrowed to non-null: "found" is defined as
+      // isResumeEligibleSession(session), which already guarantees this —
+      // consumers (Continue) never need to null-check it again.
+      readonly session: CreationSessionSnapshot & { readonly checkpoint: CreationSessionCheckpoint };
+    };
 
 /**
  * Read-only lookup of the signed-in user's resumable local creation
@@ -50,7 +57,18 @@ export function useResumableCreationSession(): ResumableCreationSessionState & {
     const userId = user.id;
     void readCreationSession(userId, creationSessionStorage).then((session) => {
       if (!guardRef.current.isCurrent(token)) return;
-      setState(session && isResumeEligibleSession(session) ? { status: 'found', session } : { status: 'none' });
+      // session.checkpoint (not isResumeEligibleSession(session), which
+      // returns a plain boolean) is checked directly here so TypeScript
+      // narrows checkpoint to non-null for the 'found' branch below —
+      // isResumeEligibleSession remains the single documented rule for
+      // what "eligible" means and is what every other caller should use.
+      // Re-spreading with the narrowed checkpoint carries that narrowing
+      // into the constructed object's type, not just this expression.
+      setState(
+        session && session.checkpoint && isResumeEligibleSession(session)
+          ? { status: 'found', session: { ...session, checkpoint: session.checkpoint } }
+          : { status: 'none' },
+      );
     });
   }, [authStatus, user]);
 

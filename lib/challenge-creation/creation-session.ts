@@ -34,32 +34,51 @@ export type CreationSessionFields = {
   readonly stakeAmountInput: string;
 };
 
-// Bumped from 1: adds savedForLater, which changes what it means for a
-// snapshot to be valid (see isValidSnapshotShape) and therefore what
-// counts as a compatible payload at all. Bumping this changes
-// creationSessionStorageKey's output, so any snapshot written under the
-// old version is simply never read under the new key — orphaned, not
-// misinterpreted. That is the whole migration story: no in-place upgrade
-// code, because there is nothing safe to upgrade an old payload *into*
-// (an old autosave-only snapshot carries no signal about explicit save
-// intent, so it must never be treated as if it does).
-export const CREATION_SESSION_SCHEMA_VERSION = 2;
+// Bumped from 2: replaces the single savedForLater boolean with a real
+// two-tier working/checkpoint split (see CreationSessionSnapshot below),
+// which changes what it means for a snapshot to be valid (see
+// isValidSnapshotShape) and therefore what counts as a compatible payload
+// at all. Bumping this changes creationSessionStorageKey's output, so any
+// snapshot written under an older version is simply never read under the
+// new key — orphaned, not misinterpreted. That is the whole migration
+// story: no in-place upgrade code, because there is nothing safe to
+// upgrade an old payload *into* (a v2 payload's savedForLater: true was
+// granted by background autosave preserving an earlier explicit save, not
+// necessarily by the *latest* edit being explicitly saved — exactly the
+// conflation this version fixes — so it must never be reinterpreted as a
+// v3 checkpoint).
+export const CREATION_SESSION_SCHEMA_VERSION = 3;
+
+/**
+ * Quiet crash-recovery state, overwritten by every background autosave
+ * write — never surfaced to the user directly, and never what Continue
+ * restores. Background autosave may freely update this; it must never
+ * touch `checkpoint` below.
+ */
+export type CreationSessionWorking = {
+  readonly fields: CreationSessionFields;
+  readonly lastRoute: string;
+  readonly updatedAt: string;
+};
+
+/**
+ * The explicit resume point — set only by an explicit "Save & exit", never
+ * by background autosave. This, and only this, is what "resume eligible"
+ * means and what Continue restores: editing after Continue (or after a
+ * fresh Save & exit) keeps `working` moving via autosave, but `checkpoint`
+ * stays exactly what it was until the next explicit Save & exit
+ * overwrites both together (see saveCreationSessionCheckpoint).
+ */
+export type CreationSessionCheckpoint = {
+  readonly fields: CreationSessionFields;
+  readonly lastRoute: string;
+  readonly savedAt: string;
+};
 
 export type CreationSessionSnapshot = {
   readonly schemaVersion: typeof CREATION_SESSION_SCHEMA_VERSION;
-  readonly updatedAt: string;
-  /** The create/* route the user was last on, e.g. "/create/frequency". */
-  readonly lastRoute: string;
-  /**
-   * True only once the user has explicitly chosen "Save & exit" for this
-   * creation session — never set by background autosave on its own. This
-   * is what "resume eligible" means: Home/Account must only ever offer
-   * "Continue challenge" for a session where this is true. A session that
-   * only exists because of quiet crash-recovery autosave (savedForLater:
-   * false) is never surfaced as something the user consciously saved.
-   */
-  readonly savedForLater: boolean;
-  readonly fields: CreationSessionFields;
+  readonly working: CreationSessionWorking | null;
+  readonly checkpoint: CreationSessionCheckpoint | null;
 };
 
 /** Every /create/* route a session can legitimately resume into — never intro (nothing entered yet) or share (already converted to a real server commitment). */
@@ -207,15 +226,33 @@ function isValidCreationSessionFields(value: unknown): value is CreationSessionF
   );
 }
 
+function isValidCreationSessionWorking(value: unknown): value is CreationSessionWorking {
+  if (!value || typeof value !== 'object') return false;
+  const working = value as Record<string, unknown>;
+  return (
+    typeof working.lastRoute === 'string' &&
+    typeof working.updatedAt === 'string' &&
+    isValidCreationSessionFields(working.fields)
+  );
+}
+
+function isValidCreationSessionCheckpoint(value: unknown): value is CreationSessionCheckpoint {
+  if (!value || typeof value !== 'object') return false;
+  const checkpoint = value as Record<string, unknown>;
+  return (
+    typeof checkpoint.lastRoute === 'string' &&
+    typeof checkpoint.savedAt === 'string' &&
+    isValidCreationSessionFields(checkpoint.fields)
+  );
+}
+
 function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<CreationSessionSnapshot>;
   return (
     candidate.schemaVersion === CREATION_SESSION_SCHEMA_VERSION &&
-    typeof candidate.updatedAt === 'string' &&
-    typeof candidate.lastRoute === 'string' &&
-    typeof candidate.savedForLater === 'boolean' &&
-    isValidCreationSessionFields(candidate.fields)
+    (candidate.working === null || isValidCreationSessionWorking(candidate.working)) &&
+    (candidate.checkpoint === null || isValidCreationSessionCheckpoint(candidate.checkpoint))
   );
 }
 
@@ -223,11 +260,23 @@ function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot 
  * The single rule for what counts as "Continue challenge"-eligible —
  * centralized so Home and Account (both via
  * hooks/use-resumable-creation-session.ts) can never drift on it. A
- * background autosave write alone must never satisfy this; only an
- * explicit Save & exit (or a session restored from one) does.
+ * background autosave write alone only ever touches `working`, never
+ * `checkpoint`; only an explicit Save & exit sets checkpoint at all.
  */
 export function isResumeEligibleSession(session: CreationSessionSnapshot | null): boolean {
-  return session !== null && session.savedForLater === true;
+  return session !== null && session.checkpoint !== null;
+}
+
+/**
+ * Structural equality for two CreationSessionFields — used only to decide
+ * whether Back needs to warn about changes made since the last explicit
+ * checkpoint, never for persistence or security, so a stable
+ * JSON.stringify comparison is precise enough for it: recipient ids are
+ * assigned once (createRecipientDraft) and stay stable for the life of a
+ * draft, so this isn't sensitive to incidental object-identity churn.
+ */
+function creationSessionFieldsEqual(a: CreationSessionFields, b: CreationSessionFields): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Returns null for "no session" and for corrupt/incompatible data alike — callers never need to distinguish the two. Corrupt data is proactively removed so it cannot linger and fail again later. */
@@ -327,31 +376,33 @@ function enqueueCreationSessionMutation<T>(userId: string, mutation: () => Promi
 }
 
 /**
- * Returns whether the write actually succeeded — callers that only promise
- * "saved" as a side note (autosave's own debounced background writes) can
- * ignore it, but hooks/use-creation-session-autosave.ts's explicit
- * save-for-later path must not: an explicit Save & exit that tells the
- * user their progress is saved needs to know the write really landed
- * before it says so. `generation` must be whatever
- * currentCreationSessionGeneration(userId) returned at the moment this
- * write was scheduled — see the block comment above
- * creationSessionGenerations for why this is what actually closes the
- * debounce-window race a queue position alone cannot.
+ * Background autosave's write: overwrites only `working`, and carries
+ * whatever `checkpoint` the caller currently has in memory through
+ * completely unchanged (never re-derived from storage — see
+ * hooks/use-creation-session-autosave.ts, which sources it from
+ * onboarding context, itself only ever set by a successful
+ * saveCreationSessionCheckpoint or by restoring an existing checkpoint).
+ * Passing it explicitly rather than reading-then-merging inside this
+ * function means a transient storage read failure can never be
+ * misinterpreted as "no checkpoint exists" and silently erase a real one.
  *
- * `savedForLater` is always caller-supplied, never inferred here — this
- * function has no opinion on whether a write represents quiet background
- * autosave (false, unless the caller is deliberately preserving an
- * already-explicit save across further edits) or an explicit Save & exit
- * (true). That decision belongs entirely to the caller so it can never be
- * accidentally granted by a code path that only meant to autosave.
+ * Returns whether the write actually succeeded; autosave itself treats
+ * this as fire-and-forget (a failure just gets retried on the next edit),
+ * but the return value exists for the same reason every other mutation
+ * here reports it: a caller with a stronger promise to keep (there isn't
+ * one for background autosave itself, but the pattern must stay honest).
+ * `generation` must be whatever currentCreationSessionGeneration(userId)
+ * returned at the moment this write was scheduled — see the block comment
+ * above creationSessionGenerations for why this is what actually closes
+ * the debounce-window race a queue position alone cannot.
  */
-export async function writeCreationSession(
+export async function writeCreationSessionWorking(
   userId: string,
   fields: CreationSessionFields,
   lastRoute: string,
+  checkpoint: CreationSessionCheckpoint | null,
   storage: CreationSessionStorage,
   generation: number,
-  savedForLater: boolean,
 ): Promise<boolean> {
   if (!userId) return true;
   return enqueueCreationSessionMutation(userId, async () => {
@@ -364,10 +415,48 @@ export async function writeCreationSession(
     }
     const snapshot: CreationSessionSnapshot = {
       schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
-      updatedAt: new Date().toISOString(),
-      lastRoute,
-      savedForLater,
-      fields,
+      working: { fields, lastRoute, updatedAt: new Date().toISOString() },
+      checkpoint,
+    };
+    try {
+      await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * The explicit "Save & exit" write: the one and only place `checkpoint`
+ * is ever set. Sets `working` to the exact same fields at the same
+ * instant — Save & exit represents the latest edit too, so there is
+ * nothing for working to lag behind. `savedAt` is caller-supplied (not
+ * generated here) so the in-memory onboarding checkpoint the caller sets
+ * on success can carry the exact same timestamp as what was actually
+ * persisted, rather than two independently-generated near-duplicates.
+ * Returns whether the write actually succeeded; the caller must not mark
+ * the in-memory session eligible (or tell the user their progress is
+ * saved) until this is true. `generation` follows the same
+ * schedule-time-capture rule as writeCreationSessionWorking.
+ */
+export async function saveCreationSessionCheckpoint(
+  userId: string,
+  fields: CreationSessionFields,
+  lastRoute: string,
+  savedAt: string,
+  storage: CreationSessionStorage,
+  generation: number,
+): Promise<boolean> {
+  if (!userId) return true;
+  return enqueueCreationSessionMutation(userId, async () => {
+    if (generation !== currentCreationSessionGeneration(userId)) {
+      return true;
+    }
+    const snapshot: CreationSessionSnapshot = {
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+      working: { fields, lastRoute, updatedAt: savedAt },
+      checkpoint: { fields, lastRoute, savedAt },
     };
     try {
       await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
@@ -456,16 +545,26 @@ export type BackLeavePlan = 'proceed' | 'confirm_leave_without_saving';
 /**
  * What components/v2/create-flow-screen.tsx's Back button should do when
  * this particular Back press would leave the creation flow entirely
- * (never mid-flow — only ever the very first step, Goal, given the
- * current routing; ordinary in-flow Back presses between steps never call
- * this at all and always just navigate). A session that is already
- * savedForLater needs no confirmation: backing out loses nothing, since
- * Continue would restore the exact same explicitly-saved state either
- * way. No confirmation is needed either when there is no meaningful
- * progress to warn about.
+ * (never mid-flow — only ever the route resolvePreviousCreationRoute
+ * treats as the boundary; ordinary in-flow Back presses between steps
+ * never call this at all and always just navigate).
+ *
+ * "Unsaved" is always relative to the explicit checkpoint, not merely
+ * whether there is meaningful content:
+ * - No checkpoint at all: any meaningful progress is unsaved (the
+ *   original "fresh session, never saved" case).
+ * - A checkpoint exists (this session was Continued, or just Saved &
+ *   exited): only edits that actually differ from the checkpoint's
+ *   fields count as unsaved — resuming a checkpoint and leaving again
+ *   without changing anything loses nothing, since Continue would
+ *   restore the exact same state either way.
  */
-export function planBackLeaveAttempt(meaningfulProgress: boolean, savedForLater: boolean): BackLeavePlan {
-  if (!meaningfulProgress) return 'proceed';
-  if (savedForLater) return 'proceed';
-  return 'confirm_leave_without_saving';
+export function planBackLeaveAttempt(
+  currentFields: CreationSessionFields,
+  checkpointFields: CreationSessionFields | null,
+): BackLeavePlan {
+  const hasUnsavedWork = checkpointFields === null
+    ? hasMeaningfulCreationProgress(currentFields)
+    : !creationSessionFieldsEqual(currentFields, checkpointFields);
+  return hasUnsavedWork ? 'confirm_leave_without_saving' : 'proceed';
 }

@@ -94,9 +94,10 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const continueResumableSession = () => {
     if (resumableSession.status !== 'found') return;
     void playImportantHaptic();
-    onboarding.restoreCreationSessionFields(resumableSession.session.fields);
+    const { checkpoint } = resumableSession.session;
+    onboarding.restoreCreationSessionFields(checkpoint.fields, checkpoint.lastRoute, checkpoint.savedAt);
     setResumeSheetOpen(false);
-    router.push(resolveResumeRoute(resumableSession.session.lastRoute) as Href);
+    router.push(resolveResumeRoute(checkpoint.lastRoute) as Href);
   };
 
   const confirmDiscardResumableSession = async () => {
@@ -125,11 +126,11 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const resumableSummary =
     resumableSession.status === 'found'
       ? describeChallengeRule({
-          behaviorDirection: resumableSession.session.fields.behaviorDirection,
-          behaviorText: resumableSession.session.fields.behaviorText,
-          measurementMode: resumableSession.session.fields.measurementMode,
-          rhythm: resumableSession.session.fields.rhythm,
-        }) || resumableSession.session.fields.goal.trim()
+          behaviorDirection: resumableSession.session.checkpoint.fields.behaviorDirection,
+          behaviorText: resumableSession.session.checkpoint.fields.behaviorText,
+          measurementMode: resumableSession.session.checkpoint.fields.measurementMode,
+          rhythm: resumableSession.session.checkpoint.fields.rhythm,
+        }) || resumableSession.session.checkpoint.fields.goal.trim()
       : '';
 
   return {

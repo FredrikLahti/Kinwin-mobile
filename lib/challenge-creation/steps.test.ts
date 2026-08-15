@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getStepInfo } from './steps';
+import { getStepInfo, resolvePreviousCreationRoute } from './steps';
 
 test('getStepInfo: build has one extra step (frequency) than limit/avoid', () => {
   assert.deepEqual(getStepInfo('build', 'goal'), { currentStep: 1, totalSteps: 8 });
@@ -29,4 +29,53 @@ test('getStepInfo: avoid skips the frequency step, same shape as limit', () => {
 test('getStepInfo: unknown direction (not chosen yet) defaults to build\'s longer sequence', () => {
   assert.deepEqual(getStepInfo(null, 'goal'), { currentStep: 1, totalSteps: 8 });
   assert.deepEqual(getStepInfo(null, 'type'), { currentStep: 2, totalSteps: 8 });
+});
+
+test('resolvePreviousCreationRoute: Goal is the only logical route whose Back may leave creation', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/goal', 'build'), null);
+  assert.equal(resolvePreviousCreationRoute('/create/goal', 'cut'), null);
+  assert.equal(resolvePreviousCreationRoute('/create/goal', 'stop'), null);
+  assert.equal(resolvePreviousCreationRoute('/create/goal', null), null);
+});
+
+test('resolvePreviousCreationRoute: Type always resolves back to Goal, regardless of direction', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/type', 'build'), '/create/goal');
+  assert.equal(resolvePreviousCreationRoute('/create/type', 'cut'), '/create/goal');
+  assert.equal(resolvePreviousCreationRoute('/create/type', 'stop'), '/create/goal');
+  assert.equal(resolvePreviousCreationRoute('/create/type', null), '/create/goal');
+});
+
+test('resolvePreviousCreationRoute: Build sequence — goal, type, build, frequency, duration, recipients, consequence, review', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/build', 'build'), '/create/type');
+  // resume at Frequency -> Back resolves to Build rule
+  assert.equal(resolvePreviousCreationRoute('/create/frequency', 'build'), '/create/build');
+  // resume at Duration for Build -> Back resolves to Frequency
+  assert.equal(resolvePreviousCreationRoute('/create/duration', 'build'), '/create/frequency');
+  assert.equal(resolvePreviousCreationRoute('/create/recipients', 'build'), '/create/duration');
+  assert.equal(resolvePreviousCreationRoute('/create/consequence', 'build'), '/create/recipients');
+  // resume at Review -> Back resolves to Consequence
+  assert.equal(resolvePreviousCreationRoute('/create/review', 'build'), '/create/consequence');
+});
+
+test('resolvePreviousCreationRoute: Limit (cut) sequence skips frequency entirely', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/limit', 'cut'), '/create/type');
+  // resume at Duration for Limit -> Back resolves to Limit rule
+  assert.equal(resolvePreviousCreationRoute('/create/duration', 'cut'), '/create/limit');
+  assert.equal(resolvePreviousCreationRoute('/create/recipients', 'cut'), '/create/duration');
+  assert.equal(resolvePreviousCreationRoute('/create/consequence', 'cut'), '/create/recipients');
+  assert.equal(resolvePreviousCreationRoute('/create/review', 'cut'), '/create/consequence');
+});
+
+test('resolvePreviousCreationRoute: Avoid (stop) sequence skips frequency entirely', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/avoid', 'stop'), '/create/type');
+  // resume at Duration for Avoid -> Back resolves to Avoid rule
+  assert.equal(resolvePreviousCreationRoute('/create/duration', 'stop'), '/create/avoid');
+  assert.equal(resolvePreviousCreationRoute('/create/recipients', 'stop'), '/create/duration');
+  assert.equal(resolvePreviousCreationRoute('/create/consequence', 'stop'), '/create/recipients');
+  assert.equal(resolvePreviousCreationRoute('/create/review', 'stop'), '/create/consequence');
+});
+
+test('resolvePreviousCreationRoute: an unrecognized route is treated conservatively as the flow boundary, not a crash', () => {
+  assert.equal(resolvePreviousCreationRoute('/create/share', 'build'), null);
+  assert.equal(resolvePreviousCreationRoute('not-a-route-at-all', 'build'), null);
 });

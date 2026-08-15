@@ -1,6 +1,6 @@
-import { Href, useNavigation, useRouter } from 'expo-router';
+import { Href, useNavigation, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -20,6 +20,7 @@ import {
   planExitAttempt,
 } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
+import { resolvePreviousCreationRoute } from '@/lib/challenge-creation/steps';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 type CreateFlowScreenV2Props = {
@@ -38,28 +39,33 @@ type CreateFlowScreenV2Props = {
  * Back and Save & exit are two deliberately distinct actions here, not one
  * conflated Close button:
  *
- * - Back (the chevron) only ever navigates one logical step backward. On
- *   every step except the first it is a plain, unconfirmed
- *   router-back-equivalent (see onBack). Only on the first step
- *   (currentStep === 1, i.e. Goal — the only step whose Back leaves the
- *   flow at all, given intro.tsx's router.replace when advancing) does it
- *   ever ask anything, and only when there is meaningful progress that has
- *   not already been explicitly saved (planBackLeaveAttempt). It never
- *   saves anything. This is enforced via React Navigation's `beforeRemove`
- *   event rather than the chevron's onPress alone — app/create/_layout.tsx
- *   has gestureEnabled: true, so an iOS swipe-back or Android hardware back
- *   press pops this screen without ever calling onBack directly; both of
- *   those, the tap, and any other way this screen could be removed all
- *   raise the same beforeRemove event, so intercepting only that one event
- *   is what actually covers every real exit path instead of just the one
+ * - Back only ever navigates one logical creation step backward, defined
+ *   by the actual challenge-type route sequence
+ *   (resolvePreviousCreationRoute), not by whatever happens to be in the
+ *   native navigation stack — a session resumed mid-flow (Home pushing
+ *   straight to e.g. /create/frequency) never pushed the intermediate
+ *   screens at all, so a plain pop there would go straight to Home. It
+ *   never saves anything. Only when resolvePreviousCreationRoute returns
+ *   null (Goal — the one real creation → Home boundary) does Back ever
+ *   ask anything, and only when there is unsaved work relative to the
+ *   explicit checkpoint (planBackLeaveAttempt). This is all enforced via
+ *   React Navigation's `beforeRemove` event rather than the chevron's
+ *   onPress alone — app/create/_layout.tsx has gestureEnabled: true, so an
+ *   iOS swipe-back or Android hardware back press pops this screen
+ *   without ever calling onBack directly; the tap, the gesture, and the
+ *   hardware button all raise the same beforeRemove event, so
+ *   intercepting only that one event is what actually covers every real
+ *   exit path — and every mid-flow redirect — instead of just the one
  *   button.
  * - "Save & exit" (the compact header action) is the one explicit way to
- *   mark this session resume-eligible (savedForLater) and leave. Tapping
- *   it already IS the user's confirmation — on success it returns to Home
- *   directly, no extra "are you sure" sheet layered on top.
+ *   commit the current fields as the checkpoint Continue will later
+ *   restore. Tapping it already IS the user's confirmation — on success
+ *   it returns to Home directly, no extra "are you sure" sheet layered on
+ *   top.
  *
- * Background autosave (useCreationSessionAutosave) keeps running quietly
- * under both of these and never grants eligibility on its own.
+ * Background autosave (useCreationSessionAutosave) keeps the crash-
+ * recovery "working" state moving under both of these but never touches
+ * the checkpoint on its own.
  */
 export function CreateFlowScreenV2({
   backHint,
@@ -74,15 +80,25 @@ export function CreateFlowScreenV2({
 }: CreateFlowScreenV2Props) {
   const router = useRouter();
   const navigation = useNavigation();
+  const pathname = usePathname();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
   const { status: authStatus, user } = useAuth();
-  const { meaningfulProgress, saveForLater } = useCreationSessionAutosave();
+  const { fields, meaningfulProgress, saveCheckpoint } = useCreationSessionAutosave();
   const [leaveWithoutSavingSheetOpen, setLeaveWithoutSavingSheetOpen] = useState(false);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<NavigationAction | null>(null);
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [savingAndExiting, setSavingAndExiting] = useState(false);
   const [signedOutSaveSheetOpen, setSignedOutSaveSheetOpen] = useState(false);
+  // Guards against the redirect branch below re-triggering itself: calling
+  // router.replace() to redirect to the logical previous step is *itself*
+  // a removal of this screen, which raises another beforeRemove event
+  // synchronously before any state has actually changed — without this,
+  // the listener would see the same "needs redirect" answer forever.
+  const suppressNextBeforeRemoveRef = useRef(false);
+
+  const checkpointFields = onboarding.checkpoint?.fields ?? null;
+  const hasCheckpoint = onboarding.checkpoint !== null;
 
   // '/' rather than '/home' directly: creation is reachable while signed
   // out (see app/_layout.tsx's AuthGate — 'create' sits outside the
@@ -91,23 +107,42 @@ export function CreateFlowScreenV2({
   // the one exit destination that is correct regardless of auth status.
   const leaveCreation = () => router.replace('/' as Href);
 
-  // Only Goal (currentStep 1) can ever leave the creation flow via Back —
-  // every later step's Back is a plain in-flow navigation to the previous
-  // step. See lib/challenge-creation/steps.ts: goal is always position 1
-  // regardless of challenge type.
-  const isFirstStep = currentStep <= 1;
+  // Computed from the actual challenge-type route sequence, not from
+  // currentStep or the native stack — null exactly at Goal (and for any
+  // unrecognized route), the one real creation → Home boundary.
+  const previousCreationRoute = resolvePreviousCreationRoute(pathname, onboarding.behaviorDirection);
 
   // The single interception point for every way this screen can be
   // removed from the stack — a tap on the chevron (which just calls
   // router.back() below), an iOS swipe-back gesture, or Android's hardware
-  // back button all raise this same event before the pop actually happens.
-  // preventDefault() here holds the pop; confirming in the sheet below
-  // replays the exact original action via navigation.dispatch so the
-  // eventual removal is indistinguishable from one that was never paused.
+  // back button all raise this same event before the pop actually
+  // happens.
   useEffect(() => {
     return navigation.addListener('beforeRemove', (e) => {
-      if (!isFirstStep) return;
-      if (planBackLeaveAttempt(meaningfulProgress, onboarding.savedForLater) !== 'confirm_leave_without_saving') return;
+      if (suppressNextBeforeRemoveRef.current) {
+        suppressNextBeforeRemoveRef.current = false;
+        return;
+      }
+      if (previousCreationRoute !== null) {
+        // Only redirect when the native stack itself has no real previous
+        // /create/* entry to pop to (index 0 in this navigator — exactly
+        // what a session resumed mid-flow looks like, since Home pushes
+        // straight to the target route without the intermediate screens
+        // ever having been pushed). When the stack does have a genuine
+        // previous entry — the user actually stepped forward to get
+        // here — trust the native pop: it already lands on the right
+        // screen, with the normal back animation intact.
+        const state = navigation.getState();
+        if (!state || state.index === 0) {
+          e.preventDefault();
+          suppressNextBeforeRemoveRef.current = true;
+          router.replace(previousCreationRoute as Href);
+        }
+        return;
+      }
+      // previousCreationRoute === null: this is the one genuine creation →
+      // Home boundary.
+      if (planBackLeaveAttempt(fields, checkpointFields) !== 'confirm_leave_without_saving') return;
       e.preventDefault();
       // No haptic here: a tap already got one from the chevron's own
       // onPress above, and a swipe/hardware-back interception matches
@@ -116,7 +151,7 @@ export function CreateFlowScreenV2({
       setPendingLeaveAction(e.data.action);
       setLeaveWithoutSavingSheetOpen(true);
     });
-  }, [navigation, isFirstStep, meaningfulProgress, onboarding.savedForLater]);
+  }, [navigation, previousCreationRoute, fields, checkpointFields, router]);
 
   const keepEditingFromLeaveWithoutSavingSheet = () => {
     void playSelectionHaptic();
@@ -131,20 +166,25 @@ export function CreateFlowScreenV2({
       // Closed first, exactly like server conversion: a still-pending
       // autosave debounce timer armed a moment ago must recognize itself
       // as belonging to an already-abandoned lifecycle whenever it
-      // eventually fires, not resurrect anything after this. Best-effort
-      // clear — this session was never eligible in the first place (that
-      // is why this sheet showed up at all), so there is nothing an
-      // interrupted clear could leave behind that Home would ever offer
-      // to continue; closing the generation alone already prevents a
-      // stale write from mattering.
+      // eventually fires, not resurrect anything after this.
       closeCreationSessionGeneration(user.id);
-      await clearCreationSession(user.id, creationSessionStorage);
+      if (!hasCheckpoint) {
+        // Nothing was ever explicitly saved for this session — best-effort
+        // clear so no stray working-only snapshot lingers.
+        await clearCreationSession(user.id, creationSessionStorage);
+      }
+      // Else: an explicit checkpoint already exists and must survive this
+      // untouched — closing the generation above is already enough to
+      // stop any further stale working write from mattering; the
+      // checkpoint itself is never touched by this path, so Continue
+      // still restores it exactly as it was before this abandoned edit.
     }
     onboarding.resetDraft();
     if (pendingLeaveAction) {
       // Replays the exact pop beforeRemove paused — correct regardless of
       // whether it originated from the chevron, a swipe, or the hardware
       // back button, since all three produced the same captured action.
+      suppressNextBeforeRemoveRef.current = true;
       navigation.dispatch(pendingLeaveAction);
       setPendingLeaveAction(null);
       return;
@@ -168,7 +208,7 @@ export function CreateFlowScreenV2({
       return;
     }
     setSavingAndExiting(true);
-    const saved = await saveForLater();
+    const saved = await saveCheckpoint();
     setSavingAndExiting(false);
     if (!saved) {
       setSaveFailedSheetOpen(true);
@@ -182,7 +222,7 @@ export function CreateFlowScreenV2({
   const retrySaveAndExit = async () => {
     void playSelectionHaptic();
     setSavingAndExiting(true);
-    const saved = await saveForLater();
+    const saved = await saveCheckpoint();
     setSavingAndExiting(false);
     if (saved) {
       setSaveFailedSheetOpen(false);
@@ -256,8 +296,14 @@ export function CreateFlowScreenV2({
       </KeyboardAvoidingView>
 
       <BottomSheetV2 onClose={() => setLeaveWithoutSavingSheetOpen(false)} reducedMotion={reducedMotion} visible={leaveWithoutSavingSheetOpen}>
-        <Text accessibilityRole="header" style={styles.sheetTitle}>Leave without saving?</Text>
-        <Text style={styles.sheetBody}>Your unfinished challenge won’t be available to continue later.</Text>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>
+          {hasCheckpoint ? 'Leave without saving changes?' : 'Leave without saving?'}
+        </Text>
+        <Text style={styles.sheetBody}>
+          {hasCheckpoint
+            ? 'Your last saved version will still be available.'
+            : 'Your unfinished challenge won’t be available to continue later.'}
+        </Text>
         <View style={styles.sheetActions}>
           <Pressable
             accessibilityHint="Closes this and continues setting up your challenge"
@@ -268,12 +314,18 @@ export function CreateFlowScreenV2({
             <Text style={styles.secondarySheetButtonLabel}>Keep editing</Text>
           </Pressable>
           <Pressable
-            accessibilityHint="Leaves without saving. This challenge will not be available to continue later."
+            accessibilityHint={
+              hasCheckpoint
+                ? 'Discards changes made since your last save. Your last saved version stays available to continue.'
+                : 'Leaves without saving. This challenge will not be available to continue later.'
+            }
             accessibilityRole="button"
             onPress={() => void confirmLeaveWithoutSaving()}
             style={({ pressed }) => [styles.destructiveSheetButton, pressed && styles.destructiveSheetButtonPressed]}
           >
-            <Text style={styles.destructiveSheetButtonLabel}>Leave without saving</Text>
+            <Text style={styles.destructiveSheetButtonLabel}>
+              {hasCheckpoint ? 'Leave without saving changes' : 'Leave without saving'}
+            </Text>
           </Pressable>
         </View>
       </BottomSheetV2>

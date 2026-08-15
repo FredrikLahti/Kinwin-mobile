@@ -8,6 +8,7 @@ test('createInitialOnboardingFields carries no leftover data — every field is 
   assert.deepEqual(fields, {
     behaviorDirection: null,
     behaviorText: '',
+    checkpoint: null,
     definitionText: '',
     durationWeeks: null,
     experienceCategory: null,
@@ -26,7 +27,6 @@ test('createInitialOnboardingFields carries no leftover data — every field is 
       type: null,
     },
     savedDraftId: null,
-    savedForLater: false,
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
@@ -53,13 +53,13 @@ test('computeRestoredCreationSessionState always clears savedDraftId to null, ev
   // caller's object happens to still have one attached, e.g. from spreading
   // an unrelated draft-shaped value.
   const withLeftoverDraftId = { ...fields, savedDraftId: 'server-draft-999' };
-  const restored = computeRestoredCreationSessionState(withLeftoverDraftId);
+  const restored = computeRestoredCreationSessionState(withLeftoverDraftId, '/create/goal', '2026-01-01T00:00:00.000Z');
   assert.equal(restored.savedDraftId, null, 'a resumed local session must never carry a previous server draft id');
   assert.equal(restored.goal, 'Sleep better', 'restoring must not silently drop the real fields being restored');
 });
 
-test('computeRestoredCreationSessionState always marks the restored session savedForLater: true — restoring only ever happens for a session hooks/use-resumable-creation-session.ts already filtered down to an explicitly-saved one', () => {
+test('computeRestoredCreationSessionState always sets the restored checkpoint to exactly the fields/lastRoute/savedAt being restored — restoring only ever happens for a session hooks/use-resumable-creation-session.ts already filtered down to an explicitly-saved one', () => {
   const fields = { ...createInitialOnboardingFields(), goal: 'Sleep better', recipients: [createRecipientDraft('Mom')] };
-  const restored = computeRestoredCreationSessionState(fields);
-  assert.equal(restored.savedForLater, true);
+  const restored = computeRestoredCreationSessionState(fields, '/create/frequency', '2026-01-01T00:00:00.000Z');
+  assert.deepEqual(restored.checkpoint, { fields, lastRoute: '/create/frequency', savedAt: '2026-01-01T00:00:00.000Z' });
 });
