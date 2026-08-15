@@ -165,6 +165,48 @@ type OnboardingContextValue = {
   stakeAmountInput: string;
   /** Explicit mapping boundary: hydrates every onboarding field from a normalized, already-validated draft. */
   loadDraftData: (data: OnboardingDraftData, draftId: string) => void;
+  /**
+   * Restores raw, possibly-incomplete fields from a local creation-session
+   * snapshot (lib/challenge-creation/creation-session.ts) — deliberately
+   * separate from loadDraftData, which only ever accepts an already-
+   * validated, complete draft. Always clears savedDraftId to null: a
+   * resumed local session is never a server draft, and any savedDraftId a
+   * prior loadDraftData() call left behind must not survive into it (see
+   * computeRestoredCreationSessionState).
+   */
+  restoreCreationSessionFields: (fields: CreationSessionFieldsInput) => void;
+};
+
+/**
+ * Pure projection of what onboarding state results from restoring a local
+ * creation-session snapshot — extracted so this can be unit tested
+ * directly (savedDraftId must always come back null, regardless of what it
+ * was before) without needing to render OnboardingProvider.
+ */
+export function computeRestoredCreationSessionState(
+  fields: CreationSessionFieldsInput,
+): CreationSessionFieldsInput & { readonly savedDraftId: null } {
+  return { ...fields, savedDraftId: null };
+}
+
+/** Matches lib/challenge-creation/creation-session.ts's CreationSessionFields shape without importing it here, to avoid a context <-> lib circular dependency; kept structurally identical on purpose. */
+type CreationSessionFieldsInput = {
+  behaviorDirection: BehaviorDirection | null;
+  behaviorText: string;
+  definitionText: string;
+  durationWeeks: number | null;
+  experienceCategory: ExperienceCategory | null;
+  goal: string;
+  invitationMessage: string;
+  invitationMessageCustomized: boolean;
+  membershipChoice: 'monthly_trial' | null;
+  measurementMode: MeasurementMode | null;
+  recipients: readonly RecipientDraft[];
+  rewardOrganizer: RewardOrganizer;
+  rhythm: RhythmState;
+  sitOutAcknowledged: boolean;
+  stakeAmount: number | null;
+  stakeAmountInput: string;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -234,6 +276,32 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setSavedDraftId(fields.savedDraftId);
   }, []);
 
+  const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput) => {
+    const restored = computeRestoredCreationSessionState(fields);
+    setGoal(restored.goal);
+    setBehaviorText(restored.behaviorText);
+    setDefinitionText(restored.definitionText);
+    setBehaviorDirection(restored.behaviorDirection);
+    setMeasurementMode(restored.measurementMode);
+    setRhythm({ ...restored.rhythm, selectedWeekdays: [...restored.rhythm.selectedWeekdays] });
+    setDurationWeeks(restored.durationWeeks);
+    setRecipients(restored.recipients.length > 0 ? restored.recipients.map((recipient) => ({ ...recipient })) : [createRecipientDraft()]);
+    setRewardOrganizer(restored.rewardOrganizer);
+    setExperienceCategory(restored.experienceCategory);
+    setStakeAmount(restored.stakeAmount);
+    setStakeAmountInput(restored.stakeAmountInput);
+    setSitOutAcknowledged(restored.sitOutAcknowledged);
+    setInvitationMessage(restored.invitationMessage);
+    setInvitationMessageCustomized(restored.invitationMessageCustomized);
+    setMembershipChoice(restored.membershipChoice);
+    // A resumed local session is never a server draft — explicitly clear
+    // any savedDraftId a prior loadDraftData() call may have set, so
+    // Review can never carry a stale server draft identity into
+    // saveChallengeDraft's existingDraftId for fields that actually came
+    // from this unrelated local session.
+    setSavedDraftId(restored.savedDraftId);
+  }, []);
+
   const value = useMemo(
     () => ({
       behaviorDirection,
@@ -250,6 +318,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       measurementMode,
       recipients,
       resetDraft,
+      restoreCreationSessionFields,
       rewardOrganizer,
       rhythm,
       savedDraftId,
@@ -288,6 +357,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       measurementMode,
       recipients,
       resetDraft,
+      restoreCreationSessionFields,
       rewardOrganizer,
       rhythm,
       savedDraftId,

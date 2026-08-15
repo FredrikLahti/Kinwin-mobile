@@ -8,9 +8,11 @@ import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
+import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
+import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challenge';
@@ -54,6 +56,8 @@ export default function HomeV2() {
   const [startingOver, setStartingOver] = useState(false);
   const [kinActivity, setKinActivity] = useState<readonly ActivityItem[]>([]);
   const [kinCurrentChallenges, setKinCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
+  const createChallengeEntry = useCreateChallengeEntry();
+  const { refreshResumableSession } = createChallengeEntry;
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
 
@@ -87,17 +91,12 @@ export default function HomeV2() {
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   useFocusEffect(useCallback(() => { void refreshCompleted(); }, [refreshCompleted]));
   useFocusEffect(useCallback(() => { void loadKinActivity(); }, [loadKinActivity]));
+  // Re-checked on every return to Home (not just once) — creation-session
+  // autosave writes and clears happen entirely inside app/create/*, so
+  // Home only learns about them by re-reading when it regains focus.
+  useFocusEffect(useCallback(() => { refreshResumableSession(); }, [refreshResumableSession]));
 
-  const createChallenge = () => {
-    if (pendingCommitment) {
-      void playSelectionHaptic();
-      router.push('/account/pending-commitment' as Href);
-      return;
-    }
-    void playImportantHaptic();
-    onboarding.resetDraft();
-    router.push('/create/intro' as Href);
-  };
+  const createChallenge = () => createChallengeEntry.requestCreateChallenge(Boolean(pendingCommitment));
 
   const openStartOverSheet = () => {
     void playSelectionHaptic();
@@ -390,6 +389,20 @@ export default function HomeV2() {
           </Pressable>
         </View>
       </BottomSheetV2>
+
+      <ResumeCreationSheetV2
+        confirmingDiscard={createChallengeEntry.confirmingDiscard}
+        discardFailed={createChallengeEntry.discardFailed}
+        discardingSession={createChallengeEntry.discardingSession}
+        onCancelDiscard={createChallengeEntry.cancelDiscardConfirmation}
+        onClose={createChallengeEntry.closeResumeSheet}
+        onConfirmDiscard={() => void createChallengeEntry.confirmDiscardResumableSession()}
+        onContinue={createChallengeEntry.continueResumableSession}
+        onRequestDiscard={createChallengeEntry.requestDiscardConfirmation}
+        reducedMotion={reducedMotion}
+        resumableSummary={createChallengeEntry.resumableSummary}
+        visible={createChallengeEntry.resumeSheetOpen}
+      />
     </SafeAreaView>
   );
 }

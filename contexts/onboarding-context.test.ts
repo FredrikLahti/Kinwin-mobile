@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createInitialOnboardingFields } from './onboarding-context';
+import { computeRestoredCreationSessionState, createInitialOnboardingFields, createRecipientDraft } from './onboarding-context';
 
 test('createInitialOnboardingFields carries no leftover data — every field is a blank default', () => {
   const fields = createInitialOnboardingFields();
@@ -38,4 +38,21 @@ test('createInitialOnboardingFields returns a fresh rhythm object each call, so 
   assert.notEqual(first.rhythm, second.rhythm, 'rhythm must be a distinct object per call');
   first.rhythm.selectedWeekdays.push('monday');
   assert.deepEqual(second.rhythm.selectedWeekdays, [], 'mutating one snapshot must not affect another');
+});
+
+test('computeRestoredCreationSessionState always clears savedDraftId to null, even though the input type carries no such field, guarding against a stale server draft id surviving a local-session restore', () => {
+  const fields = {
+    ...createInitialOnboardingFields(),
+    goal: 'Sleep better',
+    recipients: [createRecipientDraft('Mom')],
+  };
+  // createInitialOnboardingFields() includes a savedDraftId field (it also
+  // seeds resetDraft's baseline); restoreCreationSessionFields's real input
+  // type never carries one, but this proves the guard holds even if a
+  // caller's object happens to still have one attached, e.g. from spreading
+  // an unrelated draft-shaped value.
+  const withLeftoverDraftId = { ...fields, savedDraftId: 'server-draft-999' };
+  const restored = computeRestoredCreationSessionState(withLeftoverDraftId);
+  assert.equal(restored.savedDraftId, null, 'a resumed local session must never carry a previous server draft id');
+  assert.equal(restored.goal, 'Sleep better', 'restoring must not silently drop the real fields being restored');
 });

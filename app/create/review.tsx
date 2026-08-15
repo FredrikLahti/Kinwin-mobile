@@ -10,6 +10,8 @@ import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context
 import { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 import { applyResolvedRecipientIds } from '@/domain/challenge/recipient-ids';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { clearCreationSession, closeCreationSessionGeneration } from '@/lib/challenge-creation/creation-session';
+import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
@@ -178,6 +180,38 @@ export default function CreateReviewScreen() {
       return;
     }
     setLastFailedStep(null);
+    // This is the real conversion boundary: a server-owned pending
+    // commitment now exists, so the local resumable-creation snapshot's
+    // job is done. Cleared here — not later on Share's Continue — so a
+    // user who closes the app on Share never leaves behind a stale local
+    // snapshot that could resurface as a duplicate later. Only the
+    // persisted snapshot is cleared; the in-memory onboarding fields stay
+    // put, since Share still needs them.
+    //
+    // Closed first, before the clear: an autosave debounce timer armed a
+    // moment ago (edited on this very screen, 500ms not yet elapsed) has
+    // not called writeCreationSession yet, so it isn't in the mutation
+    // queue at all and the clear below can't order against it. Closing
+    // the generation now means that write, whenever it eventually fires,
+    // recognizes itself as belonging to an already-closed lifecycle and
+    // skips instead of resurrecting this snapshot after conversion.
+    closeCreationSessionGeneration(ownerId);
+    // Awaited (not fire-and-forget) so this clear is enqueued and ordered
+    // against any write already queued ahead of it for this same user
+    // before the local persistence lifecycle is considered closed
+    // (lib/challenge-creation/creation-session.ts's per-user mutation
+    // queue guarantees it runs, and therefore wins, after any write
+    // already queued ahead of it).
+    const sessionCleared = await clearCreationSession(ownerId, creationSessionStorage);
+    if (!sessionCleared) {
+      // Best-effort cleanup only: the server pending commitment created
+      // above is already the authoritative truth regardless of whether
+      // this local tidy-up succeeded, so a failure here must never block
+      // or appear to fail the real conversion that already happened. If a
+      // stale local snapshot does linger, Home's own pending-commitment
+      // check — which always outranks a resumable-session prompt — keeps
+      // it from ever being surfaced as something to "continue."
+    }
     advanceToShare();
   }, [advanceToShare]);
 
