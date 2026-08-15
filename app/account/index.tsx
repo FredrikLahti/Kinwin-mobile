@@ -1,4 +1,4 @@
-import { Href, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -13,13 +13,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinTheme as theme } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
+import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { clearCreationSession } from '@/lib/challenge-creation/creation-session';
-import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readSupportConfig } from '@/lib/support/config';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
@@ -41,6 +41,16 @@ export default function AccountScreen() {
   // steer to the existing one instead of letting prepare_challenge_from_draft
   // reject a second one later, deeper into onboarding.
   const [hasPendingCommitment, setHasPendingCommitment] = useState(false);
+  const createChallengeEntry = useCreateChallengeEntry();
+  const { refreshResumableSession } = createChallengeEntry;
+  // Re-checked on every return to Account, not just once on mount — a
+  // resumable local session can be created or cleared entirely inside
+  // app/create/*, and this screen needs the current answer before "Start a
+  // new draft instead" can decide whether to prompt Continue/Discard.
+  // Without this, navigating back here after creating unfinished progress
+  // elsewhere would silently offer the stale "no session" behavior — the
+  // same silent-discard risk this hook exists to prevent.
+  useFocusEffect(useCallback(() => { refreshResumableSession(); }, [refreshResumableSession]));
 
   useEffect(() => {
     setDisplayName(profile?.displayName ?? '');
@@ -90,21 +100,12 @@ export default function AccountScreen() {
     }
   };
 
-  const startNew = () => {
-    void playImportantHaptic();
-    if (hasPendingCommitment) {
-      // Only one pending commitment is allowed at a time (also enforced
-      // server-side) — resolve or cancel it there before starting another.
-      router.push('/account/pending-commitment' as Href);
-      return;
-    }
-    // Also clears any unrelated local creation-session snapshot (see
-    // hooks/use-resumable-creation-session.ts) so Home doesn't later offer
-    // to "continue" a draft the user just explicitly chose to abandon here.
-    if (user) void clearCreationSession(user.id, creationSessionStorage);
-    onboarding.resetDraft();
-    router.push('/create/intro' as Href);
-  };
+  // Shares its decision and confirmation UX with Home's "+ Create challenge"
+  // (hooks/use-create-challenge-entry.ts): pending commitment still wins
+  // outright, but a resumable local creation session is now offered a
+  // Continue/Start-new choice here too, instead of being silently
+  // discarded — the same explicit destructive confirmation Home requires.
+  const startNew = () => createChallengeEntry.requestCreateChallenge(hasPendingCommitment);
 
   const toggleShowIntro = async () => {
     void playSelectionHaptic();
@@ -195,7 +196,9 @@ export default function AccountScreen() {
               accessibilityHint={
                 hasPendingCommitment
                   ? 'Opens your existing pending commitment. Only one is allowed at a time.'
-                  : 'Starts a new onboarding draft'
+                  : createChallengeEntry.hasResumableSession
+                    ? 'Offers to continue your unfinished challenge or start a new one'
+                    : 'Starts a new onboarding draft'
               }
               accessibilityRole="button"
               onPress={startNew}
@@ -282,6 +285,19 @@ export default function AccountScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      <ResumeCreationSheetV2
+        confirmingDiscard={createChallengeEntry.confirmingDiscard}
+        discardingSession={createChallengeEntry.discardingSession}
+        onCancelDiscard={createChallengeEntry.cancelDiscardConfirmation}
+        onClose={createChallengeEntry.closeResumeSheet}
+        onConfirmDiscard={() => void createChallengeEntry.confirmDiscardResumableSession()}
+        onContinue={createChallengeEntry.continueResumableSession}
+        onRequestDiscard={createChallengeEntry.requestDiscardConfirmation}
+        reducedMotion={reducedMotion}
+        resumableSummary={createChallengeEntry.resumableSummary}
+        visible={createChallengeEntry.resumeSheetOpen}
+      />
     </SafeAreaView>
   );
 }

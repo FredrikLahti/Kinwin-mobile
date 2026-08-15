@@ -22,7 +22,11 @@ const AUTOSAVE_DEBOUNCE_MS = 500;
  * the resumable-creation UX this powers (app/home/index.tsx) only exists
  * behind Home, which already requires sign-in.
  */
-export function useCreationSessionAutosave(): { readonly meaningfulProgress: boolean; readonly flush: () => void } {
+export function useCreationSessionAutosave(): {
+  readonly meaningfulProgress: boolean;
+  /** Cancels any pending debounced write and saves immediately, returning whether it actually succeeded — never "in flight and forgotten." */
+  readonly flush: () => Promise<boolean>;
+} {
   const onboarding = useOnboarding();
   const { status, user } = useAuth();
   const pathname = usePathname();
@@ -49,24 +53,28 @@ export function useCreationSessionAutosave(): { readonly meaningfulProgress: boo
   const meaningfulProgress = hasMeaningfulCreationProgress(fields);
   const userId = status === 'signed_in' ? user?.id ?? null : null;
 
-  const save = () => {
-    if (!userId || !meaningfulProgress) return;
-    void writeCreationSession(userId, fields, pathname, creationSessionStorage);
+  const save = async (): Promise<boolean> => {
+    if (!userId || !meaningfulProgress) return true;
+    return writeCreationSession(userId, fields, pathname, creationSessionStorage);
   };
 
   useEffect(() => {
     if (!userId || !meaningfulProgress) return undefined;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(save, AUTOSAVE_DEBOUNCE_MS);
+    // Background autosave is fire-and-forget by design — a failure here is
+    // not fatal, since the very next change re-arms this same debounce and
+    // tries again. Only an explicit flush() (see below) needs to know
+    // whether a save actually landed.
+    timerRef.current = setTimeout(() => { void save(); }, AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, meaningfulProgress, pathname, JSON.stringify(fields)]);
 
-  const flush = () => {
+  const flush = async (): Promise<boolean> => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    save();
+    return save();
   };
 
   return { meaningfulProgress, flush };

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
-import { CreationSessionSnapshot, readCreationSession } from '@/lib/challenge-creation/creation-session';
+import { createLatestRequestGuard, CreationSessionSnapshot, readCreationSession } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 
 export type ResumableCreationSessionState =
@@ -19,21 +19,33 @@ export type ResumableCreationSessionState =
 export function useResumableCreationSession(): ResumableCreationSessionState & { readonly refresh: () => void } {
   const { status: authStatus, user } = useAuth();
   const [state, setState] = useState<ResumableCreationSessionState>({ status: 'loading' });
+  // See lib/challenge-creation/creation-session.ts's createLatestRequestGuard:
+  // a stale read started for a previous user (or a previous call to
+  // refresh()) must never be allowed to overwrite state belonging to
+  // whoever is current by the time it resolves.
+  const guardRef = useRef(createLatestRequestGuard());
 
   const refresh = useCallback(() => {
+    const token = guardRef.current.start();
     if (authStatus !== 'signed_in' || !user) {
       setState({ status: 'none' });
       return;
     }
+    // Clears any previous user's visible state synchronously, before the
+    // async read even starts — user A's summary must never render, even
+    // for one frame, once identity has moved on to user B.
     setState({ status: 'loading' });
-    void readCreationSession(user.id, creationSessionStorage).then((session) => {
+    const userId = user.id;
+    void readCreationSession(userId, creationSessionStorage).then((session) => {
+      if (!guardRef.current.isCurrent(token)) return;
       setState(session ? { status: 'found', session } : { status: 'none' });
     });
   }, [authStatus, user]);
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, user?.id]);
 
   return { ...state, refresh };
 }

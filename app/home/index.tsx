@@ -8,16 +8,14 @@ import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
+import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
+import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challenge';
-import { useResumableCreationSession } from '@/hooks/use-resumable-creation-session';
-import { decideCreateChallengeEntryAction, clearCreationSession, resolveResumeRoute } from '@/lib/challenge-creation/creation-session';
-import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
-import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
@@ -58,11 +56,8 @@ export default function HomeV2() {
   const [startingOver, setStartingOver] = useState(false);
   const [kinActivity, setKinActivity] = useState<readonly ActivityItem[]>([]);
   const [kinCurrentChallenges, setKinCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
-  const resumableSession = useResumableCreationSession();
-  const { refresh: refreshResumableSession } = resumableSession;
-  const [resumeSheetOpen, setResumeSheetOpen] = useState(false);
-  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-  const [discardingSession, setDiscardingSession] = useState(false);
+  const createChallengeEntry = useCreateChallengeEntry();
+  const { refreshResumableSession } = createChallengeEntry;
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
 
@@ -101,58 +96,7 @@ export default function HomeV2() {
   // Home only learns about them by re-reading when it regains focus.
   useFocusEffect(useCallback(() => { refreshResumableSession(); }, [refreshResumableSession]));
 
-  const startFreshCreation = () => {
-    onboarding.resetDraft();
-    router.push('/create/intro' as Href);
-  };
-
-  const createChallenge = () => {
-    const action = decideCreateChallengeEntryAction(
-      Boolean(pendingCommitment),
-      resumableSession.status === 'found',
-    );
-    if (action === 'open_pending_commitment') {
-      void playSelectionHaptic();
-      router.push('/account/pending-commitment' as Href);
-      return;
-    }
-    void playImportantHaptic();
-    if (action === 'prompt_resume') {
-      setConfirmingDiscard(false);
-      setResumeSheetOpen(true);
-      return;
-    }
-    startFreshCreation();
-  };
-
-  const continueResumableSession = () => {
-    if (resumableSession.status !== 'found') return;
-    void playImportantHaptic();
-    onboarding.restoreCreationSessionFields(resumableSession.session.fields);
-    setResumeSheetOpen(false);
-    router.push(resolveResumeRoute(resumableSession.session.lastRoute) as Href);
-  };
-
-  const confirmDiscardResumableSession = async () => {
-    if (!user) return;
-    void playImportantHaptic();
-    setDiscardingSession(true);
-    await clearCreationSession(user.id, creationSessionStorage);
-    setDiscardingSession(false);
-    setResumeSheetOpen(false);
-    setConfirmingDiscard(false);
-    startFreshCreation();
-  };
-
-  const resumableSummary =
-    resumableSession.status === 'found'
-      ? describeChallengeRule({
-          behaviorDirection: resumableSession.session.fields.behaviorDirection,
-          behaviorText: resumableSession.session.fields.behaviorText,
-          measurementMode: resumableSession.session.fields.measurementMode,
-          rhythm: resumableSession.session.fields.rhythm,
-        }) || resumableSession.session.fields.goal.trim()
-      : '';
+  const createChallenge = () => createChallengeEntry.requestCreateChallenge(Boolean(pendingCommitment));
 
   const openStartOverSheet = () => {
     void playSelectionHaptic();
@@ -446,62 +390,18 @@ export default function HomeV2() {
         </View>
       </BottomSheetV2>
 
-      <BottomSheetV2
-        onClose={() => { setResumeSheetOpen(false); setConfirmingDiscard(false); }}
+      <ResumeCreationSheetV2
+        confirmingDiscard={createChallengeEntry.confirmingDiscard}
+        discardingSession={createChallengeEntry.discardingSession}
+        onCancelDiscard={createChallengeEntry.cancelDiscardConfirmation}
+        onClose={createChallengeEntry.closeResumeSheet}
+        onConfirmDiscard={() => void createChallengeEntry.confirmDiscardResumableSession()}
+        onContinue={createChallengeEntry.continueResumableSession}
+        onRequestDiscard={createChallengeEntry.requestDiscardConfirmation}
         reducedMotion={reducedMotion}
-        visible={resumeSheetOpen}
-      >
-        {confirmingDiscard ? (
-          <>
-            <Text accessibilityRole="header" style={styles.sheetTitle}>Discard this challenge?</Text>
-            <Text style={styles.sheetBody}>This permanently deletes everything entered so far. This can’t be undone.</Text>
-            <View style={styles.sheetActions}>
-              <Pressable
-                accessibilityHint="Keeps your unfinished challenge and closes this sheet"
-                accessibilityRole="button"
-                onPress={() => setConfirmingDiscard(false)}
-                style={({ pressed }) => [styles.keepButton, pressed && styles.keepButtonPressed]}
-              >
-                <Text style={styles.keepButtonLabel}>Keep it</Text>
-              </Pressable>
-              <Pressable
-                accessibilityHint="Permanently discards your unfinished challenge and starts a new one"
-                accessibilityRole="button"
-                disabled={discardingSession}
-                onPress={() => void confirmDiscardResumableSession()}
-                style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
-              >
-                <Text style={styles.destructiveButtonLabel}>{discardingSession ? 'Discarding…' : 'Discard and start new'}</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : (
-          <>
-            <Text accessibilityRole="header" style={styles.sheetTitle}>Challenge in progress</Text>
-            <Text style={styles.sheetBody}>
-              {resumableSummary ? `You have an unfinished challenge: ${resumableSummary}.` : 'You have an unfinished challenge.'}
-            </Text>
-            <View style={styles.sheetActions}>
-              <Pressable
-                accessibilityHint="Restores your unfinished challenge where you left off"
-                accessibilityRole="button"
-                onPress={continueResumableSession}
-                style={({ pressed }) => [styles.keepButton, pressed && styles.keepButtonPressed]}
-              >
-                <Text style={styles.keepButtonLabel}>Continue challenge</Text>
-              </Pressable>
-              <Pressable
-                accessibilityHint="Opens a confirmation to discard this and start a brand new challenge"
-                accessibilityRole="button"
-                onPress={() => { void playSelectionHaptic(); setConfirmingDiscard(true); }}
-                style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
-              >
-                <Text style={styles.destructiveButtonLabel}>Start a new challenge</Text>
-              </Pressable>
-            </View>
-          </>
-        )}
-      </BottomSheetV2>
+        resumableSummary={createChallengeEntry.resumableSummary}
+        visible={createChallengeEntry.resumeSheetOpen}
+      />
     </SafeAreaView>
   );
 }

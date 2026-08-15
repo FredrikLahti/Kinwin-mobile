@@ -46,6 +46,8 @@ export function CreateFlowScreenV2({
   const [leaveSheetOpen, setLeaveSheetOpen] = useState(false);
   const [discardSheetOpen, setDiscardSheetOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
+  const [retryingSave, setRetryingSave] = useState(false);
 
   // '/' rather than '/home' directly: creation is reachable while signed
   // out (see app/_layout.tsx's AuthGate — 'create' sits outside the
@@ -54,16 +56,35 @@ export function CreateFlowScreenV2({
   // the one exit destination that is correct regardless of auth status.
   const leaveCreation = () => router.replace('/' as Href);
 
-  const attemptExit = () => {
+  const attemptExit = async () => {
     void playSelectionHaptic();
     if (!meaningfulProgress) {
       leaveCreation();
       return;
     }
-    // Autosave already runs on every change, but this guarantees the very
-    // latest keystroke is on disk before the sheet below promises "saved."
-    flush();
+    // The Leave sheet below promises "your progress is saved" — that must
+    // be true before it says so, not merely started. Autosave already runs
+    // on every change, so this is usually an instant no-op; it only
+    // actually waits when a change landed in the last debounce window.
+    const saved = await flush();
+    if (!saved) {
+      setSaveFailedSheetOpen(true);
+      return;
+    }
     setLeaveSheetOpen(true);
+  };
+
+  const retrySave = async () => {
+    void playSelectionHaptic();
+    setRetryingSave(true);
+    const saved = await flush();
+    setRetryingSave(false);
+    if (saved) {
+      setSaveFailedSheetOpen(false);
+      setLeaveSheetOpen(true);
+    }
+    // Still failing: the sheet stays open so the user can retry again or
+    // choose to keep editing — never silently navigate away regardless.
   };
 
   const confirmReturnHome = () => {
@@ -126,7 +147,7 @@ export function CreateFlowScreenV2({
                 accessibilityLabel="Close"
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={attemptExit}
+                onPress={() => void attemptExit()}
                 style={({ pressed }) => [styles.exitButton, pressed && styles.exitButtonPressed]}
               >
                 <Text aria-hidden style={styles.exitIcon}>✕</Text>
@@ -199,6 +220,30 @@ export function CreateFlowScreenV2({
             style={({ pressed }) => [styles.destructiveSheetButton, pressed && styles.destructiveSheetButtonPressed]}
           >
             <Text style={styles.destructiveSheetButtonLabel}>{discarding ? 'Discarding…' : 'Discard draft'}</Text>
+          </Pressable>
+        </View>
+      </BottomSheetV2>
+
+      <BottomSheetV2 onClose={() => setSaveFailedSheetOpen(false)} reducedMotion={reducedMotion} visible={saveFailedSheetOpen}>
+        <Text accessibilityRole="header" style={styles.sheetTitle}>Could not save your progress</Text>
+        <Text style={styles.sheetBody}>Check your connection and try again before leaving, so nothing you entered is lost.</Text>
+        <View style={styles.sheetActions}>
+          <Pressable
+            accessibilityHint="Tries saving your progress again"
+            accessibilityRole="button"
+            disabled={retryingSave}
+            onPress={() => void retrySave()}
+            style={({ pressed }) => [styles.primarySheetButton, pressed && styles.primarySheetButtonPressed]}
+          >
+            <Text style={styles.primarySheetButtonLabel}>{retryingSave ? 'Retrying…' : 'Retry'}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityHint="Closes this and continues setting up your challenge without leaving"
+            accessibilityRole="button"
+            onPress={() => { void playSelectionHaptic(); setSaveFailedSheetOpen(false); }}
+            style={({ pressed }) => [styles.secondarySheetButton, pressed && styles.secondarySheetButtonPressed]}
+          >
+            <Text style={styles.secondarySheetButtonLabel}>Keep editing</Text>
           </Pressable>
         </View>
       </BottomSheetV2>

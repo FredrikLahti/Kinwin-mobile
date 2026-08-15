@@ -169,11 +169,25 @@ type OnboardingContextValue = {
    * Restores raw, possibly-incomplete fields from a local creation-session
    * snapshot (lib/challenge-creation/creation-session.ts) — deliberately
    * separate from loadDraftData, which only ever accepts an already-
-   * validated, complete draft. Never sets savedDraftId: a resumed local
-   * session is not a server draft.
+   * validated, complete draft. Always clears savedDraftId to null: a
+   * resumed local session is never a server draft, and any savedDraftId a
+   * prior loadDraftData() call left behind must not survive into it (see
+   * computeRestoredCreationSessionState).
    */
   restoreCreationSessionFields: (fields: CreationSessionFieldsInput) => void;
 };
+
+/**
+ * Pure projection of what onboarding state results from restoring a local
+ * creation-session snapshot — extracted so this can be unit tested
+ * directly (savedDraftId must always come back null, regardless of what it
+ * was before) without needing to render OnboardingProvider.
+ */
+export function computeRestoredCreationSessionState(
+  fields: CreationSessionFieldsInput,
+): CreationSessionFieldsInput & { readonly savedDraftId: null } {
+  return { ...fields, savedDraftId: null };
+}
 
 /** Matches lib/challenge-creation/creation-session.ts's CreationSessionFields shape without importing it here, to avoid a context <-> lib circular dependency; kept structurally identical on purpose. */
 type CreationSessionFieldsInput = {
@@ -263,24 +277,29 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput) => {
-    setGoal(fields.goal);
-    setBehaviorText(fields.behaviorText);
-    setDefinitionText(fields.definitionText);
-    setBehaviorDirection(fields.behaviorDirection);
-    setMeasurementMode(fields.measurementMode);
-    setRhythm({ ...fields.rhythm, selectedWeekdays: [...fields.rhythm.selectedWeekdays] });
-    setDurationWeeks(fields.durationWeeks);
-    setRecipients(fields.recipients.length > 0 ? fields.recipients.map((recipient) => ({ ...recipient })) : [createRecipientDraft()]);
-    setRewardOrganizer(fields.rewardOrganizer);
-    setExperienceCategory(fields.experienceCategory);
-    setStakeAmount(fields.stakeAmount);
-    setStakeAmountInput(fields.stakeAmountInput);
-    setSitOutAcknowledged(fields.sitOutAcknowledged);
-    setInvitationMessage(fields.invitationMessage);
-    setInvitationMessageCustomized(fields.invitationMessageCustomized);
-    setMembershipChoice(fields.membershipChoice);
-    // Deliberately not touched: a resumed local session is never a server
-    // draft, so savedDraftId stays whatever it already was (normally null).
+    const restored = computeRestoredCreationSessionState(fields);
+    setGoal(restored.goal);
+    setBehaviorText(restored.behaviorText);
+    setDefinitionText(restored.definitionText);
+    setBehaviorDirection(restored.behaviorDirection);
+    setMeasurementMode(restored.measurementMode);
+    setRhythm({ ...restored.rhythm, selectedWeekdays: [...restored.rhythm.selectedWeekdays] });
+    setDurationWeeks(restored.durationWeeks);
+    setRecipients(restored.recipients.length > 0 ? restored.recipients.map((recipient) => ({ ...recipient })) : [createRecipientDraft()]);
+    setRewardOrganizer(restored.rewardOrganizer);
+    setExperienceCategory(restored.experienceCategory);
+    setStakeAmount(restored.stakeAmount);
+    setStakeAmountInput(restored.stakeAmountInput);
+    setSitOutAcknowledged(restored.sitOutAcknowledged);
+    setInvitationMessage(restored.invitationMessage);
+    setInvitationMessageCustomized(restored.invitationMessageCustomized);
+    setMembershipChoice(restored.membershipChoice);
+    // A resumed local session is never a server draft — explicitly clear
+    // any savedDraftId a prior loadDraftData() call may have set, so
+    // Review can never carry a stale server draft identity into
+    // saveChallengeDraft's existingDraftId for fields that actually came
+    // from this unrelated local session.
+    setSavedDraftId(restored.savedDraftId);
   }, []);
 
   const value = useMemo(

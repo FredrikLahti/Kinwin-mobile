@@ -106,6 +106,89 @@ export function creationSessionStorageKey(userId: string): string {
   return `kinwin:creation-session:v${CREATION_SESSION_SCHEMA_VERSION}:${userId}`;
 }
 
+// Runtime-checked mirrors of the string-union types CreationSessionFields is
+// built from — plain arrays, not a schema library, since these are the only
+// two class of value (enum-ish strings, and the couple of nested object
+// shapes below) that need real structural checking. A shallow "is this an
+// object" check let a payload like `fields: {}` through as "valid," which
+// then crashed real consumers (fields.rhythm.type, fields.recipients.some,
+// etc.) instead of being treated as the corrupt data it actually is.
+const BEHAVIOR_DIRECTIONS = ['build', 'cut', 'stop'];
+const MEASUREMENT_MODES = ['completion', 'count', 'time', 'amount', 'abstinence'];
+const EXPERIENCE_CATEGORIES = ['dinner', 'wellness', 'adventure', 'culture', 'getaway'];
+const RHYTHM_TYPES = ['daily', 'weekly_count', 'specific_days', 'maximum_per_period', 'continuous'];
+const RHYTHM_PERIODS = ['day', 'week'];
+const RHYTHM_TIME_UNITS = ['minutes', 'hours'];
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function isNullableEnum(value: unknown, allowed: readonly string[]): boolean {
+  return value === null || (typeof value === 'string' && allowed.includes(value));
+}
+
+function isFiniteNumberOrNull(value: unknown): boolean {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isValidRhythm(value: unknown): value is RhythmState {
+  if (!value || typeof value !== 'object') return false;
+  const rhythm = value as Record<string, unknown>;
+  return (
+    typeof rhythm.amountUnit === 'string' &&
+    isNullableEnum(rhythm.period, RHYTHM_PERIODS) &&
+    Array.isArray(rhythm.selectedWeekdays) &&
+    rhythm.selectedWeekdays.every((day) => typeof day === 'string' && WEEKDAYS.includes(day)) &&
+    typeof rhythm.targetValue === 'string' &&
+    isNullableEnum(rhythm.timeUnit, RHYTHM_TIME_UNITS) &&
+    isNullableEnum(rhythm.type, RHYTHM_TYPES)
+  );
+}
+
+function isValidRecipients(value: unknown): value is readonly RecipientDraft[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (recipient) =>
+        recipient !== null &&
+        typeof recipient === 'object' &&
+        typeof (recipient as Record<string, unknown>).id === 'string' &&
+        ((recipient as Record<string, unknown>).id as string).length > 0 &&
+        typeof (recipient as Record<string, unknown>).name === 'string',
+    )
+  );
+}
+
+function isValidRewardOrganizer(value: unknown): value is RewardOrganizer {
+  if (value === null) return true;
+  if (!value || typeof value !== 'object') return false;
+  const organizer = value as Record<string, unknown>;
+  if (organizer.type === 'recipient') return typeof organizer.recipientId === 'string' && organizer.recipientId.length > 0;
+  if (organizer.type === 'other') return typeof organizer.name === 'string';
+  return false;
+}
+
+function isValidCreationSessionFields(value: unknown): value is CreationSessionFields {
+  if (!value || typeof value !== 'object') return false;
+  const fields = value as Record<string, unknown>;
+  return (
+    isNullableEnum(fields.behaviorDirection, BEHAVIOR_DIRECTIONS) &&
+    typeof fields.behaviorText === 'string' &&
+    typeof fields.definitionText === 'string' &&
+    isFiniteNumberOrNull(fields.durationWeeks) &&
+    isNullableEnum(fields.experienceCategory, EXPERIENCE_CATEGORIES) &&
+    typeof fields.goal === 'string' &&
+    typeof fields.invitationMessage === 'string' &&
+    typeof fields.invitationMessageCustomized === 'boolean' &&
+    (fields.membershipChoice === null || fields.membershipChoice === 'monthly_trial') &&
+    isNullableEnum(fields.measurementMode, MEASUREMENT_MODES) &&
+    isValidRecipients(fields.recipients) &&
+    isValidRewardOrganizer(fields.rewardOrganizer) &&
+    isValidRhythm(fields.rhythm) &&
+    typeof fields.sitOutAcknowledged === 'boolean' &&
+    isFiniteNumberOrNull(fields.stakeAmount) &&
+    typeof fields.stakeAmountInput === 'string'
+  );
+}
+
 function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<CreationSessionSnapshot>;
@@ -113,8 +196,7 @@ function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot 
     candidate.schemaVersion === CREATION_SESSION_SCHEMA_VERSION &&
     typeof candidate.updatedAt === 'string' &&
     typeof candidate.lastRoute === 'string' &&
-    typeof candidate.fields === 'object' &&
-    candidate.fields !== null
+    isValidCreationSessionFields(candidate.fields)
   );
 }
 
@@ -148,25 +230,62 @@ export async function readCreationSession(
   return parsed;
 }
 
+/**
+ * Returns whether the write actually succeeded — callers that only promise
+ * "saved" as a side note (autosave's own debounced background writes) can
+ * ignore it, but hooks/use-creation-session-autosave.ts's flush() must not:
+ * an explicit Exit that tells the user their progress is saved needs to
+ * know the write really landed before it says so.
+ */
 export async function writeCreationSession(
   userId: string,
   fields: CreationSessionFields,
   lastRoute: string,
   storage: CreationSessionStorage,
-): Promise<void> {
-  if (!userId) return;
+): Promise<boolean> {
+  if (!userId) return true;
   const snapshot: CreationSessionSnapshot = {
     schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
     lastRoute,
     fields,
   };
-  await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
+  try {
+    await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(snapshot));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function clearCreationSession(userId: string, storage: CreationSessionStorage): Promise<void> {
   if (!userId) return;
   await storage.removeItem(creationSessionStorageKey(userId));
+}
+
+export type LatestRequestGuard = {
+  /** Call once per new request; returns a token identifying it. */
+  readonly start: () => number;
+  /** True only for the token belonging to the most recently started request — every earlier token becomes stale the instant a newer one starts. */
+  readonly isCurrent: (token: number) => boolean;
+};
+
+/**
+ * A tiny "last request wins" concurrency guard, extracted as a pure,
+ * directly testable unit so hooks/use-resumable-creation-session.ts's
+ * user-switch race fix doesn't need any React/async test infrastructure to
+ * cover: without it, a slow read started for user A could resolve after
+ * auth has already moved to user B and overwrite B's state with A's data.
+ */
+export function createLatestRequestGuard(): LatestRequestGuard {
+  let current = 0;
+  return {
+    start: () => {
+      current += 1;
+      return current;
+    },
+    isCurrent: (token) => token === current,
+  };
 }
 
 export type CreateChallengeEntryAction = 'open_pending_commitment' | 'prompt_resume' | 'start_fresh';
