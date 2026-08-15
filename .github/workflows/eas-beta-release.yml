@@ -106,15 +106,16 @@ jobs:
       # process.env or it fails the build outright. Per docs/IOS_BETA_BUILD.md,
       # these are provided through the EAS "preview" environment, never
       # committed to the repo. `eas env:set` create-or-updates, so this is
-      # safe to run every time. Both values are public/client-safe (a
-      # Supabase project URL and its publishable anon key, the same class of
-      # value already embedded in the built app) — not secrets, hence
-      # `--visibility plaintext`.
+      # safe to run every time. All three values are public/client-safe (a
+      # Supabase project URL, its publishable anon key, and Kinwin's public
+      # support address — the same class of value already embedded in the
+      # built app) — not secrets, hence `--visibility plaintext`.
       - name: Configure EAS preview environment (known public values)
         if: steps.check-link.outputs.linked == 'true'
         run: |
           eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value "https://ywoledppusxwdonwsewh.supabase.co" --visibility plaintext --non-interactive
           eas env:set --environment preview --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR" --visibility plaintext --non-interactive
+          eas env:set --environment preview --name EXPO_PUBLIC_SUPPORT_EMAIL --value "support@kinwin.app" --visibility plaintext --non-interactive
 
       # Fail closed rather than silently skipping or forwarding a live/malformed
       # value: this must be a Stripe *TEST* publishable key, never a secret key.
@@ -195,7 +196,7 @@ jobs:
           echo "dev_domain=$claimed" >> "$GITHUB_OUTPUT"
 
       # Now that the stable origin is known, produce the real beta web build
-      # (all four public values set) and redeploy it to the SAME origin —
+      # (all five public values set) and redeploy it to the SAME origin —
       # same --dev-domain, so the URL doesn't change, only the content. AASA
       # generation is deliberately skipped here: it requires a real
       # KINWIN_APPLE_TEAM_ID (see docs/IOS_BETA_BUILD.md), which isn't known
@@ -207,6 +208,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://ywoledppusxwdonwsewh.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR
           EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_SUPPORT_EMAIL: support@kinwin.app
           EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
         run: npx expo export --platform web --output-dir dist-beta-web
 
@@ -244,11 +246,11 @@ jobs:
       #
       # `eas build` sets EAS_BUILD_PROFILE=beta locally (confirmed by
       # reproducing this exact failure: with only that set and none of the
-      # four values below, app.config.js's beta gate throws), but it does
+      # five values below, app.config.js's beta gate throws), but it does
       # NOT sync the values already configured in EAS's "preview" environment
       # into its own local pre-flight config resolution — those are only
       # injected into the remote build worker, which local resolution has to
-      # succeed before ever reaching. So the same four values the export step
+      # succeed before ever reaching. So the same five values the export step
       # needed are needed here too, for the same reason.
       - name: Attempt beta iOS build
         if: steps.check-link.outputs.linked == 'true'
@@ -256,5 +258,6 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://ywoledppusxwdonwsewh.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_iDayYdsjqPsg5NAwlusz9w_J9gZNzuR
           EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_SUPPORT_EMAIL: support@kinwin.app
           EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
         run: eas build --platform ios --profile beta --non-interactive --wait

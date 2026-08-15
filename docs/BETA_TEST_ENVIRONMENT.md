@@ -21,6 +21,7 @@ missing forward migrations; never reset, repair blindly, squash, or replay an ap
 | `EXPO_PUBLIC_SUPABASE_URL` | `lib/supabase/config.ts` | Yes | Exactly `https://ywoledppusxwdonwsewh.supabase.co` for this beta. Public. |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | `lib/supabase/config.ts` | Yes | Public anon key for the TEST project. Never substitute a service-role or secret key. |
 | `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `lib/stripe/config.ts` | Yes for payment setup | Stripe test publishable key beginning `pk_test_`. Never `pk_live_`. |
+| `EXPO_PUBLIC_SUPPORT_EMAIL` | `lib/support/config.ts` | Yes | Public support contact address, currently `support@kinwin.app`. Real-looking (`name@host.tld`) or the Support screen honestly reports itself as not configured; enforced as required for a beta build by `scripts/beta-public-config.cjs`. |
 | `EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL` | Home challenge/result sharing | Yes for sharing | Public HTTPS origin serving the Expo Router app. No trailing `/invite`, token, query, or fragment. The runtime app appends `/invite/{token}`. The beta hostname remains an external release value; no hostname is guessed here. |
 
 ### B, D. Edge Function and Stripe TEST secrets
