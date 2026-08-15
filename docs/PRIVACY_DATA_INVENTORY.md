@@ -50,9 +50,12 @@ This document is a working input for a future privacy policy, the App Store Priv
 | Block records (`blocked_by`) | Yes, user-initiated | Yes | Prevents further contact/re-requests | `public.kin_connections.status='blocked'` | None | RETENTION DECISION NEEDED |
 | Activity events (challenge started/succeeded/failed) | Server-generated, not user-entered | Yes (the owner) | Populates the Kin activity feed | `public.social_activity` | None | RETENTION DECISION NEEDED |
 | Reactions (`respect`/`nice`/`worth_it`/`ouch`/`brutal`) | Yes, user-initiated, one per user per activity item | Yes | Lightweight social response | `public.activity_reactions` | None | RETENTION DECISION NEEDED |
+| Content reports (reporter, reported person, optionally a specific activity item, a fixed-category reason, an optional short detail, status) | Yes, user-initiated | Yes (both the reporter and the reported person) | Lets a user flag another person's visible activity or profile for review; reviewed manually by the founder/operator, no automated action taken on it | `private.social_reports` — `service_role`-only, never reachable by any client (mobile, web, or otherwise) | None | RETENTION DECISION NEEDED |
 | Current-challenge visibility | Not stored separately — derived live from `challenges`/`kin_connections` at query time | Yes | Lets accepted Kin see what you're currently doing | Computed, not a stored table | None | N/A — not persisted independently |
 
 Current model is binary: any accepted Kin sees all of a user's activity and current-challenge state. There is no per-post or per-Kin audience control in the shipped product (see `docs/PRODUCT_STATUS.md` §10 for the disconnected prototype that explored one).
+
+**Content filtering, factually:** display names and the challenge text that becomes visible to Kin (behavior description, completion definition, recipient names) are checked against a small, fixed deny-list at the point they're written (`private.contains_disallowed_content`, enforced server-side, not just in the app) and rejected outright if disallowed — never silently altered. This is a narrow heuristic aimed at obvious profanity/harassment, not a real moderation system, and does not itself collect or store any additional data about the user; it only rejects or allows writes that were already going to happen.
 
 ## 4. Financial / payment
 

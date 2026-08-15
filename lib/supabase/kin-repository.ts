@@ -366,3 +366,42 @@ export async function clearMyReaction(userId: string, activityId: string): Promi
   if (error) return { ok: false, ...classifyError(error) };
   return { ok: true };
 }
+
+export const REPORT_REASONS = ['harassment', 'hate_or_abuse', 'sexual_content', 'spam', 'other'] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export type SubmitReportResult =
+  | { readonly ok: true; readonly status: 'submitted' | 'already_reported' }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'rejected'; readonly message?: string }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * Reports another person's visible social activity, or (when activityId is
+ * omitted) the person themselves — always through the trusted
+ * submit_social_report RPC (supabase/migrations/20260902000000_social_reports_and_content_filter.sql),
+ * never a direct table write. The server independently re-checks that the
+ * caller can actually see the target activity/person; this function never
+ * asserts that on the client's own say-so. Reporting the same target again
+ * is safe and idempotent — the server returns 'already_reported' rather
+ * than creating a duplicate.
+ */
+export async function submitSocialReport(
+  reportedUserId: string,
+  reason: ReportReason,
+  activityId: string | null = null,
+): Promise<SubmitReportResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { data, error } = await supabase.rpc('submit_social_report', {
+    p_reported_user_id: reportedUserId,
+    p_reported_activity_id: activityId,
+    p_reason: reason,
+  });
+  if (error) return { ok: false, kind: 'rejected', message: error.message };
+
+  const result = data as { status?: string } | null;
+  if (result?.status === 'submitted' || result?.status === 'already_reported') {
+    return { ok: true, status: result.status };
+  }
+  return { ok: false, kind: 'unknown', message: 'The server did not confirm the report.' };
+}
