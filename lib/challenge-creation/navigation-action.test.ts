@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createRecipientDraft } from '../../contexts/onboarding-context';
 
 import { CreationSessionFields } from './creation-session';
-import { classifyCreationRemovalAction, isBackLikeNavigationAction } from './navigation-action';
+import { classifyCreationRemovalAction, isBackLikeNavigationAction, shouldPreventCreationRemoval } from './navigation-action';
 
 function emptyFields(): CreationSessionFields {
   return {
@@ -160,4 +160,70 @@ test('Goal + a back-like action with no unsaved work (matches an existing checkp
     previousCreationRoute: null,
   });
   assert.deepEqual(decision, { kind: 'allow' });
+});
+
+test('shouldPreventCreationRemoval: arms protection for a resumed mid-flow shallow stack', () => {
+  assert.equal(
+    shouldPreventCreationRemoval({
+      checkpointFields: null,
+      currentFields: emptyFields(),
+      nativeStackHasPreviousEntry: false,
+      navigationLocked: false,
+      previousCreationRoute: '/create/build',
+    }),
+    true,
+  );
+});
+
+test('shouldPreventCreationRemoval: arms protection at Goal with unsaved work', () => {
+  assert.equal(
+    shouldPreventCreationRemoval({
+      checkpointFields: null,
+      currentFields: { ...emptyFields(), goal: 'Sleep better' },
+      nativeStackHasPreviousEntry: false,
+      navigationLocked: false,
+      previousCreationRoute: null,
+    }),
+    true,
+  );
+});
+
+test('shouldPreventCreationRemoval: arms protection while navigationLocked, regardless of the native stack shape', () => {
+  assert.equal(
+    shouldPreventCreationRemoval({
+      checkpointFields: null,
+      currentFields: emptyFields(),
+      nativeStackHasPreviousEntry: true,
+      navigationLocked: true,
+      previousCreationRoute: '/create/consequence',
+    }),
+    true,
+  );
+});
+
+test('shouldPreventCreationRemoval: does not arm protection for normal mid-flow navigation with a valid native previous entry', () => {
+  assert.equal(
+    shouldPreventCreationRemoval({
+      checkpointFields: null,
+      currentFields: emptyFields(),
+      nativeStackHasPreviousEntry: true,
+      navigationLocked: false,
+      previousCreationRoute: '/create/build',
+    }),
+    false,
+  );
+});
+
+test('shouldPreventCreationRemoval: does not arm protection at Goal with no unsaved work', () => {
+  const fields = { ...emptyFields(), goal: 'Already saved' };
+  assert.equal(
+    shouldPreventCreationRemoval({
+      checkpointFields: fields,
+      currentFields: fields,
+      nativeStackHasPreviousEntry: false,
+      navigationLocked: false,
+      previousCreationRoute: null,
+    }),
+    false,
+  );
 });

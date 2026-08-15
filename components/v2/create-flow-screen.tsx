@@ -1,10 +1,10 @@
 import { Href, useNavigation, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { NavigationAction } from '@react-navigation/native';
+import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CreateProgressV2 } from '@/components/v2/create-progress';
@@ -19,9 +19,20 @@ import {
   planExitAttempt,
 } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
-import { classifyCreationRemovalAction } from '@/lib/challenge-creation/navigation-action';
+import { classifyCreationRemovalAction, shouldPreventCreationRemoval } from '@/lib/challenge-creation/navigation-action';
 import { resolvePreviousCreationRoute } from '@/lib/challenge-creation/steps';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+
+/**
+ * A decision that classifyCreationRemovalAction resolved to 'allow' or
+ * 'redirect' while native-stack removal protection (usePreventRemove) was
+ * active for this screen — the underlying prevented action, or the logical
+ * route to redirect to instead, replayed on the next render once the
+ * deferred effect below has actually turned protection off. See the
+ * `usePreventRemove` call for why this can never fire synchronously inside
+ * the prevented callback itself.
+ */
+type PendingReplay = { kind: 'allow'; action: NavigationAction } | { kind: 'redirect'; route: string };
 
 type CreateFlowScreenV2Props = {
   backHint: string;
@@ -98,15 +109,10 @@ export function CreateFlowScreenV2({
   const { fields, meaningfulProgress, saveCheckpoint } = useCreationSessionAutosave();
   const [leaveWithoutSavingSheetOpen, setLeaveWithoutSavingSheetOpen] = useState(false);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<NavigationAction | null>(null);
+  const [pendingReplay, setPendingReplay] = useState<PendingReplay | null>(null);
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [savingAndExiting, setSavingAndExiting] = useState(false);
   const [signedOutSaveSheetOpen, setSignedOutSaveSheetOpen] = useState(false);
-  // Guards specifically against confirmLeaveWithoutSaving's replay of a
-  // captured back-like action re-triggering the same confirmation: that
-  // replay is still classified as back-like (it's the exact original
-  // action), so classifyCreationRemovalAction alone can't tell it apart
-  // from a genuine second Back — this ref is the one thing that can.
-  const suppressNextBeforeRemoveRef = useRef(false);
 
   const checkpointFields = onboarding.checkpoint?.fields ?? null;
   const hasCheckpoint = onboarding.checkpoint !== null;
@@ -123,54 +129,90 @@ export function CreateFlowScreenV2({
   // unrecognized route), the one real creation → Home boundary.
   const previousCreationRoute = resolvePreviousCreationRoute(pathname, onboarding.behaviorDirection);
 
-  // The single interception point for every way this screen can be
-  // removed from the stack — a tap on the chevron (which just calls
-  // router.back() below), an iOS swipe-back gesture, or Android's hardware
-  // back button all raise this same event before the pop actually
-  // happens. beforeRemove also fires for intentional programmatic
-  // transitions (Save & exit's router.replace('/'), a successful server
-  // conversion's advanceToShare, a pending-commitment redirect) — those
-  // are never Back and must always be let through untouched;
-  // classifyCreationRemovalAction's own action-type check (not a
-  // destination-route check) is what makes that distinction reliably.
-  useEffect(() => {
-    return navigation.addListener('beforeRemove', (e) => {
-      if (suppressNextBeforeRemoveRef.current) {
-        suppressNextBeforeRemoveRef.current = false;
-        return;
-      }
-      const state = navigation.getState();
-      const decision = classifyCreationRemovalAction({
-        action: e.data.action,
-        checkpointFields,
-        currentFields: fields,
-        // index 0 in this navigator means there's no real previous
-        // /create/* entry to pop to — exactly what a session resumed
-        // mid-flow looks like, since Home pushes straight to the target
-        // route without the intermediate screens ever having been
-        // pushed. When the stack does have a genuine previous entry —
-        // the user actually stepped forward to get here — the native pop
-        // already lands on the right screen with its usual back
-        // animation intact, so no interception is needed at all.
-        nativeStackHasPreviousEntry: Boolean(state && state.index !== 0),
-        navigationLocked,
-        previousCreationRoute,
-      });
-      if (decision.kind === 'allow') return;
-      e.preventDefault();
-      if (decision.kind === 'blocked') return;
-      if (decision.kind === 'redirect') {
-        router.replace(decision.route as Href);
-        return;
-      }
-      // decision.kind === 'confirm_leave_without_saving'. No haptic here:
-      // a tap already got one from the chevron's own onPress above, and
-      // a swipe/hardware-back interception matches native convention by
-      // staying silent until the sheet's own destructive action.
-      setPendingLeaveAction(e.data.action);
-      setLeaveWithoutSavingSheetOpen(true);
+  // index 0 in this navigator means there's no real previous /create/*
+  // entry to pop to — exactly what a session resumed mid-flow looks like,
+  // since Home pushes straight to the target route without the
+  // intermediate screens ever having been pushed. When the stack does have
+  // a genuine previous entry — the user actually stepped forward to get
+  // here — the native pop already lands on the right screen with its usual
+  // back animation intact, so no protection is needed at all.
+  const navigationState = navigation.getState();
+  const nativeStackHasPreviousEntry = Boolean(navigationState && navigationState.index !== 0);
+
+  // `usePreventRemove` (not a raw navigation.addListener('beforeRemove'))
+  // is what actually makes this reach native: it registers this screen in
+  // the shared PreventRemoveContext that native-stack's
+  // NativeStackView.native.tsx reads to set `preventNativeDismiss` on iOS
+  // *before* a swipe gesture even starts. A raw beforeRemove listener can
+  // still call e.preventDefault() to stop the JS-side state update after
+  // the fact, but never tells native in advance that this route may need
+  // to refuse a swipe — leaving iOS's own dismiss-then-snap-back animation
+  // to play out regardless. Android hardware back and the header
+  // chevron's tap both dispatch a normal action through the same JS
+  // beforeRemove path either way, so they're covered the same as before.
+  //
+  // Whether protection is armed at all — independent of any specific
+  // action — is `shouldPreventCreationRemoval`'s job; it mirrors
+  // classifyCreationRemovalAction's own redirect/confirm conditions minus
+  // the action-type gate, since native needs to know this before any
+  // particular action exists to classify.
+  const protectionNeeded = shouldPreventCreationRemoval({
+    checkpointFields,
+    currentFields: fields,
+    nativeStackHasPreviousEntry,
+    navigationLocked,
+    previousCreationRoute,
+  });
+
+  // `pendingReplay !== null` forces protection off for exactly one render.
+  // Once the callback below decides an already-prevented action should
+  // actually proceed (an intentional REPLACE) or be redirected elsewhere,
+  // that can never be carried out by re-dispatching synchronously inside
+  // this same prevented callback: usePreventRemove's own internal listener
+  // reads its `preventRemove` argument from this render's closure, which
+  // only ever updates once a full render has actually committed — a
+  // synchronous re-dispatch would see the identical still-true value and
+  // prevent it right back, recursing forever. Storing the decision in
+  // state and carrying it out from the effect below instead guarantees a
+  // real render happens first, with protection now off, before the actual
+  // dispatch/replace runs — the same reason React Navigation's own
+  // documented "confirm, then replay" pattern always defers its replay to
+  // a later render rather than doing it inline.
+  usePreventRemove(protectionNeeded && pendingReplay === null, ({ data }) => {
+    const decision = classifyCreationRemovalAction({
+      action: data.action,
+      checkpointFields,
+      currentFields: fields,
+      nativeStackHasPreviousEntry,
+      navigationLocked,
+      previousCreationRoute,
     });
-  }, [navigation, previousCreationRoute, fields, checkpointFields, navigationLocked, router]);
+    if (decision.kind === 'blocked') return;
+    if (decision.kind === 'allow') {
+      setPendingReplay({ kind: 'allow', action: data.action });
+      return;
+    }
+    if (decision.kind === 'redirect') {
+      setPendingReplay({ kind: 'redirect', route: decision.route });
+      return;
+    }
+    // decision.kind === 'confirm_leave_without_saving'. No haptic here: a
+    // tap already got one from the chevron's own onPress above, and a
+    // swipe/hardware-back interception matches native convention by
+    // staying silent until the sheet's own destructive action.
+    setPendingLeaveAction(data.action);
+    setLeaveWithoutSavingSheetOpen(true);
+  });
+
+  useEffect(() => {
+    if (!pendingReplay) return;
+    if (pendingReplay.kind === 'allow') {
+      navigation.dispatch(pendingReplay.action);
+    } else {
+      router.replace(pendingReplay.route as Href);
+    }
+    setPendingReplay(null);
+  }, [pendingReplay, navigation, router]);
 
   const keepEditingFromLeaveWithoutSavingSheet = () => {
     void playSelectionHaptic();
@@ -203,7 +245,13 @@ export function CreateFlowScreenV2({
       // Replays the exact pop beforeRemove paused — correct regardless of
       // whether it originated from the chevron, a swipe, or the hardware
       // back button, since all three produced the same captured action.
-      suppressNextBeforeRemoveRef.current = true;
+      // No suppression flag needed here: resetDraft() above already
+      // cleared both the live fields and the checkpoint, so
+      // shouldPreventCreationRemoval's own Goal-boundary check
+      // (planBackLeaveAttempt against the now-reset fields) already
+      // evaluates to "nothing unsaved" by the time this dispatch reaches
+      // usePreventRemove — protection is genuinely off, not merely
+      // sidestepped, so this can never re-trigger the same confirmation.
       navigation.dispatch(pendingLeaveAction);
       setPendingLeaveAction(null);
       return;

@@ -67,3 +67,26 @@ export function classifyCreationRemovalAction(params: {
   }
   return { kind: 'allow' };
 }
+
+/**
+ * Whether this screen currently needs native-stack removal protection armed
+ * at all — independent of any specific action, since the native side (iOS's
+ * `preventNativeDismiss`, wired through `usePreventRemove`'s shared
+ * PreventRemoveContext — see native-stack's NativeStackView.native.tsx)
+ * needs to know *before* a swipe gesture starts whether it may be allowed to
+ * complete, not just after the fact. Mirrors classifyCreationRemovalAction's
+ * own conditions for when a back-like action would be redirected, blocked,
+ * or asked to confirm — but without the action-type gate, since that gate
+ * only applies once a specific action actually arrives.
+ */
+export function shouldPreventCreationRemoval(params: {
+  readonly checkpointFields: CreationSessionFields | null;
+  readonly currentFields: CreationSessionFields;
+  readonly nativeStackHasPreviousEntry: boolean;
+  readonly navigationLocked: boolean;
+  readonly previousCreationRoute: string | null;
+}): boolean {
+  if (params.navigationLocked) return true;
+  if (params.previousCreationRoute !== null) return !params.nativeStackHasPreviousEntry;
+  return planBackLeaveAttempt(params.currentFields, params.checkpointFields) === 'confirm_leave_without_saving';
+}
