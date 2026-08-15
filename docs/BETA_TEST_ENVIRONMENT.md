@@ -24,6 +24,8 @@ missing forward migrations; never reset, repair blindly, squash, or replay an ap
 | `EXPO_PUBLIC_SUPPORT_EMAIL` | `lib/support/config.ts` | Yes | Public support contact address, currently `support@kinwin.app`. Real-looking (`name@host.tld`) or the Support screen honestly reports itself as not configured; enforced as required for a beta build by `scripts/beta-public-config.cjs`. |
 | `EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL` | Home challenge/result sharing | Yes for sharing | Public HTTPS origin serving the Expo Router app. No trailing `/invite`, token, query, or fragment. The runtime app appends `/invite/{token}`. The beta hostname remains an external release value; no hostname is guessed here. |
 
+Setting these values (via `eas env:set` or a step's own shell `env:`) is necessary but not sufficient for them to reach the deployed web build: `eas-beta-release.yml` runs `npx expo export --platform web` twice in the same job — once to claim the EAS Hosting origin with no config, once for real with all five values — and Metro's on-disk transform cache does not key on live `EXPO_PUBLIC_*` values, only file content. Without `--clear` on the second export, it silently reuses the first export's config-less cached bundle. The workflow passes `--clear` on the real export and verifies the exported bundle actually contains the Supabase project URL before deploying, specifically to catch this; do not remove either safeguard.
+
 ### B, D. Edge Function and Stripe TEST secrets
 
 | Name | Reader | Required | Format and validation |
