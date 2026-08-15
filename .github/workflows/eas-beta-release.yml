@@ -201,6 +201,19 @@ jobs:
       # generation is deliberately skipped here: it requires a real
       # KINWIN_APPLE_TEAM_ID (see docs/IOS_BETA_BUILD.md), which isn't known
       # yet — that's added once it exists, never invented.
+      #
+      # --clear is required, not optional: Metro's on-disk transform cache is
+      # keyed on file content, not on the live EXPO_PUBLIC_* values baked in by
+      # babel-preset-expo's inline-environment-variables plugin. Without it,
+      # this export silently reuses the previous step's cached transform of
+      # every file that reads process.env.EXPO_PUBLIC_* — including
+      # lib/supabase/config.ts — so the deployed bundle ends up with the
+      # bootstrap export's config-less values (readSupabaseConfig() always
+      # returning null) even though this step's own environment is correct.
+      # Confirmed by reproducing the exact failure: two `expo export` runs in
+      # the same working directory without --clear produce a byte-identical
+      # bundle regardless of differing EXPO_PUBLIC_SUPABASE_* inputs; adding
+      # --clear produces a distinct bundle with the live values inlined.
       - name: Export the real beta web build with the discovered origin
         if: steps.check-link.outputs.linked == 'true'
         env:
@@ -210,7 +223,28 @@ jobs:
           EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
           EXPO_PUBLIC_SUPPORT_EMAIL: support@kinwin.app
           EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL: ${{ steps.hosting-origin.outputs.origin }}
-        run: npx expo export --platform web --output-dir dist-beta-web
+        run: npx expo export --platform web --clear --output-dir dist-beta-web
+
+      # Content check, not just a status check: the HTTPS verification step
+      # below only proves the server answers 200, which stayed true even when
+      # the stale-cache bug above shipped a bundle with no Supabase config at
+      # all. Fail closed here, before ever deploying, if the exported bundle
+      # doesn't actually contain the TEST Supabase project URL — the public,
+      # non-secret signal that EXPO_PUBLIC_SUPABASE_URL was genuinely inlined
+      # for this export rather than reused from stale bundler cache.
+      - name: Verify the exported bundle actually embeds the TEST Supabase config
+        if: steps.check-link.outputs.linked == 'true'
+        run: |
+          bundle=$(find dist-beta-web/_expo/static/js/web -name 'entry-*.js' | head -1)
+          if [ -z "$bundle" ]; then
+            echo "::error::No exported web bundle found in dist-beta-web/_expo/static/js/web."
+            exit 1
+          fi
+          if ! grep -q "ywoledppusxwdonwsewh.supabase.co" "$bundle"; then
+            echo "::error::Exported beta web bundle does not contain the TEST Supabase project URL. EXPO_PUBLIC_SUPABASE_URL was not inlined into this build (stale bundler cache?) — refusing to deploy a client that cannot connect to Supabase."
+            exit 1
+          fi
+          echo "Confirmed: exported beta bundle embeds the TEST Supabase project configuration."
 
       - name: Deploy the real beta web build to the same EAS Hosting origin
         if: steps.check-link.outputs.linked == 'true'
