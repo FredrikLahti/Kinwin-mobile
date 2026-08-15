@@ -8,12 +8,15 @@ import {
   clearCreationSession,
   closeCreationSessionGeneration,
   createLatestRequestGuard,
+  CREATION_SESSION_SCHEMA_VERSION,
   CreationSessionFields,
   CreationSessionStorage,
   creationSessionStorageKey,
   currentCreationSessionGeneration,
   decideCreateChallengeEntryAction,
   hasMeaningfulCreationProgress,
+  isResumeEligibleSession,
+  planBackLeaveAttempt,
   planExitAttempt,
   readCreationSession,
   resolveResumeRoute,
@@ -21,11 +24,13 @@ import {
   writeCreationSession,
 } from './creation-session';
 
-// Most tests below aren't exercising the generation/lifecycle mechanism at
-// all, so they just capture "whatever generation is current right now" —
-// exactly what a real caller does for a normal, non-stale write.
-function write(userId: string, fields: CreationSessionFields, lastRoute: string, storage: CreationSessionStorage) {
-  return writeCreationSession(userId, fields, lastRoute, storage, currentCreationSessionGeneration(userId));
+// Most tests below aren't exercising the generation/lifecycle mechanism or
+// resume-eligibility semantics at all, so they just capture "whatever
+// generation is current right now" and default to savedForLater: false —
+// exactly what a real background-autosave caller does for a normal,
+// non-stale, not-yet-explicitly-saved write.
+function write(userId: string, fields: CreationSessionFields, lastRoute: string, storage: CreationSessionStorage, savedForLater = false) {
+  return writeCreationSession(userId, fields, lastRoute, storage, currentCreationSessionGeneration(userId), savedForLater);
 }
 
 function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -94,11 +99,12 @@ test('writeCreationSession then readCreationSession round-trips every field, inc
     recipients: [{ id: 'recipient-a', name: 'Mom' }, { id: 'recipient-b', name: 'Dad' }],
     rewardOrganizer: { type: 'recipient', recipientId: 'recipient-a' },
   };
-  const ok = await write('user-1', fields, '/create/frequency', storage);
+  const ok = await write('user-1', fields, '/create/frequency', storage, true);
   assert.equal(ok, true, 'a successful write must report success');
   const restored = await readCreationSession('user-1', storage);
   assert.ok(restored);
   assert.equal(restored.lastRoute, '/create/frequency');
+  assert.equal(restored.savedForLater, true);
   assert.deepEqual(restored.fields, fields);
 });
 
@@ -243,7 +249,7 @@ test('lifecycle: a write only "scheduled" (generation captured, but writeCreatio
   };
 
   // A: write A starts and is deliberately held open — already inside storage.setItem.
-  const writeAPromise = writeCreationSession(userId, { ...emptyFields(), goal: 'A' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  const writeAPromise = writeCreationSession(userId, { ...emptyFields(), goal: 'A' }, '/create/goal', storage, currentCreationSessionGeneration(userId), false);
   await Promise.resolve().then(() => Promise.resolve());
   assert.equal(writeAStarted, true, 'write A must genuinely be in flight');
 
@@ -257,7 +263,7 @@ test('lifecycle: a write only "scheduled" (generation captured, but writeCreatio
   await Promise.all([writeAPromise, clearPromise]);
 
   // D: only now — well after conversion — does write B's debounce timer actually fire and call writeCreationSession, using the generation it captured back in step B, which is now stale.
-  const writeBResult = await writeCreationSession(userId, { ...emptyFields(), goal: 'B (stale, must be dropped)' }, '/create/type', storage, staleGenerationForWriteB);
+  const writeBResult = await writeCreationSession(userId, { ...emptyFields(), goal: 'B (stale, must be dropped)' }, '/create/type', storage, staleGenerationForWriteB, false);
   assert.equal(writeBResult, true, 'a stale-generation write is treated as a no-op, not a failure');
 
   // E/F: after everything settles, no resumable snapshot exists — the delayed old-session write must not have resurrected it.
@@ -273,7 +279,7 @@ test('lifecycle: a genuinely new creation flow started after conversion/discard 
 
   // H: a brand new creation flow starts afterward — a freshly-mounted screen captures whatever generation is current *now*, which already reflects the close above, and writes under it normally.
   const freshGeneration = currentCreationSessionGeneration(userId);
-  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'Fresh challenge' }, '/create/goal', storage, freshGeneration);
+  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'Fresh challenge' }, '/create/goal', storage, freshGeneration, false);
   assert.equal(ok, true);
   const restored = await readCreationSession(userId, storage);
   assert.equal(restored?.fields.goal, 'Fresh challenge');
@@ -284,9 +290,103 @@ test('lifecycle: closing a generation twice (e.g. a failed discard retried) stil
   const storage = inMemoryStorage();
   closeCreationSessionGeneration(userId);
   closeCreationSessionGeneration(userId);
-  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'After retried close' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'After retried close' }, '/create/goal', storage, currentCreationSessionGeneration(userId), false);
   assert.equal(ok, true);
   assert.equal((await readCreationSession(userId, storage))?.fields.goal, 'After retried close');
+});
+
+// --- Explicit save-for-later intent (Phase 1: Back / Save & exit) -------
+
+test('isResumeEligibleSession: no session at all is never eligible', () => {
+  assert.equal(isResumeEligibleSession(null), false);
+});
+
+test('background autosave alone (savedForLater: false) never makes a session resume-eligible, even though it round-trips normally', async () => {
+  const storage = inMemoryStorage();
+  await write('user-1', { ...emptyFields(), goal: 'Still typing' }, '/create/goal', storage, false);
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.savedForLater, false);
+  assert.equal(isResumeEligibleSession(restored), false, 'a session only autosaved in the background must never be offered as "Continue challenge"');
+});
+
+test('explicit Save & exit (savedForLater: true) makes a session resume-eligible', async () => {
+  const storage = inMemoryStorage();
+  await write('user-1', { ...emptyFields(), goal: 'Ready to pause here' }, '/create/goal', storage, true);
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.savedForLater, true);
+  assert.equal(isResumeEligibleSession(restored), true);
+});
+
+test('planBackLeaveAttempt: no meaningful progress never needs confirmation, saved or not', () => {
+  assert.equal(planBackLeaveAttempt(false, false), 'proceed');
+  assert.equal(planBackLeaveAttempt(false, true), 'proceed');
+});
+
+test('planBackLeaveAttempt: meaningful progress that was never explicitly saved requires confirmation before leaving', () => {
+  assert.equal(planBackLeaveAttempt(true, false), 'confirm_leave_without_saving');
+});
+
+test('planBackLeaveAttempt: meaningful progress that is already explicitly saved needs no confirmation — Back cannot lose anything Continue would not already restore', () => {
+  assert.equal(planBackLeaveAttempt(true, true), 'proceed');
+});
+
+test('leaving without saving (Back crossing the creation-flow boundary) closes the lifecycle so a stale autosave write cannot resurrect anything', async () => {
+  const userId = 'user-leave-without-saving';
+  const storage = inMemoryStorage();
+  // Exactly what background autosave persists while the user is still
+  // editing, before ever tapping Save & exit.
+  await write(userId, { ...emptyFields(), goal: 'Half-finished' }, '/create/goal', storage, false);
+  const beforeLeaving = await readCreationSession(userId, storage);
+  assert.equal(isResumeEligibleSession(beforeLeaving), false, 'sanity check: never explicitly saved, so not eligible even before leaving');
+
+  // A debounce timer armed a moment before "Leave without saving" was confirmed.
+  const staleGeneration = currentCreationSessionGeneration(userId);
+
+  closeCreationSessionGeneration(userId);
+  const cleared = await clearCreationSession(userId, storage);
+  assert.equal(cleared, true);
+
+  const staleWrite = await writeCreationSession(userId, { ...emptyFields(), goal: 'stale edit' }, '/create/goal', storage, staleGeneration, false);
+  assert.equal(staleWrite, true, 'a stale-generation write is a no-op, not a failure');
+  assert.equal(await readCreationSession(userId, storage), null, 'nothing must be left behind for Home to ever offer as resumable');
+});
+
+test('explicit discard still wins over a delayed write, even for a session that had already been explicitly saved for later', async () => {
+  const userId = 'user-discard-eligible';
+  const store = new Map<string, string>();
+  const writeGate = deferred<void>();
+  let writeStarted = false;
+  // Only the *second* write (the delayed one below) is meant to hang on
+  // the gate — an initial ungated write establishes the already-eligible
+  // session first, exactly like a real earlier Save & exit.
+  let gateWrites = false;
+  const storage: CreationSessionStorage = {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      if (gateWrites) {
+        writeStarted = true;
+        await writeGate.promise;
+      }
+      store.set(key, value);
+    },
+    removeItem: async (key) => { store.delete(key); },
+  };
+
+  await write(userId, { ...emptyFields(), goal: 'Saved earlier' }, '/create/goal', storage, true);
+  assert.equal((await readCreationSession(userId, storage))?.savedForLater, true, 'sanity check: this session was explicitly saved before the delayed edit below');
+
+  gateWrites = true;
+  const generation = currentCreationSessionGeneration(userId);
+  const delayedWrite = writeCreationSession(userId, { ...emptyFields(), goal: 'edited again, still eligible' }, '/create/type', storage, generation, true);
+  await Promise.resolve().then(() => Promise.resolve());
+  assert.equal(writeStarted, true, 'the delayed write must genuinely be in flight before discard is requested');
+
+  closeCreationSessionGeneration(userId);
+  const discardCleared = clearCreationSession(userId, storage);
+  writeGate.resolve();
+  await Promise.all([delayedWrite, discardCleared]);
+
+  assert.equal(await readCreationSession(userId, storage), null, 'explicit discard must still win even over an already-eligible, in-flight write');
 });
 
 test('readCreationSession discards and returns null for unparsable stored data (corrupt snapshot)', async () => {
@@ -303,9 +403,55 @@ test('readCreationSession discards and returns null for a wrong-shaped or wrong-
   assert.equal(await storage.getItem(key), null);
 });
 
+// Schema migration safety: bumping CREATION_SESSION_SCHEMA_VERSION changes
+// creationSessionStorageKey's output, so an old-version snapshot is simply
+// never read under the new key — orphaned, not reinterpreted. This proves
+// that even if an old-shaped payload somehow ended up under the *current*
+// key (the only way readCreationSession would ever see it directly), it is
+// still safely rejected rather than treated as if it carried explicit save
+// intent it never actually recorded.
+test('a snapshot one schema version behind the current one is treated as no session, never silently reinterpreted as explicit save intent', async () => {
+  const key = creationSessionStorageKey('user-1');
+  const storage = inMemoryStorage({
+    [key]: JSON.stringify({
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION - 1,
+      updatedAt: new Date().toISOString(),
+      lastRoute: '/create/goal',
+      fields: emptyFields(),
+    }),
+  });
+  assert.equal(await readCreationSession('user-1', storage), null);
+  assert.equal(await storage.getItem(key), null, 'a version-mismatched payload must be actively discarded, not left to be misread again');
+});
+
+test('creationSessionStorageKey changes when the schema version changes, so an old-version snapshot is naturally orphaned rather than ever read under the new key', () => {
+  assert.equal(creationSessionStorageKey('user-1'), `kinwin:creation-session:v${CREATION_SESSION_SCHEMA_VERSION}:user-1`);
+});
+
+test('a same-version snapshot missing savedForLater entirely (e.g. a pre-eligibility payload that slipped through under the current key) is rejected, not defaulted to true', async () => {
+  const key = creationSessionStorageKey('user-1');
+  const storage = inMemoryStorage({
+    [key]: JSON.stringify({
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString(),
+      lastRoute: '/create/goal',
+      fields: emptyFields(),
+    }),
+  });
+  assert.equal(await readCreationSession('user-1', storage), null);
+});
+
 function corruptSnapshotWith(fields: unknown): Record<string, string> {
   const key = creationSessionStorageKey('user-1');
-  return { [key]: JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), lastRoute: '/create/goal', fields }) };
+  return {
+    [key]: JSON.stringify({
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString(),
+      lastRoute: '/create/goal',
+      savedForLater: false,
+      fields,
+    }),
+  };
 }
 
 test('a same-version snapshot with completely empty fields ({}) is treated as corrupt, not as a valid blank session', async () => {

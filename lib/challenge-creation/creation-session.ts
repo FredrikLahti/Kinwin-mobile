@@ -34,13 +34,31 @@ export type CreationSessionFields = {
   readonly stakeAmountInput: string;
 };
 
-export const CREATION_SESSION_SCHEMA_VERSION = 1;
+// Bumped from 1: adds savedForLater, which changes what it means for a
+// snapshot to be valid (see isValidSnapshotShape) and therefore what
+// counts as a compatible payload at all. Bumping this changes
+// creationSessionStorageKey's output, so any snapshot written under the
+// old version is simply never read under the new key — orphaned, not
+// misinterpreted. That is the whole migration story: no in-place upgrade
+// code, because there is nothing safe to upgrade an old payload *into*
+// (an old autosave-only snapshot carries no signal about explicit save
+// intent, so it must never be treated as if it does).
+export const CREATION_SESSION_SCHEMA_VERSION = 2;
 
 export type CreationSessionSnapshot = {
   readonly schemaVersion: typeof CREATION_SESSION_SCHEMA_VERSION;
   readonly updatedAt: string;
   /** The create/* route the user was last on, e.g. "/create/frequency". */
   readonly lastRoute: string;
+  /**
+   * True only once the user has explicitly chosen "Save & exit" for this
+   * creation session — never set by background autosave on its own. This
+   * is what "resume eligible" means: Home/Account must only ever offer
+   * "Continue challenge" for a session where this is true. A session that
+   * only exists because of quiet crash-recovery autosave (savedForLater:
+   * false) is never surfaced as something the user consciously saved.
+   */
+  readonly savedForLater: boolean;
   readonly fields: CreationSessionFields;
 };
 
@@ -196,8 +214,20 @@ function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot 
     candidate.schemaVersion === CREATION_SESSION_SCHEMA_VERSION &&
     typeof candidate.updatedAt === 'string' &&
     typeof candidate.lastRoute === 'string' &&
+    typeof candidate.savedForLater === 'boolean' &&
     isValidCreationSessionFields(candidate.fields)
   );
+}
+
+/**
+ * The single rule for what counts as "Continue challenge"-eligible —
+ * centralized so Home and Account (both via
+ * hooks/use-resumable-creation-session.ts) can never drift on it. A
+ * background autosave write alone must never satisfy this; only an
+ * explicit Save & exit (or a session restored from one) does.
+ */
+export function isResumeEligibleSession(session: CreationSessionSnapshot | null): boolean {
+  return session !== null && session.savedForLater === true;
 }
 
 /** Returns null for "no session" and for corrupt/incompatible data alike — callers never need to distinguish the two. Corrupt data is proactively removed so it cannot linger and fail again later. */
@@ -299,13 +329,21 @@ function enqueueCreationSessionMutation<T>(userId: string, mutation: () => Promi
 /**
  * Returns whether the write actually succeeded — callers that only promise
  * "saved" as a side note (autosave's own debounced background writes) can
- * ignore it, but hooks/use-creation-session-autosave.ts's flush() must not:
- * an explicit Exit that tells the user their progress is saved needs to
- * know the write really landed before it says so. `generation` must be
- * whatever currentCreationSessionGeneration(userId) returned at the moment
- * this write was scheduled — see the block comment above
+ * ignore it, but hooks/use-creation-session-autosave.ts's explicit
+ * save-for-later path must not: an explicit Save & exit that tells the
+ * user their progress is saved needs to know the write really landed
+ * before it says so. `generation` must be whatever
+ * currentCreationSessionGeneration(userId) returned at the moment this
+ * write was scheduled — see the block comment above
  * creationSessionGenerations for why this is what actually closes the
  * debounce-window race a queue position alone cannot.
+ *
+ * `savedForLater` is always caller-supplied, never inferred here — this
+ * function has no opinion on whether a write represents quiet background
+ * autosave (false, unless the caller is deliberately preserving an
+ * already-explicit save across further edits) or an explicit Save & exit
+ * (true). That decision belongs entirely to the caller so it can never be
+ * accidentally granted by a code path that only meant to autosave.
  */
 export async function writeCreationSession(
   userId: string,
@@ -313,20 +351,22 @@ export async function writeCreationSession(
   lastRoute: string,
   storage: CreationSessionStorage,
   generation: number,
+  savedForLater: boolean,
 ): Promise<boolean> {
   if (!userId) return true;
   return enqueueCreationSessionMutation(userId, async () => {
     if (generation !== currentCreationSessionGeneration(userId)) {
       // This write belongs to a creation lifecycle that has since been
-      // closed (converted or discarded) — not a failure, just no longer
-      // applicable. Actually writing it now would resurrect a session
-      // that is supposed to stay gone.
+      // closed (converted, discarded, or left-without-saving) — not a
+      // failure, just no longer applicable. Actually writing it now would
+      // resurrect a session that is supposed to stay gone.
       return true;
     }
     const snapshot: CreationSessionSnapshot = {
       schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
       updatedAt: new Date().toISOString(),
       lastRoute,
+      savedForLater,
       fields,
     };
     try {
@@ -409,4 +449,23 @@ export function planExitAttempt(meaningfulProgress: boolean, isSignedIn: boolean
   if (!meaningfulProgress) return 'leave_immediately';
   if (!isSignedIn) return 'confirm_unsaved_signed_out';
   return 'attempt_save';
+}
+
+export type BackLeavePlan = 'proceed' | 'confirm_leave_without_saving';
+
+/**
+ * What components/v2/create-flow-screen.tsx's Back button should do when
+ * this particular Back press would leave the creation flow entirely
+ * (never mid-flow — only ever the very first step, Goal, given the
+ * current routing; ordinary in-flow Back presses between steps never call
+ * this at all and always just navigate). A session that is already
+ * savedForLater needs no confirmation: backing out loses nothing, since
+ * Continue would restore the exact same explicitly-saved state either
+ * way. No confirmation is needed either when there is no meaningful
+ * progress to warn about.
+ */
+export function planBackLeaveAttempt(meaningfulProgress: boolean, savedForLater: boolean): BackLeavePlan {
+  if (!meaningfulProgress) return 'proceed';
+  if (savedForLater) return 'proceed';
+  return 'confirm_leave_without_saving';
 }

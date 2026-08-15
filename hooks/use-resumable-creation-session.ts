@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
-import { createLatestRequestGuard, CreationSessionSnapshot, readCreationSession } from '@/lib/challenge-creation/creation-session';
+import {
+  createLatestRequestGuard,
+  CreationSessionSnapshot,
+  isResumeEligibleSession,
+  readCreationSession,
+} from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 
 export type ResumableCreationSessionState =
@@ -15,6 +20,13 @@ export type ResumableCreationSessionState =
  * should do) and Account (to avoid contradicting the separate, complete
  * server-draft "Saved progress" concept). Never writes; see
  * hooks/use-creation-session-autosave.ts for that.
+ *
+ * "found" here specifically means isResumeEligibleSession(session) —
+ * a snapshot that only exists because of quiet background autosave
+ * (never explicitly Saved & exited) is reported as "none", exactly like
+ * no session at all. This is the one place that filtering happens, so
+ * Home and Account can never drift on what counts as something the user
+ * consciously chose to save for later.
  */
 export function useResumableCreationSession(): ResumableCreationSessionState & { readonly refresh: () => void } {
   const { status: authStatus, user } = useAuth();
@@ -38,7 +50,7 @@ export function useResumableCreationSession(): ResumableCreationSessionState & {
     const userId = user.id;
     void readCreationSession(userId, creationSessionStorage).then((session) => {
       if (!guardRef.current.isCurrent(token)) return;
-      setState(session ? { status: 'found', session } : { status: 'none' });
+      setState(session && isResumeEligibleSession(session) ? { status: 'found', session } : { status: 'none' });
     });
   }, [authStatus, user]);
 

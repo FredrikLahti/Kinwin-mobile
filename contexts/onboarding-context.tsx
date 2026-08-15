@@ -86,6 +86,8 @@ type ResettableOnboardingFields = {
   rewardOrganizer: RewardOrganizer;
   rhythm: RhythmState;
   savedDraftId: string | null;
+  /** Mirrors lib/challenge-creation/creation-session.ts's CreationSessionSnapshot.savedForLater — true only once the user has explicitly chosen Save & exit for the current in-memory session. */
+  savedForLater: boolean;
   sitOutAcknowledged: boolean;
   stakeAmount: number | null;
   stakeAmountInput: string;
@@ -119,6 +121,7 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
       type: null,
     },
     savedDraftId: null,
+    savedForLater: false,
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
@@ -143,6 +146,8 @@ type OnboardingContextValue = {
   rewardOrganizer: RewardOrganizer;
   rhythm: RhythmState;
   savedDraftId: string | null;
+  /** Mirrors CreationSessionSnapshot.savedForLater — true only once the user has explicitly chosen Save & exit (or continued a session that already was). Reset to false by resetDraft(). */
+  savedForLater: boolean;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setDefinitionText: (text: string) => void;
@@ -157,6 +162,7 @@ type OnboardingContextValue = {
   setRewardOrganizer: Dispatch<SetStateAction<RewardOrganizer>>;
   setRhythm: Dispatch<SetStateAction<RhythmState>>;
   setSavedDraftId: Dispatch<SetStateAction<string | null>>;
+  setSavedForLater: Dispatch<SetStateAction<boolean>>;
   setSitOutAcknowledged: Dispatch<SetStateAction<boolean>>;
   setStakeAmount: Dispatch<SetStateAction<number | null>>;
   setStakeAmountInput: Dispatch<SetStateAction<string>>;
@@ -181,12 +187,16 @@ type OnboardingContextValue = {
  * Pure projection of what onboarding state results from restoring a local
  * creation-session snapshot — extracted so this can be unit tested
  * directly (savedDraftId must always come back null, regardless of what it
- * was before) without needing to render OnboardingProvider.
+ * was before) without needing to render OnboardingProvider. savedForLater
+ * always comes back true: restoring only ever happens for a session that
+ * hooks/use-resumable-creation-session.ts already filtered down to an
+ * explicitly-saved one (see isResumeEligibleSession) — there is no other
+ * path that calls this.
  */
 export function computeRestoredCreationSessionState(
   fields: CreationSessionFieldsInput,
-): CreationSessionFieldsInput & { readonly savedDraftId: null } {
-  return { ...fields, savedDraftId: null };
+): CreationSessionFieldsInput & { readonly savedDraftId: null; readonly savedForLater: true } {
+  return { ...fields, savedDraftId: null, savedForLater: true };
 }
 
 /** Matches lib/challenge-creation/creation-session.ts's CreationSessionFields shape without importing it here, to avoid a context <-> lib circular dependency; kept structurally identical on purpose. */
@@ -230,6 +240,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   ]);
   const [rewardOrganizer, setRewardOrganizer] = useState<RewardOrganizer>(initialFields.rewardOrganizer);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(initialFields.savedDraftId);
+  const [savedForLater, setSavedForLater] = useState(initialFields.savedForLater);
   const [sitOutAcknowledged, setSitOutAcknowledged] = useState(initialFields.sitOutAcknowledged);
   const [stakeAmount, setStakeAmount] = useState<number | null>(initialFields.stakeAmount);
   const [stakeAmountInput, setStakeAmountInput] = useState(initialFields.stakeAmountInput);
@@ -253,6 +264,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setInvitationMessageCustomized(true);
     setMembershipChoice(data.membershipChoice);
     setSavedDraftId(draftId);
+    // A loaded server draft is a different entity from any local creation-
+    // session snapshot — never let a leftover savedForLater: true from an
+    // earlier, unrelated local session make background autosave on this
+    // draft's fields look like it was explicitly saved for later too.
+    setSavedForLater(false);
   }, []);
 
   const resetDraft = useCallback(() => {
@@ -274,6 +290,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setInvitationMessageCustomized(fields.invitationMessageCustomized);
     setMembershipChoice(fields.membershipChoice);
     setSavedDraftId(fields.savedDraftId);
+    setSavedForLater(fields.savedForLater);
   }, []);
 
   const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput) => {
@@ -300,6 +317,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     // saveChallengeDraft's existingDraftId for fields that actually came
     // from this unrelated local session.
     setSavedDraftId(restored.savedDraftId);
+    setSavedForLater(restored.savedForLater);
   }, []);
 
   const value = useMemo(
@@ -322,6 +340,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       rewardOrganizer,
       rhythm,
       savedDraftId,
+      savedForLater,
       setBehaviorDirection,
       setBehaviorText,
       setDefinitionText,
@@ -336,6 +355,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setRewardOrganizer,
       setRhythm,
       setSavedDraftId,
+      setSavedForLater,
       setSitOutAcknowledged,
       setStakeAmount,
       setStakeAmountInput,
@@ -361,6 +381,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       rewardOrganizer,
       rhythm,
       savedDraftId,
+      savedForLater,
       sitOutAcknowledged,
       stakeAmount,
       stakeAmountInput,

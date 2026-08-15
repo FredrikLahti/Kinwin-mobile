@@ -26,6 +26,7 @@ test('createInitialOnboardingFields carries no leftover data — every field is 
       type: null,
     },
     savedDraftId: null,
+    savedForLater: false,
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
@@ -55,4 +56,10 @@ test('computeRestoredCreationSessionState always clears savedDraftId to null, ev
   const restored = computeRestoredCreationSessionState(withLeftoverDraftId);
   assert.equal(restored.savedDraftId, null, 'a resumed local session must never carry a previous server draft id');
   assert.equal(restored.goal, 'Sleep better', 'restoring must not silently drop the real fields being restored');
+});
+
+test('computeRestoredCreationSessionState always marks the restored session savedForLater: true — restoring only ever happens for a session hooks/use-resumable-creation-session.ts already filtered down to an explicitly-saved one', () => {
+  const fields = { ...createInitialOnboardingFields(), goal: 'Sleep better', recipients: [createRecipientDraft('Mom')] };
+  const restored = computeRestoredCreationSessionState(fields);
+  assert.equal(restored.savedForLater, true);
 });
