@@ -1,8 +1,10 @@
-import { Href, useRouter } from 'expo-router';
+import { Href, useNavigation, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import type { NavigationAction } from '@react-navigation/native';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { CreateProgressV2 } from '@/components/v2/create-progress';
@@ -43,7 +45,14 @@ type CreateFlowScreenV2Props = {
  *   flow at all, given intro.tsx's router.replace when advancing) does it
  *   ever ask anything, and only when there is meaningful progress that has
  *   not already been explicitly saved (planBackLeaveAttempt). It never
- *   saves anything.
+ *   saves anything. This is enforced via React Navigation's `beforeRemove`
+ *   event rather than the chevron's onPress alone — app/create/_layout.tsx
+ *   has gestureEnabled: true, so an iOS swipe-back or Android hardware back
+ *   press pops this screen without ever calling onBack directly; both of
+ *   those, the tap, and any other way this screen could be removed all
+ *   raise the same beforeRemove event, so intercepting only that one event
+ *   is what actually covers every real exit path instead of just the one
+ *   button.
  * - "Save & exit" (the compact header action) is the one explicit way to
  *   mark this session resume-eligible (savedForLater) and leave. Tapping
  *   it already IS the user's confirmation — on success it returns to Home
@@ -64,11 +73,13 @@ export function CreateFlowScreenV2({
   totalSteps,
 }: CreateFlowScreenV2Props) {
   const router = useRouter();
+  const navigation = useNavigation();
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
   const { status: authStatus, user } = useAuth();
   const { meaningfulProgress, saveForLater } = useCreationSessionAutosave();
   const [leaveWithoutSavingSheetOpen, setLeaveWithoutSavingSheetOpen] = useState(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<NavigationAction | null>(null);
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [savingAndExiting, setSavingAndExiting] = useState(false);
   const [signedOutSaveSheetOpen, setSignedOutSaveSheetOpen] = useState(false);
@@ -86,18 +97,30 @@ export function CreateFlowScreenV2({
   // regardless of challenge type.
   const isFirstStep = currentStep <= 1;
 
-  const handleBackPress = () => {
-    if (isFirstStep && planBackLeaveAttempt(meaningfulProgress, onboarding.savedForLater) === 'confirm_leave_without_saving') {
-      void playSelectionHaptic();
+  // The single interception point for every way this screen can be
+  // removed from the stack — a tap on the chevron (which just calls
+  // router.back() below), an iOS swipe-back gesture, or Android's hardware
+  // back button all raise this same event before the pop actually happens.
+  // preventDefault() here holds the pop; confirming in the sheet below
+  // replays the exact original action via navigation.dispatch so the
+  // eventual removal is indistinguishable from one that was never paused.
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (e) => {
+      if (!isFirstStep) return;
+      if (planBackLeaveAttempt(meaningfulProgress, onboarding.savedForLater) !== 'confirm_leave_without_saving') return;
+      e.preventDefault();
+      // No haptic here: a tap already got one from the chevron's own
+      // onPress above, and a swipe/hardware-back interception matches
+      // native convention by staying silent until the sheet's own
+      // destructive action.
+      setPendingLeaveAction(e.data.action);
       setLeaveWithoutSavingSheetOpen(true);
-      return;
-    }
-    void playSelectionHaptic();
-    onBack();
-  };
+    });
+  }, [navigation, isFirstStep, meaningfulProgress, onboarding.savedForLater]);
 
   const keepEditingFromLeaveWithoutSavingSheet = () => {
     void playSelectionHaptic();
+    setPendingLeaveAction(null);
     setLeaveWithoutSavingSheetOpen(false);
   };
 
@@ -118,6 +141,14 @@ export function CreateFlowScreenV2({
       await clearCreationSession(user.id, creationSessionStorage);
     }
     onboarding.resetDraft();
+    if (pendingLeaveAction) {
+      // Replays the exact pop beforeRemove paused — correct regardless of
+      // whether it originated from the chevron, a swipe, or the hardware
+      // back button, since all three produced the same captured action.
+      navigation.dispatch(pendingLeaveAction);
+      setPendingLeaveAction(null);
+      return;
+    }
     onBack();
   };
 
@@ -191,7 +222,7 @@ export function CreateFlowScreenV2({
                 accessibilityLabel="Go back"
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={handleBackPress}
+                onPress={() => { void playSelectionHaptic(); onBack(); }}
                 style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
               >
                 <Text aria-hidden style={styles.backIcon}>‹</Text>

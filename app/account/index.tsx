@@ -123,13 +123,20 @@ export default function AccountScreen() {
     void Linking.openURL(`mailto:${supportConfig.email}?subject=${encodeURIComponent('Kinwin support')}`);
   };
 
+  // draftLookup starts 'loading' on every mount (see loadDraftLookup) — it
+  // must read as a distinct, neutral state, not silently fall through to
+  // "none," or a user with a real saved draft could be told there is
+  // nothing unfinished and start a redundant parallel challenge before the
+  // real lookup even resolves.
   const challengeSetupStatus = hasPendingCommitment
     ? 'Your challenge is ready to activate.'
-    : draftLookup.status === 'found'
-      ? 'You have a challenge ready to review.'
-      : createChallengeEntry.hasResumableSession
-        ? 'You have an unfinished challenge.'
-        : 'No unfinished challenge right now.';
+    : draftLookup.status === 'loading'
+      ? 'Checking for an unfinished challenge…'
+      : draftLookup.status === 'found'
+        ? 'You have a challenge ready to review.'
+        : createChallengeEntry.hasResumableSession
+          ? 'You have an unfinished challenge.'
+          : 'No unfinished challenge right now.';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
@@ -176,7 +183,7 @@ export default function AccountScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardLabel}>CHALLENGE SETUP</Text>
-            {draftLookup.status === 'error' ? (
+            {!hasPendingCommitment && draftLookup.status === 'error' ? (
               <Text style={styles.error}>{draftLookup.message}</Text>
             ) : (
               <Text style={styles.cardBody}>{challengeSetupStatus}</Text>
@@ -200,7 +207,7 @@ export default function AccountScreen() {
               />
             )}
 
-            {!hasPendingCommitment && (
+            {!hasPendingCommitment && draftLookup.status !== 'loading' && (
               <Pressable
                 accessibilityHint={
                   createChallengeEntry.hasResumableSession
