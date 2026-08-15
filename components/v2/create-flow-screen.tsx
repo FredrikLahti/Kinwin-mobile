@@ -16,10 +16,10 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import {
   clearCreationSession,
   closeCreationSessionGeneration,
-  planBackLeaveAttempt,
   planExitAttempt,
 } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
+import { classifyCreationRemovalAction } from '@/lib/challenge-creation/navigation-action';
 import { resolvePreviousCreationRoute } from '@/lib/challenge-creation/steps';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -30,6 +30,16 @@ type CreateFlowScreenV2Props = {
   footer: ReactNode;
   headline: string;
   onBack: () => void;
+  /**
+   * True while a server request this screen started (Review's
+   * saving/preparing) is in flight. Blocks user-initiated Back (header
+   * tap, gesture, hardware button) and disables Save & exit, but never
+   * blocks an intentional programmatic transition the app itself makes
+   * once that request resolves (Review's own advanceToShare, a
+   * pending-commitment redirect) — those are a different action type
+   * entirely, not a Back, so the lock never reaches them.
+   */
+  navigationLocked?: boolean;
   progressLabel?: string;
   supportingCopy?: string;
   totalSteps: number;
@@ -73,6 +83,7 @@ export function CreateFlowScreenV2({
   currentStep,
   footer,
   headline,
+  navigationLocked = false,
   onBack,
   progressLabel,
   supportingCopy,
@@ -90,11 +101,11 @@ export function CreateFlowScreenV2({
   const [saveFailedSheetOpen, setSaveFailedSheetOpen] = useState(false);
   const [savingAndExiting, setSavingAndExiting] = useState(false);
   const [signedOutSaveSheetOpen, setSignedOutSaveSheetOpen] = useState(false);
-  // Guards against the redirect branch below re-triggering itself: calling
-  // router.replace() to redirect to the logical previous step is *itself*
-  // a removal of this screen, which raises another beforeRemove event
-  // synchronously before any state has actually changed — without this,
-  // the listener would see the same "needs redirect" answer forever.
+  // Guards specifically against confirmLeaveWithoutSaving's replay of a
+  // captured back-like action re-triggering the same confirmation: that
+  // replay is still classified as back-like (it's the exact original
+  // action), so classifyCreationRemovalAction alone can't tell it apart
+  // from a genuine second Back — this ref is the one thing that can.
   const suppressNextBeforeRemoveRef = useRef(false);
 
   const checkpointFields = onboarding.checkpoint?.fields ?? null;
@@ -116,42 +127,50 @@ export function CreateFlowScreenV2({
   // removed from the stack — a tap on the chevron (which just calls
   // router.back() below), an iOS swipe-back gesture, or Android's hardware
   // back button all raise this same event before the pop actually
-  // happens.
+  // happens. beforeRemove also fires for intentional programmatic
+  // transitions (Save & exit's router.replace('/'), a successful server
+  // conversion's advanceToShare, a pending-commitment redirect) — those
+  // are never Back and must always be let through untouched;
+  // classifyCreationRemovalAction's own action-type check (not a
+  // destination-route check) is what makes that distinction reliably.
   useEffect(() => {
     return navigation.addListener('beforeRemove', (e) => {
       if (suppressNextBeforeRemoveRef.current) {
         suppressNextBeforeRemoveRef.current = false;
         return;
       }
-      if (previousCreationRoute !== null) {
-        // Only redirect when the native stack itself has no real previous
-        // /create/* entry to pop to (index 0 in this navigator — exactly
-        // what a session resumed mid-flow looks like, since Home pushes
-        // straight to the target route without the intermediate screens
-        // ever having been pushed). When the stack does have a genuine
-        // previous entry — the user actually stepped forward to get
-        // here — trust the native pop: it already lands on the right
-        // screen, with the normal back animation intact.
-        const state = navigation.getState();
-        if (!state || state.index === 0) {
-          e.preventDefault();
-          suppressNextBeforeRemoveRef.current = true;
-          router.replace(previousCreationRoute as Href);
-        }
+      const state = navigation.getState();
+      const decision = classifyCreationRemovalAction({
+        action: e.data.action,
+        checkpointFields,
+        currentFields: fields,
+        // index 0 in this navigator means there's no real previous
+        // /create/* entry to pop to — exactly what a session resumed
+        // mid-flow looks like, since Home pushes straight to the target
+        // route without the intermediate screens ever having been
+        // pushed. When the stack does have a genuine previous entry —
+        // the user actually stepped forward to get here — the native pop
+        // already lands on the right screen with its usual back
+        // animation intact, so no interception is needed at all.
+        nativeStackHasPreviousEntry: Boolean(state && state.index !== 0),
+        navigationLocked,
+        previousCreationRoute,
+      });
+      if (decision.kind === 'allow') return;
+      e.preventDefault();
+      if (decision.kind === 'blocked') return;
+      if (decision.kind === 'redirect') {
+        router.replace(decision.route as Href);
         return;
       }
-      // previousCreationRoute === null: this is the one genuine creation →
-      // Home boundary.
-      if (planBackLeaveAttempt(fields, checkpointFields) !== 'confirm_leave_without_saving') return;
-      e.preventDefault();
-      // No haptic here: a tap already got one from the chevron's own
-      // onPress above, and a swipe/hardware-back interception matches
-      // native convention by staying silent until the sheet's own
-      // destructive action.
+      // decision.kind === 'confirm_leave_without_saving'. No haptic here:
+      // a tap already got one from the chevron's own onPress above, and
+      // a swipe/hardware-back interception matches native convention by
+      // staying silent until the sheet's own destructive action.
       setPendingLeaveAction(e.data.action);
       setLeaveWithoutSavingSheetOpen(true);
     });
-  }, [navigation, previousCreationRoute, fields, checkpointFields, router]);
+  }, [navigation, previousCreationRoute, fields, checkpointFields, navigationLocked, router]);
 
   const keepEditingFromLeaveWithoutSavingSheet = () => {
     void playSelectionHaptic();
@@ -193,6 +212,11 @@ export function CreateFlowScreenV2({
   };
 
   const attemptSaveAndExit = async () => {
+    // Defense in depth: the Pressable is already disabled while locked, but
+    // a tap that started just before the lock landed could still reach
+    // here — never let Save & exit start while Review's server request is
+    // in flight.
+    if (navigationLocked) return;
     void playSelectionHaptic();
     // Decided before any save is attempted: autosave only ever persists
     // for a signed-in user (hooks/use-creation-session-autosave.ts), so a
@@ -261,9 +285,15 @@ export function CreateFlowScreenV2({
                 accessibilityHint={backHint}
                 accessibilityLabel="Go back"
                 accessibilityRole="button"
+                accessibilityState={{ disabled: navigationLocked }}
+                disabled={navigationLocked}
                 hitSlop={8}
                 onPress={() => { void playSelectionHaptic(); onBack(); }}
-                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && styles.backButtonPressed,
+                  navigationLocked && styles.backButtonDisabled,
+                ]}
               >
                 <Text aria-hidden style={styles.backIcon}>‹</Text>
               </Pressable>
@@ -272,10 +302,15 @@ export function CreateFlowScreenV2({
                 accessibilityHint="Saves this challenge so you can continue it later, and returns to Home"
                 accessibilityLabel="Save and exit"
                 accessibilityRole="button"
-                disabled={savingAndExiting}
+                accessibilityState={{ disabled: savingAndExiting || navigationLocked }}
+                disabled={savingAndExiting || navigationLocked}
                 hitSlop={8}
                 onPress={() => void attemptSaveAndExit()}
-                style={({ pressed }) => [styles.saveExitButton, pressed && styles.saveExitButtonPressed]}
+                style={({ pressed }) => [
+                  styles.saveExitButton,
+                  pressed && styles.saveExitButtonPressed,
+                  navigationLocked && styles.saveExitButtonDisabled,
+                ]}
               >
                 <Text numberOfLines={1} style={styles.saveExitLabel}>{savingAndExiting ? 'Saving…' : 'Save & exit'}</Text>
               </Pressable>
@@ -394,6 +429,7 @@ const styles = StyleSheet.create({
     marginLeft: -9, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
+  backButtonDisabled: { opacity: 0.35 },
   backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
   wordmark: { flex: 1, color: theme.colors.ivory, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
   saveExitButton: {
@@ -401,6 +437,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4, marginRight: -4,
   },
   saveExitButtonPressed: { opacity: 0.65 },
+  saveExitButtonDisabled: { opacity: 0.35 },
   saveExitLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
   main: { gap: 22, paddingTop: 18 },
   intro: { gap: 8 },

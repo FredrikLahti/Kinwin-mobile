@@ -298,6 +298,7 @@ export default function CreateReviewScreen() {
     <CreateFlowScreenV2
       backHint="Returns to the consequence"
       currentStep={currentStep}
+      navigationLocked={busy}
       footer={
         <View style={styles.footerStack}>
           {saveState === 'error' && (
