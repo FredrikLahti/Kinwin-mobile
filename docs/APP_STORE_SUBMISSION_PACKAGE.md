@@ -62,7 +62,7 @@ Purpose: let the founder move quickly on the App Store Connect / TestFlight subm
 | Field | Value | Notes |
 |---|---|---|
 | Support email | `support@kinwin.app` | Real, already wired end-to-end: `app/account/index.tsx`'s "Contact Kinwin" row, `EXPO_PUBLIC_SUPPORT_EMAIL`, and `scripts/beta-public-config.cjs`'s build-time guard (fails a beta build closed if this isn't set to a real-looking address). Resolves Apple Guideline 1.2's published-contact-info requirement. |
-| Support URL (web page) | Not built. | No dedicated support/FAQ web page exists — only the `mailto:` contact. Apple's requirement is a working contact channel, which the email already satisfies; a support web page is optional polish, not confirmed as required. |
+| Support URL (web page) | `https://kinwin-beta.expo.app/support` | **REQUIRED, not optional** — App Store Connect requires a Support URL per app version, leading to an actual support web page with a real contact channel, not just an email address on its own. Built at `app/support.tsx` (public, signed-out reachable — registered outside `app/_layout.tsx`'s `Stack.Protected` block, the same pattern as the privacy policy route). Shows `support@kinwin.app` via the same `readSupportConfig()`/`mailto:` action already used in `app/account/index.tsx`, links to the privacy policy, and mentions Account → Delete account. This exact URL only resolves once this change is merged and a fresh release has been deployed to the stable beta origin — confirm it after that deploy, the same as any route addition. |
 | Privacy policy URL | `https://kinwin-beta.expo.app/legal/privacy` | Real, publicly reachable without sign-in (`app/legal/privacy.tsx`, built from `docs/PRIVACY_DATA_INVENTORY.md`'s evidence-based data inventory). **Still self-labels as a factual DRAFT**, not a finished publication-ready policy — this is Apple Guideline 5.1.1's remaining external-beta/public-launch gap per `docs/LAUNCH_READINESS.md`, not a missing feature. This exact URL only works once a release has been deployed to the stable beta origin; confirm it resolves after any future redeploy. |
 | Terms of Service URL | None. | No custom Kinwin Terms exist; Apple's standard EULA applies automatically to App Store Connect submissions when none is supplied, so this is not automatically required — see `docs/LAUNCH_READINESS.md`'s Terms of Service row for the full framing. Whether Kinwin's consequence/payment model needs its own Terms is a **legal/business decision**, not made here. |
 
@@ -70,7 +70,7 @@ Purpose: let the founder move quickly on the App Store Connect / TestFlight subm
 
 Kinwin's core mechanic, stated precisely for submission purposes:
 
-1. A user sets a personal goal with a measurable, self-reported (server-verified truth) success rule.
+1. A user sets a personal goal with a measurable success rule, tracked through self-reported behavior recorded via Kinwin's trusted server-side check-in path and evaluated against the challenge's configured rules. Kinwin does not independently verify that the reported real-world behavior actually occurred — there is no biometric, device, or external verification of any kind.
 2. The user pledges a monetary stake and authorizes a payment method for it (currently Stripe **TEST mode only** — `pk_test_`/`sk_test_`, enforced by a build-time guard that rejects anything else).
 3. The user names one or more real recipients (people they choose) and picks one as the "canonical organizer" who will ultimately claim the reward.
 4. If the challenge succeeds, nothing is charged.
