@@ -1,6 +1,6 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,7 +18,7 @@ import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challenge';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
-import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate, shouldRefreshCompletedAfterActiveTransition } from '@/lib/home/completed-challenge';
 import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
@@ -90,6 +90,21 @@ export default function HomeV2() {
   useFocusEffect(useCallback(() => { void loadPendingCommitment(); }, [loadPendingCommitment]));
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   useFocusEffect(useCallback(() => { void refreshCompleted(); }, [refreshCompleted]));
+  // A check-in submitted while sitting on Home can finalize the challenge
+  // server-side moments later (useRealActiveChallenge's own fire-and-forget
+  // finalize call) — real.status quietly goes ready -> none in the
+  // background, with no focus event to trigger the usual refetch above.
+  // Without this, Home would flash the empty "No active challenge yet"
+  // state instead of the real completed-challenge card until the user next
+  // leaves and returns. See shouldRefreshCompletedAfterActiveTransition's
+  // own comment for exactly which transition this catches.
+  const previousRealStatusRef = useRef(real.status);
+  useEffect(() => {
+    if (shouldRefreshCompletedAfterActiveTransition(previousRealStatusRef.current, real.status)) {
+      void refreshCompleted();
+    }
+    previousRealStatusRef.current = real.status;
+  }, [real.status, refreshCompleted]);
   useFocusEffect(useCallback(() => { void loadKinActivity(); }, [loadKinActivity]));
   // Re-checked on every return to Home (not just once) — creation-session
   // autosave writes and clears happen entirely inside app/create/*, so
