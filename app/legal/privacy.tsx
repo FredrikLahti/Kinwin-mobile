@@ -66,13 +66,15 @@ const SECTIONS: readonly Section[] = [
   {
     heading: 'Data retention & deletion',
     body: [
-      'Kinwin has not yet finalized retention periods or an account-deletion feature. This is being worked out carefully because deleting an account must not erase an unresolved financial obligation or a reward still owed to someone else. Account deletion is planned before Kinwin is available to the public.',
+      'You can delete your account from Account settings. Deleting your account is permanent and cannot be undone: it permanently deletes your challenge history, check-ins, Playbook entries, social activity, and Kin connections, along with your profile.',
+      'To make sure deleting an account never erases an unresolved financial obligation or a reward still owed to someone else, Kinwin blocks deletion while any challenge, payment, or reward is still in progress. You will be told specifically what needs to be resolved first if that happens.',
+      'Kinwin has not yet finalized retention periods for how long data is kept while an account stays active (there is no automatic expiry today). Deletion itself is fully implemented, as described above.',
     ],
   },
   {
     heading: 'Contact',
     body: [
-      'Questions about this page can be sent through the Support option in Account settings, once a support contact address is configured.',
+      'Questions about this page can be sent through the Support option in Account settings, or directly to support@kinwin.app.',
     ],
   },
 ];

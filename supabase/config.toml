@@ -74,6 +74,11 @@ verify_jwt = false
 [functions.organizer-reward-link]
 verify_jwt = false
 
+# Requires a real, verified Supabase user JWT — derives the caller from it,
+# never from the request body. See supabase/functions/delete-account/index.ts.
+[functions.delete-account]
+verify_jwt = true
+
 [analytics]
 enabled = false
 
