@@ -1,10 +1,35 @@
-const { validateBetaPublicConfig } = require('./scripts/beta-public-config.cjs');
+const { REQUIRED_BETA_PUBLIC_NAMES, validateBetaPublicConfig } = require('./scripts/beta-public-config.cjs');
 const { ensureBetaAssets, ICON_RELATIVE_PATH, SPLASH_RELATIVE_PATH } = require('./scripts/beta-assets.cjs');
 
 ensureBetaAssets();
 
-const betaBuild = process.env.EAS_BUILD_PROFILE === 'beta' || process.env.KINWIN_VALIDATE_BETA === '1';
-const beta = betaBuild ? validateBetaPublicConfig(process.env) : null;
+const betaIntent = process.env.EAS_BUILD_PROFILE === 'beta' || process.env.KINWIN_VALIDATE_BETA === '1';
+// EAS CLI's local build preparation evaluates this dynamic config TWICE:
+// once with only the build profile's own inline `env` (eas.json's
+// beta.env sets KINWIN_VALIDATE_BETA=1) to discover extra.eas.projectId,
+// and only afterward — now that a project is known — does it fetch the
+// selected EAS "preview" environment's EXPO_PUBLIC_* variables and
+// evaluate again. Unconditionally validating on betaIntent alone made that
+// first, pre-fetch pass throw (none of the real values have arrived yet),
+// which stopped EAS CLI from ever reaching the point where it fetches
+// them — an unrecoverable local chicken-and-egg failure with no useful
+// error message surfaced (see the eas build/eas env:exec investigation
+// this fixes). hasAnyBetaPublicInput distinguishes "first pass, nothing
+// has arrived yet" (skip validation, let projectId resolution proceed)
+// from "second pass, at least one value has arrived" (validate for real,
+// so a partially- or wrongly-configured environment still fails loudly
+// rather than silently proceeding with some values missing).
+const hasAnyBetaPublicInput = REQUIRED_BETA_PUBLIC_NAMES.some((name) => Boolean(process.env[name]));
+// EAS_BUILD=true is set only on the actual remote EAS Build worker (never
+// during any local CLI invocation), so this keeps a real remote beta build
+// fail-closed even in the pathological case where the worker's own
+// environment loading failed and hasAnyBetaPublicInput would otherwise be
+// false — a broken beta build must never ship silently. Still gated on
+// betaIntent, so an unrelated non-beta EAS build profile is never forced
+// through Kinwin's beta validation.
+const isRemoteEasBuildWorker = process.env.EAS_BUILD === 'true';
+const mustValidateBeta = betaIntent && (isRemoteEasBuildWorker || hasAnyBetaPublicInput);
+const beta = mustValidateBeta ? validateBetaPublicConfig(process.env) : null;
 
 // This app config is dynamic (a .js file), so `eas init` cannot write the
 // created project's extra.eas.projectId into it automatically (Expo's own

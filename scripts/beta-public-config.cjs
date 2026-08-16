@@ -2,6 +2,20 @@ const { parseInvitationOrigin } = require('./beta-invitation-origin.cjs');
 
 const EXPECTED_SUPABASE_URL = 'https://ywoledppusxwdonwsewh.supabase.co';
 const FORBIDDEN_CLIENT_NAMES = ['SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SECRET_KEY','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SIGNING_SECRET','TREMENDOUS_API_KEY','KINWIN_CRON_SECRET_KEY'];
+// The exact set validateBetaPublicConfig below checks for. Exported as a
+// single source of truth for app.config.js's own two-pass gating (see its
+// own comment) — never duplicate this list, since EAS CLI's local first
+// config-resolution pass (used only to discover extra.eas.projectId) runs
+// before the "preview" environment's variables have been fetched, so
+// app.config.js must be able to tell "not arrived yet" apart from "arrived
+// but invalid" using exactly this same list.
+const REQUIRED_BETA_PUBLIC_NAMES = [
+  'EXPO_PUBLIC_SUPABASE_URL',
+  'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+  'EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+  'EXPO_PUBLIC_SUPPORT_EMAIL',
+  'EXPO_PUBLIC_RECIPIENT_INVITATION_BASE_URL',
+];
 // Same shape as lib/support/config.ts's own EMAIL_PATTERN — kept as a
 // separate literal here rather than imported, since this is a standalone
 // .cjs script app.config.js loads directly, not part of the TS app bundle.
@@ -25,4 +39,4 @@ function validateBetaPublicConfig(env) {
   return { invitationHost };
 }
 
-module.exports = { EXPECTED_SUPABASE_URL, FORBIDDEN_CLIENT_NAMES, validateBetaPublicConfig };
+module.exports = { EXPECTED_SUPABASE_URL, FORBIDDEN_CLIENT_NAMES, REQUIRED_BETA_PUBLIC_NAMES, validateBetaPublicConfig };
