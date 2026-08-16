@@ -1,7 +1,7 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
@@ -123,7 +123,13 @@ export default function HomeV2() {
     setStartingOver(true);
     const result = await cancelPendingChallenge(pendingCommitment.challengeId, user.id);
     setStartingOver(false);
-    if (!result.ok) return;
+    if (!result.ok) {
+      // The sheet stays open and the button re-enables silently without
+      // this — cancel_pending_challenge is idempotent, so it's always safe
+      // to just let the user tap "Start over" again.
+      Alert.alert('Could not start over', 'message' in result ? result.message : 'Please try again.');
+      return;
+    }
     void playImportantHaptic();
     setStartOverSheetOpen(false);
     setPendingCommitment(null);
