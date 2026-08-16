@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
@@ -93,10 +93,24 @@ export default function KinV2() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
+  const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
   const searchRequestId = useRef(0);
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  // Guards against a rapid double-tap firing two overlapping reaction
+  // requests for the same activity item — setMyReaction is a delete-then-
+  // insert on the server, so two in-flight calls could otherwise race each
+  // other (one insert briefly colliding with the other's delete) instead of
+  // landing as one clean, predictable state change.
+  const setReacting = (id: string, busy: boolean) => {
+    setReactingIds((current) => {
       const next = new Set(current);
       if (busy) next.add(id); else next.delete(id);
       return next;
@@ -116,17 +130,20 @@ export default function KinV2() {
     setLoading(false);
   }, [user]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  // The Kin tab stays mounted across visits (it lives inside the same Tabs
+  // navigator as Home/Me — see app/home/_layout.tsx), so a plain
+  // mount-only fetch would leave requests/connections/activity stale for
+  // the rest of the session after the first visit — e.g. a request someone
+  // else already accepted/declined/canceled elsewhere would keep showing
+  // here as if still actionable. useFocusEffect re-pulls server truth every
+  // time this tab gains focus, matching the same pattern Home already uses
+  // for its own Kin preview (app/home/index.tsx).
+  useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
-  // The Kin tab stays mounted across visits (it lives inside the same
-  // Tabs navigator as Home/Me — see app/home/_layout.tsx), so its local
-  // `tab` state otherwise just keeps whatever the user last picked,
-  // regardless of how they got here. A `tab` route param lets a caller
-  // (Home's "See all") explicitly request a section instead of relying on
-  // stale local state — this only fires when the param itself changes, so
-  // it never fights normal manual segmented-control taps afterward.
+  // A `tab` route param lets a caller (Home's "See all") explicitly request
+  // a section instead of relying on stale local state — this only fires
+  // when the param itself changes, so it never fights normal manual
+  // segmented-control taps afterward.
   useEffect(() => {
     if (params.tab === 'activity' || params.tab === 'people') setTab(params.tab);
   }, [params.tab]);
@@ -223,11 +240,14 @@ export default function KinV2() {
       : action === 'decline' ? await declineKinRequest(connection.connectionId)
       : await cancelKinRequest(connection.connectionId);
     setBusy(connection.connectionId, false);
+    // Reconcile with server truth on failure too, not only on success: a
+    // rejection here most often means the other party already accepted,
+    // declined, or canceled this same request first — leaving the stale row
+    // on screen would just let the user tap the same doomed action again.
+    void refresh();
     if (!result.ok) {
       Alert.alert('Could not complete that', result.kind === 'rejected' ? (result.message ?? '') : 'Please try again.');
-      return;
     }
-    void refresh();
   };
 
   const confirmRemove = (connection: KinConnection) => {
@@ -240,8 +260,8 @@ export default function KinV2() {
             const result = await removeKin(connection.connectionId);
             setBusy(connection.connectionId, false);
             setManageTarget(null);
-            if (!result.ok) { Alert.alert('Could not remove', result.kind === 'rejected' ? (result.message ?? '') : ''); return; }
             void refresh();
+            if (!result.ok) { Alert.alert('Could not remove', result.kind === 'rejected' ? (result.message ?? '') : ''); }
           })();
         },
       },
@@ -258,8 +278,8 @@ export default function KinV2() {
             const result = await blockKin(connection.otherUserId);
             setBusy(connection.connectionId, false);
             setManageTarget(null);
-            if (!result.ok) { Alert.alert('Could not block', result.kind === 'rejected' ? (result.message ?? '') : ''); return; }
             void refresh();
+            if (!result.ok) { Alert.alert('Could not block', result.kind === 'rejected' ? (result.message ?? '') : ''); }
           })();
         },
       },
@@ -298,8 +318,9 @@ export default function KinV2() {
   };
 
   const toggleReaction = async (item: ActivityItem, kind: ReactionKind) => {
-    if (!user) return;
+    if (!user || reactingIds.has(item.id)) return;
     void playSelectionHaptic();
+    setReacting(item.id, true);
     const isMine = item.myReaction === kind;
     setActivity((current) => current.map((entry) => {
       if (entry.id !== item.id) return entry;
@@ -308,8 +329,15 @@ export default function KinV2() {
       if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
       return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
     }));
-    if (isMine) await clearMyReaction(user.id, item.id);
-    else await setMyReaction(user.id, item.id, kind);
+    const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, kind);
+    setReacting(item.id, false);
+    // setMyReaction is a delete-then-insert on the server, not one atomic
+    // write, so a failure can leave the server in neither the "before" nor
+    // the "after" state (e.g. the delete lands but the insert doesn't) --
+    // reverting to the pre-tap snapshot could show the wrong thing just as
+    // easily as leaving the optimistic update in place. Re-pulling real
+    // state from the server is the only safe correction.
+    if (!result.ok) void refresh();
   };
 
   return (
@@ -447,6 +475,7 @@ export default function KinV2() {
                             accessibilityHint={`Reacts with ${REACTION_LABELS[kind]}`}
                             accessibilityRole="button"
                             accessibilityState={{ selected: mine }}
+                            disabled={reactingIds.has(item.id)}
                             key={kind}
                             onPress={() => void toggleReaction(item, kind)}
                             style={({ pressed }) => [styles.reactionChip, mine && styles.reactionChipActive, pressed && styles.reactionChipPressed]}
