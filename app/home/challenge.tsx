@@ -117,14 +117,13 @@ export default function ActiveChallengeDetailScreen() {
           {identity.ruleDetail && <Text style={styles.identityRule}>{identity.ruleDetail}</Text>}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>DURATION</Text>
-          <Text style={styles.body}>{durationPosition ?? `${challenge.duration.value} weeks`}</Text>
-          <Text style={styles.bodyMuted}>{formatDate(challenge.startsAt)} to {formatDate(challenge.plannedEndsAt)}</Text>
-          {real.view.finalResult === null && Boolean(real.view.timeRemaining) && (
-            <Text style={styles.bodyMuted}>{real.view.timeRemaining}</Text>
-          )}
-        </View>
+        {focusPeriod && real.view.finalResult === null && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>{real.view.currentPeriodHeadline.toUpperCase()}</Text>
+            <Text style={styles.body}>{real.view.currentPeriodCopy}</Text>
+            <Text style={styles.bodyMuted}>You can report until {formatClockTime(focusPeriod.reportingClosesAt)} after this period ends.</Text>
+          </View>
+        )}
 
         {progressLine && (
           <View style={styles.section}>
@@ -134,12 +133,20 @@ export default function ActiveChallengeDetailScreen() {
           </View>
         )}
 
-        {focusPeriod && real.view.finalResult === null && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>REPORTING</Text>
-            <Text style={styles.bodyMuted}>You can report until {formatClockTime(focusPeriod.reportingClosesAt)} after this period ends.</Text>
-          </View>
-        )}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>IF MISSED</Text>
+          <Text style={styles.body}>{consequence.recipientsCompact} · {consequence.categoryLabel} · {consequence.stakeLabel}</Text>
+          <Text style={styles.bodyMuted}>The stake funds their experience. You will not take part.</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>DURATION</Text>
+          <Text style={styles.body}>{durationPosition ?? `${challenge.duration.value} weeks`}</Text>
+          <Text style={styles.bodyMuted}>{formatDate(challenge.startsAt)} to {formatDate(challenge.plannedEndsAt)}</Text>
+          {real.view.finalResult === null && Boolean(real.view.timeRemaining) && (
+            <Text style={styles.bodyMuted}>{real.view.timeRemaining}</Text>
+          )}
+        </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>RECIPIENTS</Text>
@@ -154,12 +161,6 @@ export default function ActiveChallengeDetailScreen() {
         </View>
 
         {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" disabled={sharingIds.has('organizer')} onPress={()=>void shareOrganizerInvite()} style={[styles.inviteButton, sharingIds.has('organizer') && styles.inviteButtonBusy]}><Text style={styles.inviteButtonText}>{sharingIds.has('organizer')?'Preparing…':organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share access'}</Text></Pressable></View></View>}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>IF MISSED</Text>
-          <Text style={styles.body}>{consequence.recipientsCompact} · {consequence.categoryLabel} · {consequence.stakeLabel}</Text>
-          <Text style={styles.bodyMuted}>The stake funds their experience. You will not take part.</Text>
-        </View>
 
       </ScrollView>
     </SafeAreaView>
