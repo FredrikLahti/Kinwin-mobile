@@ -545,14 +545,10 @@ test('account deletion: a fully resolved failed challenge (paid, reward delivere
     const result = await callDeleteAccount((await client.auth.getSession()).data.session!.access_token);
     assert.equal(result.status, 200, `expected deletion to succeed: ${JSON.stringify(result.body)}`);
 
-    const checks: Array<[string, string]> = [
-      ['challenges', challengeId],
-      ['consequences', challengeId],
-    ];
-    for (const [table, challenge] of checks) {
-      const { data: rows } = await service.from(table).select('id').eq('challenge_id', challenge);
-      assert.equal(rows?.length, 0, `expected ${table} to be empty after deletion`);
-    }
+    const { data: challengeRows } = await service.from('challenges').select('id').eq('id', challengeId);
+    assert.equal(challengeRows?.length, 0, 'expected challenges to be empty after deletion');
+    const { data: consequenceRows } = await service.from('consequences').select('id').eq('challenge_id', challengeId);
+    assert.equal(consequenceRows?.length, 0, 'expected consequences to be empty after deletion');
     assert.equal(countPrivateRows('consequence_charge_attempts', consequenceId), 0, 'expected the charge attempt to be gone');
     assert.equal(countPrivateRows('reward_fulfillments', consequenceId), 0, 'expected the reward fulfillment to be gone');
     assert.equal(await profileExists(service, ownerId), false);
