@@ -29,7 +29,6 @@ type Screen =
   | { readonly status: 'blocked'; readonly message: string }
   | { readonly status: 'eligible' }
   | { readonly status: 'deleting' }
-  | { readonly status: 'deleted' }
   | { readonly status: 'error'; readonly message: string };
 
 export default function DeleteAccountScreen() {
@@ -87,15 +86,14 @@ export default function DeleteAccountScreen() {
       await clearCreationSession(deletedUserId, creationSessionStorage);
     }
     onboarding.resetDraft();
-    setScreen({ status: 'deleted' });
-  };
-
-  const finishAfterDeletion = async () => {
-    void playSelectionHaptic();
-    // 'local' only — the account, and so the normal server-side
-    // revocation this call would otherwise make, no longer exists.
+    // Immediately, not deferred behind a later "Continue" tap: the account
+    // (and so the normal server-side revocation signOut would otherwise
+    // make) no longer exists, and this screen lives under the signed-in
+    // Stack.Protected guard — leaving a dead session in client state while
+    // waiting for another tap would be its own small risk for no benefit.
+    // 'local' scope skips that now-pointless server round-trip.
     await signOut('local');
-    router.replace('/' as Href);
+    router.replace('/account-deleted' as Href);
   };
 
   return (
@@ -104,7 +102,7 @@ export default function DeleteAccountScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
           <View style={styles.header}>
-            {screen.status !== 'deleted' && screen.status !== 'deleting' && (
+            {screen.status !== 'deleting' && (
               <Pressable
                 accessibilityHint="Returns to Account"
                 accessibilityLabel="Go back"
@@ -155,20 +153,6 @@ export default function DeleteAccountScreen() {
             </>
           )}
 
-          {screen.status === 'deleted' && (
-            <>
-              <Text accessibilityRole="header" style={styles.confirmationTitle}>Your account has been deleted</Text>
-              <Text style={styles.body}>Your challenge history, check-ins, Playbook entries, social activity, and Kin connections have been permanently removed.</Text>
-              <Pressable
-                accessibilityHint="Signs out and returns to the start"
-                accessibilityRole="button"
-                onPress={() => void finishAfterDeletion()}
-                style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
-              >
-                <Text style={styles.secondaryButtonLabel}>Continue</Text>
-              </Pressable>
-            </>
-          )}
         </View>
       </ScrollView>
 
@@ -216,7 +200,6 @@ const styles = StyleSheet.create({
   backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
   title: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
   body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20 },
-  confirmationTitle: { color: theme.colors.ivory, fontSize: 22, fontWeight: '700' },
   secondaryButton: {
     minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 4,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,

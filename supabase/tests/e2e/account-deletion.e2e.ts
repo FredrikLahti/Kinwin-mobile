@@ -20,6 +20,7 @@
  * simple, already well covered, and worth exercising end to end here too.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
@@ -33,13 +34,41 @@ import { planDraftMutation } from '../../../lib/supabase/draft-mutation';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_DB_URL) {
   throw new Error(
-    'SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY (all from `supabase status -o env` against a ' +
-      'running `supabase start`) must be set. This suite talks to a real local GoTrue/PostgREST/Edge-Runtime stack ' +
-      'and refuses to run without it — no mocked backend.',
+    'SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_DB_URL (all from `supabase status -o env` ' +
+      'against a running `supabase start`) must be set. This suite talks to a real local GoTrue/PostgREST/Edge-Runtime ' +
+      'stack and refuses to run without it — no mocked backend.',
   );
+}
+
+/**
+ * Direct SQL against the real local `supabase start` Postgres database —
+ * the only way to reach `private.consequence_charge_attempts` /
+ * `private.reward_fulfillments` for fixture setup, since PostgREST
+ * deliberately never exposes the `private` schema (config.toml's
+ * `api.schemas`, proven from the other direction by this file's own
+ * "public.delete_account_owned_data stays unreachable" test below and by
+ * server-generated-periods.e2e.ts). This is fixture plumbing for a test —
+ * the same effect a service-role Postgres connection already has — never a
+ * new production RPC or a widening of what PostgREST exposes. Uses the same
+ * psql-over-stdin mechanism as supabase/tests/run.sh.
+ */
+function runFixtureSql(sql: string): void {
+  execFileSync('psql', [SUPABASE_DB_URL as string, '-v', 'ON_ERROR_STOP=1', '-q'], {
+    input: sql,
+    stdio: ['pipe', 'ignore', 'inherit'],
+  });
+}
+
+/** Same as runFixtureSql, but for a single scalar (e.g. a `count(*)`), returned as trimmed text. */
+function fixtureSqlScalar(sql: string): string {
+  return execFileSync('psql', [SUPABASE_DB_URL as string, '-v', 'ON_ERROR_STOP=1', '-t', '-A'], {
+    input: sql,
+    encoding: 'utf8',
+  }).trim();
 }
 
 function freshClient() {
@@ -186,41 +215,38 @@ async function insertTerminalChallenge(
   return { challengeId, consequenceId, recipientId };
 }
 
-async function insertSucceededChargeAttempt(service: ReturnType<typeof serviceRoleClient>, ownerId: string, consequenceId: string) {
+function insertSucceededChargeAttempt(ownerId: string, consequenceId: string) {
   const now = new Date().toISOString();
-  const { error } = await service.from('consequence_charge_attempts').insert({
-    consequence_id: consequenceId,
-    owner_id: ownerId,
-    idempotency_key: `e2e-charge-${randomUUID()}`,
-    attempt_number: 1,
-    status: 'succeeded',
-    amount_minor_units: 5000,
-    currency: 'USD',
-    requested_at: now,
-    completed_at: now,
-    stripe_customer_id: `cus_e2e_${randomUUID()}`,
-    stripe_payment_method_id: `pm_e2e_${randomUUID()}`,
-    stripe_payment_intent_id: `pi_e2e_${randomUUID()}`,
-  });
-  assert.equal(error, null, `fixture charge attempt insert failed: ${error?.message}`);
+  runFixtureSql(`
+    insert into private.consequence_charge_attempts (
+      consequence_id, owner_id, idempotency_key, attempt_number, status,
+      amount_minor_units, currency, requested_at, completed_at,
+      stripe_customer_id, stripe_payment_method_id, stripe_payment_intent_id
+    ) values (
+      '${consequenceId}', '${ownerId}', 'e2e-charge-${randomUUID()}', 1, 'succeeded',
+      5000, 'USD', '${now}', '${now}',
+      'cus_e2e_${randomUUID()}', 'pm_e2e_${randomUUID()}', 'pi_e2e_${randomUUID()}'
+    );
+  `);
 }
 
-async function insertDeliveredReward(service: ReturnType<typeof serviceRoleClient>, consequenceId: string) {
+function insertDeliveredReward(consequenceId: string) {
   const now = new Date().toISOString();
-  const { error } = await service.from('reward_fulfillments').insert({
-    consequence_id: consequenceId,
-    idempotency_key: `e2e-reward-${randomUUID()}`,
-    fulfillment_provider: 'tremendous_sandbox',
-    status: 'delivered',
-    amount_minor_units: 5000,
-    currency: 'USD',
-    requested_at: now,
-    delivered_at: now,
-    provider_status: 'SUCCEEDED',
-    provider_order_id: `order_e2e_${randomUUID()}`,
-    provider_reward_id: `reward_e2e_${randomUUID()}`,
-  });
-  assert.equal(error, null, `fixture reward fulfillment insert failed: ${error?.message}`);
+  runFixtureSql(`
+    insert into private.reward_fulfillments (
+      consequence_id, idempotency_key, fulfillment_provider, status,
+      amount_minor_units, currency, requested_at, delivered_at,
+      provider_status, provider_order_id, provider_reward_id
+    ) values (
+      '${consequenceId}', 'e2e-reward-${randomUUID()}', 'tremendous_sandbox', 'delivered',
+      5000, 'USD', '${now}', '${now}',
+      'SUCCEEDED', 'order_e2e_${randomUUID()}', 'reward_e2e_${randomUUID()}'
+    );
+  `);
+}
+
+function countPrivateRows(table: 'consequence_charge_attempts' | 'reward_fulfillments', consequenceId: string): number {
+  return Number(fixtureSqlScalar(`select count(*) from private.${table} where consequence_id = '${consequenceId}';`));
 }
 
 async function callDeleteAccount(accessToken: string): Promise<{ status: number; body: any }> {
@@ -481,7 +507,7 @@ test('account deletion: an outstanding reward fulfillment blocks deletion even o
     const signed = await signUpAndSignIn(testEmail('deletion-reward-pending'));
     client = signed.client;
     const fixture = await insertTerminalChallenge(service, signed.userId, 'completed_failure');
-    await insertSucceededChargeAttempt(service, signed.userId, fixture.consequenceId);
+    insertSucceededChargeAttempt(signed.userId, fixture.consequenceId);
   });
 
   await t.test('preflight and the real deletion call both reject it, for the same reason', async () => {
@@ -508,8 +534,8 @@ test('account deletion: a fully resolved failed challenge (paid, reward delivere
     const fixture = await insertTerminalChallenge(service, ownerId, 'completed_failure');
     challengeId = fixture.challengeId;
     consequenceId = fixture.consequenceId;
-    await insertSucceededChargeAttempt(service, ownerId, consequenceId);
-    await insertDeliveredReward(service, consequenceId);
+    insertSucceededChargeAttempt(ownerId, consequenceId);
+    insertDeliveredReward(consequenceId);
   });
 
   await t.test('preflight reports eligible, and deletion removes the entire financial graph', async () => {
@@ -527,10 +553,8 @@ test('account deletion: a fully resolved failed challenge (paid, reward delivere
       const { data: rows } = await service.from(table).select('id').eq('challenge_id', challenge);
       assert.equal(rows?.length, 0, `expected ${table} to be empty after deletion`);
     }
-    const { data: charges } = await service.from('consequence_charge_attempts').select('id').eq('consequence_id', consequenceId);
-    assert.equal(charges?.length, 0, 'expected the charge attempt to be gone');
-    const { data: rewards } = await service.from('reward_fulfillments').select('id').eq('consequence_id', consequenceId);
-    assert.equal(rewards?.length, 0, 'expected the reward fulfillment to be gone');
+    assert.equal(countPrivateRows('consequence_charge_attempts', consequenceId), 0, 'expected the charge attempt to be gone');
+    assert.equal(countPrivateRows('reward_fulfillments', consequenceId), 0, 'expected the reward fulfillment to be gone');
     assert.equal(await profileExists(service, ownerId), false);
   });
 });
@@ -547,4 +571,21 @@ test('account deletion: concurrent double-tap does not produce unsafe partial st
   }
   assert.ok(first.status === 200 || second.status === 200, 'at least one of the two concurrent calls must succeed');
   assert.equal(await profileExists(service, signed.userId), false, 'the account must end up fully deleted regardless of which call "won"');
+});
+
+test('public.delete_account_owned_data stays unreachable to anon/authenticated over real PostgREST — only the delete-account Edge Function\'s service-role client can call it', async (t) => {
+  await t.test('an anonymous (signed-out) client cannot reach it', async () => {
+    const anon = freshClient();
+    const { data, error } = await anon.rpc('delete_account_owned_data', { p_owner_id: randomUUID() });
+    assert.ok(error, 'expected the destructive RPC to be unreachable to an anonymous client');
+    assert.equal(data, null);
+  });
+
+  await t.test('a real signed-up, signed-in GoTrue user cannot reach it either, even for their own id', async () => {
+    const signed = await signUpAndSignIn(testEmail('deletion-rpc-unreachable'));
+    const { data, error } = await signed.client.rpc('delete_account_owned_data', { p_owner_id: signed.userId });
+    assert.ok(error, 'expected the destructive RPC to be unreachable even to an authenticated client calling it for their own account');
+    assert.equal(data, null);
+    assert.equal(await profileExists(serviceRoleClient(), signed.userId), true, 'the account must be completely untouched by the rejected call');
+  });
 });
