@@ -95,6 +95,13 @@ export default function KinV2() {
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
   const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
   const searchRequestId = useRef(0);
+  // The actual concurrency mutex for toggleReaction — a ref, not the
+  // reactingIds state above, because a ref is read/written synchronously,
+  // immediately, on the calling render's closure; state only takes effect
+  // on the next render, which is too late to stop a second rapid tap that
+  // fires before that render happens. reactingIds itself is kept only to
+  // drive the disabled visual state on the reaction chips.
+  const reactionInFlightRef = useRef<Set<string>>(new Set());
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds((current) => {
@@ -104,11 +111,8 @@ export default function KinV2() {
     });
   };
 
-  // Guards against a rapid double-tap firing two overlapping reaction
-  // requests for the same activity item — setMyReaction is a delete-then-
-  // insert on the server, so two in-flight calls could otherwise race each
-  // other (one insert briefly colliding with the other's delete) instead of
-  // landing as one clean, predictable state change.
+  // Drives the disabled visual state on a reacting item's chips. Not the
+  // concurrency guard itself — see reactionInFlightRef above.
   const setReacting = (id: string, busy: boolean) => {
     setReactingIds((current) => {
       const next = new Set(current);
@@ -318,26 +322,42 @@ export default function KinV2() {
   };
 
   const toggleReaction = async (item: ActivityItem, kind: ReactionKind) => {
-    if (!user || reactingIds.has(item.id)) return;
+    // reactingIds (React state) is not a valid mutex here: two rapid taps
+    // can both run this function against the same pre-update render before
+    // either state write has committed, so both would read reactingIds as
+    // not-yet-containing item.id and pass this check. The ref is checked
+    // and written synchronously, before any await, so the second call
+    // always sees the first call's claim.
+    if (!user || reactionInFlightRef.current.has(item.id)) return;
+    reactionInFlightRef.current.add(item.id);
     void playSelectionHaptic();
     setReacting(item.id, true);
-    const isMine = item.myReaction === kind;
-    setActivity((current) => current.map((entry) => {
-      if (entry.id !== item.id) return entry;
-      const counts = { ...entry.reactionCounts };
-      if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
-      if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
-      return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
-    }));
-    const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, kind);
-    setReacting(item.id, false);
-    // setMyReaction is a delete-then-insert on the server, not one atomic
-    // write, so a failure can leave the server in neither the "before" nor
-    // the "after" state (e.g. the delete lands but the insert doesn't) --
-    // reverting to the pre-tap snapshot could show the wrong thing just as
-    // easily as leaving the optimistic update in place. Re-pulling real
-    // state from the server is the only safe correction.
-    if (!result.ok) void refresh();
+    try {
+      const isMine = item.myReaction === kind;
+      setActivity((current) => current.map((entry) => {
+        if (entry.id !== item.id) return entry;
+        const counts = { ...entry.reactionCounts };
+        if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
+        if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
+        return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
+      }));
+      const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, kind);
+      // setMyReaction is a delete-then-insert on the server, not one atomic
+      // write, so a failure can leave the server in neither the "before" nor
+      // the "after" state (e.g. the delete lands but the insert doesn't) --
+      // reverting to the pre-tap snapshot could show the wrong thing just as
+      // easily as leaving the optimistic update in place. Re-pulling real
+      // state from the server is the only safe correction.
+      if (!result.ok) void refresh();
+    } catch {
+      // An unexpected throw (rather than a normal ReactionActionResult
+      // failure) must still release the lock and reconcile with the server
+      // — never leave this item's reaction chips permanently disabled.
+      void refresh();
+    } finally {
+      reactionInFlightRef.current.delete(item.id);
+      setReacting(item.id, false);
+    }
   };
 
   return (
