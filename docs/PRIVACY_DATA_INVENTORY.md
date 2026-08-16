@@ -1,6 +1,8 @@
 # Kinwin Privacy Data Inventory
 
-Evidence-based inventory of what Kinwin actually collects, stores, and sends to third parties today, as of main `141b77d`. Built from the real Postgres schema (`supabase/migrations/`), Edge Functions (`supabase/functions/`), and client code — not from assumption or a generic privacy-policy template. Where a fact is not yet decided (mainly retention/deletion), it is marked `RETENTION DECISION NEEDED` rather than invented. See `docs/ACCOUNT_DELETION_DECISIONS.md` for the deletion-specific follow-on questions this inventory feeds.
+Evidence-based inventory of what Kinwin actually collects, stores, and sends to third parties today, as of main `75268fd` plus the account-deletion package (`docs/ACCOUNT_DELETION_DECISIONS.md`). Built from the real Postgres schema (`supabase/migrations/`), Edge Functions (`supabase/functions/`), and client code — not from assumption or a generic privacy-policy template. Where a fact is not yet decided (mainly ongoing retention while an account is active), it is marked `RETENTION DECISION NEEDED` rather than invented. See `docs/ACCOUNT_DELETION_DECISIONS.md` for the deletion-specific decisions this inventory previously fed, now implemented.
+
+**Account deletion is now real** (`app/account/delete-account.tsx`, `supabase/functions/delete-account`): once every challenge/payment/reward obligation on an account is genuinely terminal, deleting the account hard-deletes essentially everything in this inventory that is linked to that account — see the "Retention" section below for exactly what that does and does not cover. Every `RETENTION DECISION NEEDED` marker below refers to *ongoing* retention while an account stays active (there is still no auto-expiry/scheduled-purge policy for any category), not to what happens on deletion, which is now: gone.
 
 This document is a working input for a future privacy policy, the App Store Privacy Nutrition Label, and account-deletion design — it is not itself a privacy policy and creates no legal obligations. Nothing here has had legal review.
 
@@ -122,7 +124,9 @@ No other third-party service is integrated. There is no analytics vendor, no cra
 
 ## Retention
 
-Almost every category above is marked `RETENTION DECISION NEEDED` because **no retention period has been decided for any Kinwin-owned data**, and none is invented here. The technical architecture does support deletion in principle (foreign keys are deliberately restrictive rather than cascading through financial/social state — see `docs/ACCOUNT_DELETION_DECISIONS.md` for the full analysis of what a real deletion flow would need to resolve, table by table).
+Almost every category above is still marked `RETENTION DECISION NEEDED` for **ongoing** retention because **no auto-expiry/scheduled-purge period has been decided for any Kinwin-owned data while an account stays active**, and none is invented here.
+
+**On account deletion, retention is now decided and implemented** (`docs/ACCOUNT_DELETION_DECISIONS.md`, `supabase/migrations/20260903000000_account_deletion.sql`): once every challenge/payment/reward obligation on the account is genuinely terminal (never while one is still active or unresolved — deletion is never an escape hatch from a commitment), the account's own challenge content, check-ins, Playbook entries, social activity, reactions, Kin connections, recipient/organizer display names, invitations, and (for the current TEST-only beta) Stripe/Tremendous provider references are all hard-deleted, followed by the `auth.users` row itself. The one thing this does *not* solve is **production, real-money retention**: for the current TEST-beta product, every Stripe/Tremendous reference is deleted with the rest of the account, since no real money has ever moved; before real-money launch, a separate, undesigned decision (with real legal/accounting advice) is still needed on what minimal accounting/reconciliation record, if any, must survive deletion and for how long — see `docs/ACCOUNT_DELETION_DECISIONS.md`'s "Payment / provider records" section.
 
 ## App Store privacy declaration working map
 
@@ -160,4 +164,4 @@ Almost every category above is marked `RETENTION DECISION NEEDED` because **no r
 
 ## Source-of-truth note
 
-This inventory reflects the schema and code as of main `141b77d`. Like `docs/PRODUCT_STATUS.md`, it should be updated in the same PR whenever a future change adds, removes, or changes what data Kinwin collects or sends to a third party.
+This inventory reflects the schema and code as of main `75268fd` plus the account-deletion package. Like `docs/PRODUCT_STATUS.md`, it should be updated in the same PR whenever a future change adds, removes, or changes what data Kinwin collects or sends to a third party.

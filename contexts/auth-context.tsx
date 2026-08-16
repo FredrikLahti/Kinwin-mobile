@@ -38,7 +38,13 @@ type AuthContextValue = {
   readonly signUp: (email: string, password: string) => Promise<SignUpResult>;
   readonly resendConfirmationEmail: (email: string) => Promise<AuthResult>;
   readonly signIn: (email: string, password: string) => Promise<AuthResult>;
-  readonly signOut: () => Promise<void>;
+  /**
+   * Defaults to Supabase's own 'global' scope (revokes the refresh token
+   * server-side too). 'local' only clears the local session without a
+   * server round-trip — needed after account deletion, where the account
+   * (and so the normal server-side revocation call) no longer exists.
+   */
+  readonly signOut: (scope?: 'global' | 'local') => Promise<void>;
   readonly updateDisplayName: (displayName: string) => Promise<AuthResult>;
   readonly updateShowChallengeIntro: (show: boolean) => Promise<AuthResult>;
   readonly requestPasswordReset: (email: string) => Promise<AuthResult>;
@@ -152,9 +158,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (scope: 'global' | 'local' = 'global') => {
     if (!supabase) return;
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope });
   }, []);
 
   const updateDisplayName = useCallback(async (displayName: string): Promise<AuthResult> => {

@@ -75,6 +75,7 @@ function AuthGate() {
       <Stack.Screen name="auth" />
       <Stack.Screen name="invite" />
       <Stack.Screen name="legal" />
+      <Stack.Screen name="account-deleted" />
       <Stack.Protected guard={status === 'signed_in'}>
         <Stack.Screen name="account" />
         <Stack.Screen name="home" />

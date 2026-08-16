@@ -278,6 +278,15 @@ export default function AccountScreen() {
           >
             <Text style={styles.signOutLabel}>Sign out</Text>
           </Pressable>
+
+          <Pressable
+            accessibilityHint="Opens the option to permanently delete your Kinwin account"
+            accessibilityRole="button"
+            onPress={() => { void playSelectionHaptic(); router.push('/account/delete-account' as Href); }}
+            style={({ pressed }) => [styles.deleteAccountLink, pressed && styles.deleteAccountLinkPressed]}
+          >
+            <Text style={styles.deleteAccountLabel}>Delete account</Text>
+          </Pressable>
         </View>
       </ScrollView>
 
@@ -339,4 +348,7 @@ const styles = StyleSheet.create({
   },
   signOutButtonPressed: { backgroundColor: theme.colors.surface },
   signOutLabel: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '700' },
+  deleteAccountLink: { minHeight: 32, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+  deleteAccountLinkPressed: { opacity: 0.7 },
+  deleteAccountLabel: { color: theme.colors.warmGrey, fontSize: 12, fontWeight: '600' },
 });

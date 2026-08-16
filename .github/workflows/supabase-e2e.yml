@@ -47,6 +47,14 @@ jobs:
       - name: PostgreSQL migration / RLS / constraint assertion suite
         run: supabase/tests/run.sh
 
+      # Two real, separate Postgres connections timed against each other —
+      # proves the owner-level advisory lock (20260904000000_account_
+      # deletion_service_role_rpc_and_locking.sql) actually blocks a
+      # concurrent session, which run.sh's single-connection, sequential
+      # suite cannot exercise.
+      - name: Account deletion owner-lock concurrency proof
+        run: supabase/tests/concurrency/account_deletion_lock.sh
+
   supabase-e2e:
     name: GoTrue + PostgREST end-to-end (real local Supabase stack)
     runs-on: ubuntu-latest
@@ -127,14 +135,30 @@ jobs:
       # consequence" directly (no RPC lets even an authenticated owner set
       # authorization_status themselves, by design), rather than re-driving
       # the real webhook flow consequence-setup-stripe.e2e.ts already covers.
+      # SUPABASE_DB_URL (the local `supabase start` Postgres connection
+      # string, also local-dev-only/never a secret) is needed only by
+      # account-deletion.e2e.ts, to insert `private` schema fixture rows
+      # (consequence_charge_attempts, reward_fulfillments) directly — those
+      # tables are deliberately unreachable through PostgREST/supabase-js
+      # (see 050_private_schema_isolation.sql and this suite's own
+      # unreachability test), so a fixture needing one goes straight to
+      # Postgres via psql instead, never through a new production RPC.
       - name: Export local Supabase connection details
         run: |
           supabase status -o env \
             --override-name api.url=SUPABASE_URL \
             --override-name auth.anon_key=SUPABASE_ANON_KEY \
             --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
+            --override-name db.url=SUPABASE_DB_URL \
             | sed -E 's/^([A-Z_]+)="(.*)"$/\1=\2/' \
             >> "$GITHUB_ENV"
+
+      # psql itself (account-deletion.e2e.ts's only way to reach the
+      # `private` schema for fixture setup — see above).
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
 
       - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, consequence-setup-stripe, and full-activation-and-check-in end-to-end suite against real GoTrue/PostgREST/Edge Runtime
         run: npm run test:e2e
