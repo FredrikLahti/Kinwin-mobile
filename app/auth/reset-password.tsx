@@ -20,9 +20,10 @@ import { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { LabeledFieldV2 } from '@/components/v2/labeled-field';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { TextInputV2 } from '@/components/v2/text-input';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { parseAuthRedirectParams } from '@/lib/auth/parse-auth-redirect';
@@ -102,11 +103,11 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
-            <Text style={styles.wordmark}>KINWIN</Text>
-            <Text accessibilityRole="header" style={styles.headline}>Set a new password.</Text>
+            <Text numberOfLines={1} style={styles.wordmark}>KINWIN</Text>
+            <Text accessibilityRole="header" style={styles.headline}>Set a new password</Text>
 
             {state.kind === 'establishing' && (
               <Text accessibilityLiveRegion="polite" style={styles.body}>Confirming your reset link…</Text>
@@ -129,8 +130,7 @@ export default function ResetPasswordScreen() {
 
             {state.kind === 'form' && (
               <View style={styles.form}>
-                <View style={styles.field}>
-                  <Text style={styles.label}>NEW PASSWORD</Text>
+                <LabeledFieldV2 label="New password">
                   <TextInputV2
                     accessibilityLabel="New password"
                     autoCapitalize="none"
@@ -139,13 +139,13 @@ export default function ResetPasswordScreen() {
                     placeholder="At least 8 characters"
                     placeholderTextColor={theme.colors.warmGrey}
                     secureTextEntry
+                    selectionColor={theme.colors.oxblood}
                     style={styles.input}
                     textContentType="newPassword"
                     value={password}
                   />
-                </View>
-                <View style={styles.field}>
-                  <Text style={styles.label}>CONFIRM PASSWORD</Text>
+                </LabeledFieldV2>
+                <LabeledFieldV2 label="Confirm password">
                   <TextInputV2
                     accessibilityLabel="Confirm new password"
                     autoCapitalize="none"
@@ -154,16 +154,17 @@ export default function ResetPasswordScreen() {
                     placeholder="Type it again"
                     placeholderTextColor={theme.colors.warmGrey}
                     secureTextEntry
+                    selectionColor={theme.colors.oxblood}
                     style={styles.input}
                     textContentType="newPassword"
                     value={confirmPassword}
                   />
-                </View>
+                </LabeledFieldV2>
                 {confirmPassword.length > 0 && password !== confirmPassword && (
                   <Text style={styles.error}>Passwords do not match.</Text>
                 )}
                 {formError && <Text accessibilityLiveRegion="assertive" style={styles.error}>{formError}</Text>}
-                <AnimatedPrimaryButton
+                <PrimaryButtonV2
                   accessibilityHint="Saves your new password"
                   disabled={!canSubmit}
                   label={submitting ? 'Saving…' : 'Save new password'}
@@ -178,7 +179,7 @@ export default function ResetPasswordScreen() {
             {state.kind === 'done' && (
               <View style={styles.form}>
                 <Text accessibilityLiveRegion="polite" style={styles.notice}>Your password has been updated.</Text>
-                <AnimatedPrimaryButton accessibilityHint="Continues to Kinwin" label="Continue" onPress={continueToApp} reducedMotion={reducedMotion} />
+                <PrimaryButtonV2 accessibilityHint="Continues to Kinwin" label="Continue" onPress={continueToApp} reducedMotion={reducedMotion} />
               </View>
             )}
           </View>
@@ -190,29 +191,20 @@ export default function ResetPasswordScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: theme.colors.ink },
+  keyboardAvoidingView: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+    paddingHorizontal: theme.spacing.medium, paddingTop: theme.spacing.large, paddingBottom: theme.spacing.small, gap: 22,
   },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5, marginTop: 12 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 32, fontWeight: '400', letterSpacing: -0.5, lineHeight: 38,
-  },
-  body: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  wordmark: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  body: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   form: { gap: 16 },
-  field: { gap: 8 },
-  label: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
-  input: {
-    minHeight: 50, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 14, color: theme.colors.bone, fontSize: 15,
-  },
-  notice: { color: theme.colors.copperBright, fontSize: 14, lineHeight: 21 },
+  input: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
+  notice: { color: theme.colors.ivory, fontSize: 14, lineHeight: 21 },
   error: { color: '#E37D6A', fontSize: 13, lineHeight: 19 },
   textButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
 });

@@ -8,24 +8,50 @@ import {
   clearCreationSession,
   closeCreationSessionGeneration,
   createLatestRequestGuard,
+  CREATION_SESSION_SCHEMA_VERSION,
+  CreationSessionCheckpoint,
   CreationSessionFields,
   CreationSessionStorage,
   creationSessionStorageKey,
   currentCreationSessionGeneration,
   decideCreateChallengeEntryAction,
   hasMeaningfulCreationProgress,
+  isResumeEligibleSession,
+  planBackLeaveAttempt,
   planExitAttempt,
   readCreationSession,
   resolveResumeRoute,
   RESUMABLE_CREATION_ROUTES,
-  writeCreationSession,
+  saveCreationSessionCheckpoint,
+  writeCreationSessionWorking,
 } from './creation-session';
 
 // Most tests below aren't exercising the generation/lifecycle mechanism at
 // all, so they just capture "whatever generation is current right now" —
-// exactly what a real caller does for a normal, non-stale write.
-function write(userId: string, fields: CreationSessionFields, lastRoute: string, storage: CreationSessionStorage) {
-  return writeCreationSession(userId, fields, lastRoute, storage, currentCreationSessionGeneration(userId));
+// exactly what a real background-autosave caller does for a normal,
+// non-stale write. checkpoint defaults to null: no explicit Save & exit
+// has happened yet for the session being simulated.
+function writeWorking(
+  userId: string,
+  fields: CreationSessionFields,
+  lastRoute: string,
+  storage: CreationSessionStorage,
+  checkpoint: CreationSessionCheckpoint | null = null,
+) {
+  return writeCreationSessionWorking(userId, fields, lastRoute, checkpoint, storage, currentCreationSessionGeneration(userId));
+}
+
+// Mirrors what hooks/use-creation-session-autosave.ts's saveCheckpoint()
+// does: capture "now" once and use it for both the storage write and
+// (there, separately) the in-memory checkpoint mirror.
+function saveCheckpoint(
+  userId: string,
+  fields: CreationSessionFields,
+  lastRoute: string,
+  storage: CreationSessionStorage,
+  savedAt: string = new Date().toISOString(),
+) {
+  return saveCreationSessionCheckpoint(userId, fields, lastRoute, savedAt, storage, currentCreationSessionGeneration(userId));
 }
 
 function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -81,7 +107,7 @@ test('hasMeaningfulCreationProgress: a blank recipient placeholder alone is not 
   assert.equal(hasMeaningfulCreationProgress(emptyFields()), false, 'the default single blank recipient must not count as progress');
 });
 
-test('writeCreationSession then readCreationSession round-trips every field, including nested rhythm and recipients', async () => {
+test('writeCreationSessionWorking then readCreationSession round-trips working, and preserves whatever checkpoint was passed through unchanged', async () => {
   const storage = inMemoryStorage();
   const fields: CreationSessionFields = {
     ...emptyFields(),
@@ -94,22 +120,47 @@ test('writeCreationSession then readCreationSession round-trips every field, inc
     recipients: [{ id: 'recipient-a', name: 'Mom' }, { id: 'recipient-b', name: 'Dad' }],
     rewardOrganizer: { type: 'recipient', recipientId: 'recipient-a' },
   };
-  const ok = await write('user-1', fields, '/create/frequency', storage);
+  const checkpoint: CreationSessionCheckpoint = { fields: { ...emptyFields(), goal: 'Earlier checkpoint' }, lastRoute: '/create/type', savedAt: '2026-01-01T00:00:00.000Z' };
+  const ok = await writeWorking('user-1', fields, '/create/frequency', storage, checkpoint);
   assert.equal(ok, true, 'a successful write must report success');
   const restored = await readCreationSession('user-1', storage);
   assert.ok(restored);
-  assert.equal(restored.lastRoute, '/create/frequency');
-  assert.deepEqual(restored.fields, fields);
+  assert.ok(restored.working);
+  assert.equal(restored.working.lastRoute, '/create/frequency');
+  assert.deepEqual(restored.working.fields, fields);
+  assert.deepEqual(restored.checkpoint, checkpoint, 'a background working write must carry the checkpoint through completely unchanged');
 });
 
-test('writeCreationSession honestly reports failure when the underlying storage write throws — the "your progress is saved" promise must never be made on a false premise', async () => {
+test('writeCreationSessionWorking honestly reports failure when the underlying storage write throws', async () => {
   const storage: CreationSessionStorage = {
     getItem: async () => null,
     setItem: async () => { throw new Error('disk full'); },
     removeItem: async () => undefined,
   };
-  const ok = await write('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
+  const ok = await writeWorking('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
   assert.equal(ok, false);
+});
+
+test('saveCreationSessionCheckpoint sets both working and checkpoint to the same latest fields, and reports failure honestly on a storage error', async () => {
+  const storage = inMemoryStorage();
+  const fields: CreationSessionFields = { ...emptyFields(), goal: 'Ready to pause here' };
+  const ok = await saveCheckpoint('user-1', fields, '/create/frequency', storage, '2026-02-02T00:00:00.000Z');
+  assert.equal(ok, true, 'a successful checkpoint save must report success');
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored?.working);
+  assert.ok(restored.checkpoint);
+  assert.deepEqual(restored.working.fields, fields);
+  assert.deepEqual(restored.checkpoint.fields, fields);
+  assert.equal(restored.checkpoint.lastRoute, '/create/frequency');
+  assert.equal(restored.checkpoint.savedAt, '2026-02-02T00:00:00.000Z');
+
+  const failingStorage: CreationSessionStorage = {
+    getItem: async () => null,
+    setItem: async () => { throw new Error('disk full'); },
+    removeItem: async () => undefined,
+  };
+  const failed = await saveCheckpoint('user-2', fields, '/create/goal', failingStorage);
+  assert.equal(failed, false, '"your progress is saved" must never be promised on a false premise');
 });
 
 test('readCreationSession returns null when nothing has ever been saved for that user', async () => {
@@ -119,19 +170,19 @@ test('readCreationSession returns null when nothing has ever been saved for that
 
 test('user isolation: one signed-in user can never read another signed-in user\'s session', async () => {
   const storage = inMemoryStorage();
-  await write('user-a', { ...emptyFields(), goal: 'User A\'s goal' }, '/create/goal', storage);
-  await write('user-b', { ...emptyFields(), goal: 'User B\'s goal' }, '/create/goal', storage);
+  await writeWorking('user-a', { ...emptyFields(), goal: 'User A\'s goal' }, '/create/goal', storage);
+  await writeWorking('user-b', { ...emptyFields(), goal: 'User B\'s goal' }, '/create/goal', storage);
 
   const forA = await readCreationSession('user-a', storage);
   const forB = await readCreationSession('user-b', storage);
-  assert.equal(forA?.fields.goal, 'User A\'s goal');
-  assert.equal(forB?.fields.goal, 'User B\'s goal');
+  assert.equal(forA?.working?.fields.goal, 'User A\'s goal');
+  assert.equal(forB?.working?.fields.goal, 'User B\'s goal');
   assert.notEqual(creationSessionStorageKey('user-a'), creationSessionStorageKey('user-b'));
 });
 
-test('explicit discard: clearCreationSession removes the session so it is no longer readable', async () => {
+test('explicit discard: clearCreationSession removes the whole session (working and checkpoint alike) so it is no longer readable', async () => {
   const storage = inMemoryStorage();
-  await write('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
+  await saveCheckpoint('user-1', { ...emptyFields(), goal: 'Sleep better' }, '/create/goal', storage);
   assert.ok(await readCreationSession('user-1', storage));
   await clearCreationSession('user-1', storage);
   assert.equal(await readCreationSession('user-1', storage), null);
@@ -156,7 +207,7 @@ test('write/clear ordering: a clear requested while an earlier write is still in
     removeItem: async (key) => { store.delete(key); },
   };
 
-  const writePromise = write('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  const writePromise = writeWorking('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
   await Promise.resolve().then(() => Promise.resolve()); // let the write actually enter setItem and hang on the gate
   assert.equal(writeStarted, true, 'the write must genuinely be in flight before the clear is requested');
 
@@ -173,15 +224,15 @@ test('write/clear ordering: a clear requested while an earlier write is still in
 
 test('write/clear ordering: a new write intentionally started after a clear still persists normally', async () => {
   const storage = inMemoryStorage();
-  await write('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
+  await writeWorking('user-1', { ...emptyFields(), goal: 'Old goal' }, '/create/goal', storage);
   const cleared = await clearCreationSession('user-1', storage);
   assert.equal(cleared, true);
   assert.equal(await readCreationSession('user-1', storage), null);
 
-  const wroteAfterClear = await write('user-1', { ...emptyFields(), goal: 'New goal' }, '/create/type', storage);
+  const wroteAfterClear = await writeWorking('user-1', { ...emptyFields(), goal: 'New goal' }, '/create/type', storage);
   assert.equal(wroteAfterClear, true);
   const restored = await readCreationSession('user-1', storage);
-  assert.equal(restored?.fields.goal, 'New goal', 'a legitimate new write after a clear must not be blocked or lost');
+  assert.equal(restored?.working?.fields.goal, 'New goal', 'a legitimate new write after a clear must not be blocked or lost');
 });
 
 test('write/clear ordering: mutations for different users are independent — one user\'s slow write never blocks another user\'s write or clear', async () => {
@@ -196,14 +247,14 @@ test('write/clear ordering: mutations for different users are independent — on
     removeItem: async (key) => { store.delete(key); },
   };
 
-  const slowWriteA = write('user-a', { ...emptyFields(), goal: 'A' }, '/create/goal', storage);
-  const fastWriteB = await write('user-b', { ...emptyFields(), goal: 'B' }, '/create/goal', storage);
+  const slowWriteA = writeWorking('user-a', { ...emptyFields(), goal: 'A' }, '/create/goal', storage);
+  const fastWriteB = await writeWorking('user-b', { ...emptyFields(), goal: 'B' }, '/create/goal', storage);
   assert.equal(fastWriteB, true, 'user-b\'s write must complete without waiting on user-a\'s still-pending write');
-  assert.equal((await readCreationSession('user-b', storage))?.fields.goal, 'B');
+  assert.equal((await readCreationSession('user-b', storage))?.working?.fields.goal, 'B');
 
   userAGate.resolve();
   assert.equal(await slowWriteA, true);
-  assert.equal((await readCreationSession('user-a', storage))?.fields.goal, 'A');
+  assert.equal((await readCreationSession('user-a', storage))?.working?.fields.goal, 'A');
 });
 
 test('write/clear ordering: a failing clear is reported honestly rather than throwing an unhandled rejection', async () => {
@@ -218,16 +269,17 @@ test('write/clear ordering: a failing clear is reported honestly rather than thr
 
 // The queue above orders operations that have already been *called* — but
 // a debounced autosave timer that has not fired yet has not called
-// writeCreationSession at all, so it isn't in the queue when a conversion
-// or discard closes the lifecycle. This is exactly the scenario the
-// generation barrier exists for: (A) an old write is already running and
-// held open, (B) a second, logically-scheduled old-session write has only
-// captured its generation token so far — writeCreationSession has not
-// been called for it yet, exactly like a still-pending setTimeout — (C)
-// conversion/discard closes the lifecycle and clears, (D) only *then* does
-// the delayed write actually attempt to run, (E) everything settles, (F)
-// no resumable snapshot exists.
-test('lifecycle: a write only "scheduled" (generation captured, but writeCreationSession not yet called) before conversion must not resurrect the session after the conversion clear', async () => {
+// writeCreationSessionWorking at all, so it isn't in the queue when a
+// conversion or discard closes the lifecycle. This is exactly the
+// scenario the generation barrier exists for: (A) an old write is already
+// running and held open, (B) a second, logically-scheduled old-session
+// write has only captured its generation token so far —
+// writeCreationSessionWorking has not been called for it yet, exactly
+// like a still-pending setTimeout — (C) conversion/discard closes the
+// lifecycle and clears, (D) only *then* does the delayed write actually
+// attempt to run, (E) everything settles, (F) no resumable snapshot
+// exists.
+test('lifecycle: a write only "scheduled" (generation captured, but writeCreationSessionWorking not yet called) before conversion must not resurrect the session after the conversion clear', async () => {
   const userId = 'user-lifecycle-1';
   const store = new Map<string, string>();
   const writeAGate = deferred<void>();
@@ -243,11 +295,11 @@ test('lifecycle: a write only "scheduled" (generation captured, but writeCreatio
   };
 
   // A: write A starts and is deliberately held open — already inside storage.setItem.
-  const writeAPromise = writeCreationSession(userId, { ...emptyFields(), goal: 'A' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  const writeAPromise = writeCreationSessionWorking(userId, { ...emptyFields(), goal: 'A' }, '/create/goal', null, storage, currentCreationSessionGeneration(userId));
   await Promise.resolve().then(() => Promise.resolve());
   assert.equal(writeAStarted, true, 'write A must genuinely be in flight');
 
-  // B: a second, old-session write is only scheduled — exactly what autosave does the instant it arms its 500ms debounce timer: capture the generation now, call writeCreationSession only once the timer actually fires.
+  // B: a second, old-session write is only scheduled — exactly what autosave does the instant it arms its 500ms debounce timer: capture the generation now, call writeCreationSessionWorking only once the timer actually fires.
   const staleGenerationForWriteB = currentCreationSessionGeneration(userId);
 
   // C: conversion (or discard) closes this creation lifecycle and clears the persisted session — write A is allowed to finish; the clear, queued after it, still wins.
@@ -256,8 +308,8 @@ test('lifecycle: a write only "scheduled" (generation captured, but writeCreatio
   writeAGate.resolve();
   await Promise.all([writeAPromise, clearPromise]);
 
-  // D: only now — well after conversion — does write B's debounce timer actually fire and call writeCreationSession, using the generation it captured back in step B, which is now stale.
-  const writeBResult = await writeCreationSession(userId, { ...emptyFields(), goal: 'B (stale, must be dropped)' }, '/create/type', storage, staleGenerationForWriteB);
+  // D: only now — well after conversion — does write B's debounce timer actually fire and call writeCreationSessionWorking, using the generation it captured back in step B, which is now stale.
+  const writeBResult = await writeCreationSessionWorking(userId, { ...emptyFields(), goal: 'B (stale, must be dropped)' }, '/create/type', null, storage, staleGenerationForWriteB);
   assert.equal(writeBResult, true, 'a stale-generation write is treated as a no-op, not a failure');
 
   // E/F: after everything settles, no resumable snapshot exists — the delayed old-session write must not have resurrected it.
@@ -273,10 +325,10 @@ test('lifecycle: a genuinely new creation flow started after conversion/discard 
 
   // H: a brand new creation flow starts afterward — a freshly-mounted screen captures whatever generation is current *now*, which already reflects the close above, and writes under it normally.
   const freshGeneration = currentCreationSessionGeneration(userId);
-  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'Fresh challenge' }, '/create/goal', storage, freshGeneration);
+  const ok = await writeCreationSessionWorking(userId, { ...emptyFields(), goal: 'Fresh challenge' }, '/create/goal', null, storage, freshGeneration);
   assert.equal(ok, true);
   const restored = await readCreationSession(userId, storage);
-  assert.equal(restored?.fields.goal, 'Fresh challenge');
+  assert.equal(restored?.working?.fields.goal, 'Fresh challenge');
 });
 
 test('lifecycle: closing a generation twice (e.g. a failed discard retried) still lets a subsequent fresh write through', async () => {
@@ -284,9 +336,178 @@ test('lifecycle: closing a generation twice (e.g. a failed discard retried) stil
   const storage = inMemoryStorage();
   closeCreationSessionGeneration(userId);
   closeCreationSessionGeneration(userId);
-  const ok = await writeCreationSession(userId, { ...emptyFields(), goal: 'After retried close' }, '/create/goal', storage, currentCreationSessionGeneration(userId));
+  const ok = await writeCreationSessionWorking(userId, { ...emptyFields(), goal: 'After retried close' }, '/create/goal', null, storage, currentCreationSessionGeneration(userId));
   assert.equal(ok, true);
-  assert.equal((await readCreationSession(userId, storage))?.fields.goal, 'After retried close');
+  assert.equal((await readCreationSession(userId, storage))?.working?.fields.goal, 'After retried close');
+});
+
+// --- Explicit checkpoint model (Back / Save & exit) ----------------------
+
+test('1. fresh work protected only by background autosave never creates an explicit checkpoint, so it is not resume-eligible', async () => {
+  const storage = inMemoryStorage();
+  await writeWorking('user-1', { ...emptyFields(), goal: 'Still typing' }, '/create/goal', storage, null);
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored?.working, 'the working crash-recovery state is still persisted');
+  assert.equal(restored?.checkpoint, null, 'no explicit checkpoint exists yet');
+  assert.equal(isResumeEligibleSession(restored), false, 'Home must never offer "Continue challenge" for a session that only exists from background autosave');
+});
+
+test('2. Save & exit at state A creates an explicit checkpoint A', async () => {
+  const storage = inMemoryStorage();
+  const fieldsA = { ...emptyFields(), goal: 'A' };
+  const ok = await saveCheckpoint('user-1', fieldsA, '/create/goal', storage);
+  assert.equal(ok, true);
+  const restored = await readCreationSession('user-1', storage);
+  assert.deepEqual(restored?.checkpoint?.fields, fieldsA);
+  assert.equal(isResumeEligibleSession(restored), true);
+});
+
+test('3. Continue A, edit to B via background autosave only, then leaving without Save & exit: the checkpoint stays A, not B', async () => {
+  const storage = inMemoryStorage();
+  const fieldsA = { ...emptyFields(), goal: 'A' };
+  await saveCheckpoint('user-1', fieldsA, '/create/goal', storage);
+  const afterCheckpointA = await readCreationSession('user-1', storage);
+  assert.ok(afterCheckpointA?.checkpoint);
+
+  // "Continue A -> edit to B": background autosave fires while editing,
+  // carrying the existing checkpoint (A) through completely unchanged —
+  // exactly what hooks/use-creation-session-autosave.ts does every time,
+  // using onboarding.checkpoint as-is rather than re-deriving it.
+  const fieldsB = { ...emptyFields(), goal: 'B' };
+  await writeWorking('user-1', fieldsB, '/create/type', storage, afterCheckpointA.checkpoint);
+
+  const restored = await readCreationSession('user-1', storage);
+  assert.deepEqual(restored?.working?.fields, fieldsB, 'the working crash-recovery state does reflect the newer edit B');
+  assert.deepEqual(restored?.checkpoint?.fields, fieldsA, 'but the explicit checkpoint must still be A — Continue must never silently promote an unsaved edit');
+});
+
+test('4. Continue A, edit to B, then explicit Save & exit: the checkpoint becomes B', async () => {
+  const storage = inMemoryStorage();
+  const fieldsA = { ...emptyFields(), goal: 'A' };
+  await saveCheckpoint('user-1', fieldsA, '/create/goal', storage);
+
+  const fieldsB = { ...emptyFields(), goal: 'B' };
+  const ok = await saveCheckpoint('user-1', fieldsB, '/create/type', storage);
+  assert.equal(ok, true);
+
+  const restored = await readCreationSession('user-1', storage);
+  assert.deepEqual(restored?.checkpoint?.fields, fieldsB, 'an explicit Save & exit always overwrites the checkpoint with the latest fields');
+});
+
+test('5. abandoned unsaved work with no prior checkpoint leaves no resumable session once cleared', async () => {
+  const userId = 'user-abandon-fresh';
+  const storage = inMemoryStorage();
+  await writeWorking(userId, { ...emptyFields(), goal: 'Half-finished' }, '/create/goal', storage, null);
+  const beforeLeaving = await readCreationSession(userId, storage);
+  assert.equal(isResumeEligibleSession(beforeLeaving), false, 'sanity check: never explicitly saved, so not eligible even before leaving');
+
+  // A debounce timer armed a moment before "Leave without saving" was confirmed.
+  const staleGeneration = currentCreationSessionGeneration(userId);
+
+  closeCreationSessionGeneration(userId);
+  const cleared = await clearCreationSession(userId, storage);
+  assert.equal(cleared, true);
+
+  const staleWrite = await writeCreationSessionWorking(userId, { ...emptyFields(), goal: 'stale edit' }, '/create/goal', null, storage, staleGeneration);
+  assert.equal(staleWrite, true, 'a stale-generation write is a no-op, not a failure');
+  assert.equal(await readCreationSession(userId, storage), null, 'nothing must be left behind for Home to ever offer as resumable');
+});
+
+test('6. explicit discard removes both working and an existing checkpoint', async () => {
+  const userId = 'user-discard-with-checkpoint';
+  const storage = inMemoryStorage();
+  await saveCheckpoint(userId, { ...emptyFields(), goal: 'Saved earlier' }, '/create/goal', storage);
+  assert.ok((await readCreationSession(userId, storage))?.checkpoint);
+
+  closeCreationSessionGeneration(userId);
+  const cleared = await clearCreationSession(userId, storage);
+  assert.equal(cleared, true);
+  assert.equal(await readCreationSession(userId, storage), null, 'explicit discard destroys the checkpoint too, not just working state');
+});
+
+test('7. server conversion removes both working and an existing checkpoint, identically to explicit discard', async () => {
+  const userId = 'user-convert-with-checkpoint';
+  const storage = inMemoryStorage();
+  await saveCheckpoint(userId, { ...emptyFields(), goal: 'Saved earlier' }, '/create/goal', storage);
+  assert.ok((await readCreationSession(userId, storage))?.checkpoint);
+
+  // app/create/review.tsx's runPrepare does exactly this on a successful
+  // prepareChallengeFromDraft: close the generation, then clear.
+  closeCreationSessionGeneration(userId);
+  const cleared = await clearCreationSession(userId, storage);
+  assert.equal(cleared, true);
+  assert.equal(await readCreationSession(userId, storage), null);
+});
+
+test('8. a stale delayed background write after abandon/discard/conversion cannot resurrect working or checkpoint, even for a session that had already been explicitly saved for later', async () => {
+  const userId = 'user-discard-eligible';
+  const store = new Map<string, string>();
+  const writeGate = deferred<void>();
+  let writeStarted = false;
+  // Only the *second* write (the delayed one below) is meant to hang on
+  // the gate — an initial ungated write establishes the already-eligible
+  // session first, exactly like a real earlier Save & exit.
+  let gateWrites = false;
+  const storage: CreationSessionStorage = {
+    getItem: async (key) => store.get(key) ?? null,
+    setItem: async (key, value) => {
+      if (gateWrites) {
+        writeStarted = true;
+        await writeGate.promise;
+      }
+      store.set(key, value);
+    },
+    removeItem: async (key) => { store.delete(key); },
+  };
+
+  await saveCheckpoint(userId, { ...emptyFields(), goal: 'Saved earlier' }, '/create/goal', storage);
+  const afterCheckpoint = await readCreationSession(userId, storage);
+  assert.ok(afterCheckpoint?.checkpoint, 'sanity check: this session was explicitly saved before the delayed edit below');
+
+  gateWrites = true;
+  const generation = currentCreationSessionGeneration(userId);
+  const delayedWrite = writeCreationSessionWorking(
+    userId,
+    { ...emptyFields(), goal: 'edited again, still eligible' },
+    '/create/type',
+    afterCheckpoint.checkpoint,
+    storage,
+    generation,
+  );
+  await Promise.resolve().then(() => Promise.resolve());
+  assert.equal(writeStarted, true, 'the delayed write must genuinely be in flight before discard is requested');
+
+  closeCreationSessionGeneration(userId);
+  const discardCleared = clearCreationSession(userId, storage);
+  writeGate.resolve();
+  await Promise.all([delayedWrite, discardCleared]);
+
+  assert.equal(await readCreationSession(userId, storage), null, 'explicit discard must still win even over an already-eligible, in-flight working write');
+});
+
+test('isResumeEligibleSession: no session at all is never eligible', () => {
+  assert.equal(isResumeEligibleSession(null), false);
+});
+
+test('planBackLeaveAttempt: no meaningful progress and no checkpoint never needs confirmation', () => {
+  assert.equal(planBackLeaveAttempt(emptyFields(), null), 'proceed');
+});
+
+test('planBackLeaveAttempt: meaningful progress with no checkpoint at all requires confirmation before leaving', () => {
+  assert.equal(planBackLeaveAttempt({ ...emptyFields(), goal: 'Sleep better' }, null), 'confirm_leave_without_saving');
+});
+
+test('planBackLeaveAttempt: current fields identical to an existing checkpoint need no confirmation — Continue would restore the exact same state either way', () => {
+  const fields = { ...emptyFields(), goal: 'Saved goal' };
+  assert.equal(planBackLeaveAttempt(fields, fields), 'proceed');
+  // A structurally-equal but distinct object must be treated the same as identical — this is a content comparison, not a reference comparison.
+  assert.equal(planBackLeaveAttempt({ ...fields }, { ...fields }), 'proceed');
+});
+
+test('planBackLeaveAttempt: current fields that diverge from an existing checkpoint require confirmation — this is the core "Continue A, edit to B" scenario', () => {
+  const checkpointA = { ...emptyFields(), goal: 'A' };
+  const editedB = { ...emptyFields(), goal: 'B' };
+  assert.equal(planBackLeaveAttempt(editedB, checkpointA), 'confirm_leave_without_saving');
 });
 
 test('readCreationSession discards and returns null for unparsable stored data (corrupt snapshot)', async () => {
@@ -298,88 +519,144 @@ test('readCreationSession discards and returns null for unparsable stored data (
 
 test('readCreationSession discards and returns null for a wrong-shaped or wrong-version payload', async () => {
   const key = creationSessionStorageKey('user-1');
-  const storage = inMemoryStorage({ [key]: JSON.stringify({ schemaVersion: 999, lastRoute: '/create/goal', fields: {} }) });
+  const storage = inMemoryStorage({ [key]: JSON.stringify({ schemaVersion: 999, working: null, checkpoint: null }) });
   assert.equal(await readCreationSession('user-1', storage), null);
   assert.equal(await storage.getItem(key), null);
 });
 
-function corruptSnapshotWith(fields: unknown): Record<string, string> {
+// Schema migration safety: bumping CREATION_SESSION_SCHEMA_VERSION changes
+// creationSessionStorageKey's output, so an old-version snapshot is simply
+// never read under the new key — orphaned, not reinterpreted. This proves
+// that even if an old-shaped payload (e.g. a v2 payload with the old flat
+// savedForLater boolean) somehow ended up under the *current* key (the
+// only way readCreationSession would ever see it directly), it is still
+// safely rejected rather than treated as carrying a v3 checkpoint it never
+// actually recorded.
+test('a snapshot one schema version behind the current one (the old flat savedForLater shape) is treated as no session, never reinterpreted as an explicit checkpoint', async () => {
   const key = creationSessionStorageKey('user-1');
-  return { [key]: JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), lastRoute: '/create/goal', fields }) };
+  const storage = inMemoryStorage({
+    [key]: JSON.stringify({
+      schemaVersion: CREATION_SESSION_SCHEMA_VERSION - 1,
+      updatedAt: new Date().toISOString(),
+      lastRoute: '/create/goal',
+      savedForLater: true,
+      fields: emptyFields(),
+    }),
+  });
+  assert.equal(await readCreationSession('user-1', storage), null);
+  assert.equal(await storage.getItem(key), null, 'a version-mismatched payload must be actively discarded, not left to be misread again');
+});
+
+test('creationSessionStorageKey changes when the schema version changes, so an old-version snapshot is naturally orphaned rather than ever read under the new key', () => {
+  assert.equal(creationSessionStorageKey('user-1'), `kinwin:creation-session:v${CREATION_SESSION_SCHEMA_VERSION}:user-1`);
+});
+
+test('a same-version snapshot missing the working/checkpoint keys entirely is rejected, not defaulted to an empty session', async () => {
+  const key = creationSessionStorageKey('user-1');
+  const storage = inMemoryStorage({
+    [key]: JSON.stringify({ schemaVersion: CREATION_SESSION_SCHEMA_VERSION }),
+  });
+  assert.equal(await readCreationSession('user-1', storage), null);
+});
+
+function snapshotWith(working: unknown, checkpoint: unknown): Record<string, string> {
+  const key = creationSessionStorageKey('user-1');
+  return {
+    [key]: JSON.stringify({ schemaVersion: CREATION_SESSION_SCHEMA_VERSION, working, checkpoint }),
+  };
 }
 
-test('a same-version snapshot with completely empty fields ({}) is treated as corrupt, not as a valid blank session', async () => {
+function malformedFieldsSnapshot(fields: unknown): Record<string, string> {
+  return snapshotWith({ lastRoute: '/create/goal', updatedAt: new Date().toISOString(), fields }, null);
+}
+
+test('a same-version snapshot with completely empty working fields ({}) is treated as corrupt, not as a valid blank session', async () => {
   const key = creationSessionStorageKey('user-1');
-  const storage = inMemoryStorage(corruptSnapshotWith({}));
+  const storage = inMemoryStorage(malformedFieldsSnapshot({}));
   assert.equal(await readCreationSession('user-1', storage), null);
   assert.equal(await storage.getItem(key), null, 'must be actively removed so it cannot fail the same way again later');
 });
 
-test('a same-version snapshot with a malformed rhythm (invalid type, bad weekday) is rejected', async () => {
-  const storage1 = inMemoryStorage(corruptSnapshotWith({
+test('a same-version snapshot with a malformed working rhythm (invalid type, bad weekday) is rejected', async () => {
+  const storage1 = inMemoryStorage(malformedFieldsSnapshot({
     ...emptyFields(), goal: 'Sleep better', rhythm: { ...emptyFields().rhythm, type: 'not-a-real-rhythm-type' },
   }));
   assert.equal(await readCreationSession('user-1', storage1), null);
 
-  const storage2 = inMemoryStorage(corruptSnapshotWith({
+  const storage2 = inMemoryStorage(malformedFieldsSnapshot({
     ...emptyFields(), goal: 'Sleep better', rhythm: { ...emptyFields().rhythm, selectedWeekdays: ['funday'] },
   }));
   assert.equal(await readCreationSession('user-1', storage2), null);
 
-  const storage3 = inMemoryStorage(corruptSnapshotWith({
+  const storage3 = inMemoryStorage(malformedFieldsSnapshot({
     ...emptyFields(), goal: 'Sleep better', rhythm: 'not even an object',
   }));
   assert.equal(await readCreationSession('user-1', storage3), null);
 });
 
-test('a same-version snapshot with malformed recipients is rejected', async () => {
-  const missingName = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), recipients: [{ id: 'r-1' }] }));
+test('a same-version snapshot with malformed working recipients is rejected', async () => {
+  const missingName = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), recipients: [{ id: 'r-1' }] }));
   assert.equal(await readCreationSession('user-1', missingName), null);
 
-  const notAnArray = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), recipients: 'Mom' }));
+  const notAnArray = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), recipients: 'Mom' }));
   assert.equal(await readCreationSession('user-1', notAnArray), null);
 
-  const emptyId = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), recipients: [{ id: '', name: 'Mom' }] }));
+  const emptyId = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), recipients: [{ id: '', name: 'Mom' }] }));
   assert.equal(await readCreationSession('user-1', emptyId), null);
 });
 
-test('a same-version snapshot with an invalid enum value is rejected', async () => {
-  const badDirection = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), behaviorDirection: 'sideways' }));
+test('a same-version snapshot with an invalid working enum value is rejected', async () => {
+  const badDirection = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), behaviorDirection: 'sideways' }));
   assert.equal(await readCreationSession('user-1', badDirection), null);
 
-  const badCategory = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), experienceCategory: 'bogus' }));
+  const badCategory = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), experienceCategory: 'bogus' }));
   assert.equal(await readCreationSession('user-1', badCategory), null);
 
-  const badMembership = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), membershipChoice: 'yearly_trial' }));
+  const badMembership = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), membershipChoice: 'yearly_trial' }));
   assert.equal(await readCreationSession('user-1', badMembership), null);
 });
 
-test('a same-version snapshot with a malformed reward organizer is rejected', async () => {
-  const missingRecipientId = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), rewardOrganizer: { type: 'recipient' } }));
+test('a same-version snapshot with a malformed working reward organizer is rejected', async () => {
+  const missingRecipientId = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), rewardOrganizer: { type: 'recipient' } }));
   assert.equal(await readCreationSession('user-1', missingRecipientId), null);
 
-  const unknownType = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), rewardOrganizer: { type: 'mystery' } }));
+  const unknownType = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), rewardOrganizer: { type: 'mystery' } }));
   assert.equal(await readCreationSession('user-1', unknownType), null);
 });
 
-test('a same-version snapshot with a wrong-typed stake amount or duration (e.g. a string instead of a number) is rejected', async () => {
-  const stringStake = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), stakeAmount: '100' }));
+test('a same-version snapshot with a wrong-typed working stake amount or duration (e.g. a string instead of a number) is rejected', async () => {
+  const stringStake = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), stakeAmount: '100' }));
   assert.equal(await readCreationSession('user-1', stringStake), null);
 
-  const stringDuration = inMemoryStorage(corruptSnapshotWith({ ...emptyFields(), durationWeeks: '6' }));
+  const stringDuration = inMemoryStorage(malformedFieldsSnapshot({ ...emptyFields(), durationWeeks: '6' }));
   assert.equal(await readCreationSession('user-1', stringDuration), null);
 });
 
-test('a genuinely valid snapshot with a populated reward organizer and recipients still passes validation', async () => {
-  const storage = inMemoryStorage(corruptSnapshotWith({
+test('a malformed checkpoint (missing savedAt) is rejected even when working is perfectly valid', async () => {
+  const key = creationSessionStorageKey('user-1');
+  const storage = inMemoryStorage(snapshotWith(
+    { lastRoute: '/create/goal', updatedAt: new Date().toISOString(), fields: emptyFields() },
+    { lastRoute: '/create/goal', fields: emptyFields() }, // missing savedAt
+  ));
+  assert.equal(await readCreationSession('user-1', storage), null);
+  assert.equal(await storage.getItem(key), null);
+});
+
+test('a genuinely valid snapshot with a populated reward organizer, recipients, and an explicit checkpoint still passes validation', async () => {
+  const validFields = {
     ...emptyFields(),
     goal: 'Sleep better',
     recipients: [{ id: 'recipient-a', name: 'Mom' }],
-    rewardOrganizer: { type: 'recipient', recipientId: 'recipient-a' },
-  }));
+    rewardOrganizer: { type: 'recipient' as const, recipientId: 'recipient-a' },
+  };
+  const storage = inMemoryStorage(snapshotWith(
+    { lastRoute: '/create/goal', updatedAt: new Date().toISOString(), fields: validFields },
+    { lastRoute: '/create/goal', savedAt: new Date().toISOString(), fields: validFields },
+  ));
   const session = await readCreationSession('user-1', storage);
   assert.ok(session, 'a well-formed snapshot must still be accepted');
-  assert.equal(session.fields.goal, 'Sleep better');
+  assert.equal(session.working?.fields.goal, 'Sleep better');
+  assert.equal(session.checkpoint?.fields.goal, 'Sleep better');
 });
 
 test('resolveResumeRoute: restores exactly the last logical step when it is a valid creation route', () => {

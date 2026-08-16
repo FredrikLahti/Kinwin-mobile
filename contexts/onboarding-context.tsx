@@ -72,9 +72,26 @@ export function createRecipientDraft(name = ''): RecipientDraft {
   };
 }
 
+/**
+ * Mirrors lib/challenge-creation/creation-session.ts's
+ * CreationSessionCheckpoint exactly (including savedAt) — set only by a
+ * successful explicit Save & exit, or by restoring an already-
+ * checkpointed session. Background autosave must never set this; it only
+ * ever writes the separate "working" crash-recovery state, and must carry
+ * this exact value through unchanged so a checkpoint's savedAt only ever
+ * moves when a *new* explicit save actually happens, never as a side
+ * effect of an unrelated background write.
+ */
+type OnboardingSessionCheckpoint = {
+  fields: CreationSessionFieldsInput;
+  lastRoute: string;
+  savedAt: string;
+};
+
 type ResettableOnboardingFields = {
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
+  checkpoint: OnboardingSessionCheckpoint | null;
   definitionText: string;
   durationWeeks: number | null;
   experienceCategory: ExperienceCategory | null;
@@ -101,6 +118,7 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
   return {
     behaviorDirection: null,
     behaviorText: '',
+    checkpoint: null,
     definitionText: '',
     durationWeeks: null,
     experienceCategory: null,
@@ -128,6 +146,8 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
 type OnboardingContextValue = {
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
+  /** The explicit resume checkpoint — null unless the current session was explicitly Saved & exited (or Continued from one). See OnboardingSessionCheckpoint. Reset to null by resetDraft() and loadDraftData(). */
+  checkpoint: OnboardingSessionCheckpoint | null;
   currency: 'USD';
   definitionText: string;
   durationWeeks: number | null;
@@ -145,6 +165,7 @@ type OnboardingContextValue = {
   savedDraftId: string | null;
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
+  setCheckpoint: Dispatch<SetStateAction<OnboardingSessionCheckpoint | null>>;
   setDefinitionText: (text: string) => void;
   setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setExperienceCategory: Dispatch<SetStateAction<ExperienceCategory | null>>;
@@ -166,27 +187,40 @@ type OnboardingContextValue = {
   /** Explicit mapping boundary: hydrates every onboarding field from a normalized, already-validated draft. */
   loadDraftData: (data: OnboardingDraftData, draftId: string) => void;
   /**
-   * Restores raw, possibly-incomplete fields from a local creation-session
-   * snapshot (lib/challenge-creation/creation-session.ts) — deliberately
-   * separate from loadDraftData, which only ever accepts an already-
-   * validated, complete draft. Always clears savedDraftId to null: a
-   * resumed local session is never a server draft, and any savedDraftId a
-   * prior loadDraftData() call left behind must not survive into it (see
+   * Restores raw, possibly-incomplete fields (and their route) from a
+   * local creation-session checkpoint
+   * (lib/challenge-creation/creation-session.ts) — deliberately separate
+   * from loadDraftData, which only ever accepts an already-validated,
+   * complete draft. Always clears savedDraftId to null: a resumed local
+   * session is never a server draft, and any savedDraftId a prior
+   * loadDraftData() call left behind must not survive into it. Sets
+   * `checkpoint` to exactly what's being restored, since restoring only
+   * ever happens for an already-checkpointed session (see
    * computeRestoredCreationSessionState).
    */
-  restoreCreationSessionFields: (fields: CreationSessionFieldsInput) => void;
+  restoreCreationSessionFields: (fields: CreationSessionFieldsInput, lastRoute: string, savedAt: string) => void;
 };
 
 /**
  * Pure projection of what onboarding state results from restoring a local
- * creation-session snapshot — extracted so this can be unit tested
+ * creation-session checkpoint — extracted so this can be unit tested
  * directly (savedDraftId must always come back null, regardless of what it
- * was before) without needing to render OnboardingProvider.
+ * was before) without needing to render OnboardingProvider. The restored
+ * checkpoint always mirrors exactly the fields/lastRoute being restored:
+ * restoring only ever happens for a session that
+ * hooks/use-resumable-creation-session.ts already filtered down to an
+ * explicitly-saved one (see isResumeEligibleSession) — there is no other
+ * path that calls this — so what's being restored *is* the checkpoint.
  */
 export function computeRestoredCreationSessionState(
   fields: CreationSessionFieldsInput,
-): CreationSessionFieldsInput & { readonly savedDraftId: null } {
-  return { ...fields, savedDraftId: null };
+  lastRoute: string,
+  savedAt: string,
+): CreationSessionFieldsInput & {
+  readonly savedDraftId: null;
+  readonly checkpoint: { readonly fields: CreationSessionFieldsInput; readonly lastRoute: string; readonly savedAt: string };
+} {
+  return { ...fields, savedDraftId: null, checkpoint: { fields, lastRoute, savedAt } };
 }
 
 /** Matches lib/challenge-creation/creation-session.ts's CreationSessionFields shape without importing it here, to avoid a context <-> lib circular dependency; kept structurally identical on purpose. */
@@ -230,6 +264,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   ]);
   const [rewardOrganizer, setRewardOrganizer] = useState<RewardOrganizer>(initialFields.rewardOrganizer);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(initialFields.savedDraftId);
+  const [checkpoint, setCheckpoint] = useState<OnboardingSessionCheckpoint | null>(initialFields.checkpoint);
   const [sitOutAcknowledged, setSitOutAcknowledged] = useState(initialFields.sitOutAcknowledged);
   const [stakeAmount, setStakeAmount] = useState<number | null>(initialFields.stakeAmount);
   const [stakeAmountInput, setStakeAmountInput] = useState(initialFields.stakeAmountInput);
@@ -253,6 +288,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setInvitationMessageCustomized(true);
     setMembershipChoice(data.membershipChoice);
     setSavedDraftId(draftId);
+    // A loaded server draft is a different entity from any local creation-
+    // session checkpoint — never let a leftover checkpoint from an
+    // earlier, unrelated local session make background autosave on this
+    // draft's fields look like it belongs to that checkpoint too.
+    setCheckpoint(null);
   }, []);
 
   const resetDraft = useCallback(() => {
@@ -274,10 +314,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setInvitationMessageCustomized(fields.invitationMessageCustomized);
     setMembershipChoice(fields.membershipChoice);
     setSavedDraftId(fields.savedDraftId);
+    setCheckpoint(fields.checkpoint);
   }, []);
 
-  const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput) => {
-    const restored = computeRestoredCreationSessionState(fields);
+  const restoreCreationSessionFields = useCallback((fields: CreationSessionFieldsInput, lastRoute: string, savedAt: string) => {
+    const restored = computeRestoredCreationSessionState(fields, lastRoute, savedAt);
     setGoal(restored.goal);
     setBehaviorText(restored.behaviorText);
     setDefinitionText(restored.definitionText);
@@ -300,12 +341,14 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     // saveChallengeDraft's existingDraftId for fields that actually came
     // from this unrelated local session.
     setSavedDraftId(restored.savedDraftId);
+    setCheckpoint(restored.checkpoint);
   }, []);
 
   const value = useMemo(
     () => ({
       behaviorDirection,
       behaviorText,
+      checkpoint,
       currency: 'USD' as const,
       definitionText,
       durationWeeks,
@@ -324,6 +367,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       savedDraftId,
       setBehaviorDirection,
       setBehaviorText,
+      setCheckpoint,
       setDefinitionText,
       setDurationWeeks,
       setExperienceCategory,
@@ -346,6 +390,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     [
       behaviorDirection,
       behaviorText,
+      checkpoint,
       definitionText,
       durationWeeks,
       experienceCategory,

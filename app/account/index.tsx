@@ -1,21 +1,14 @@
 import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Linking,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { LabeledFieldV2 } from '@/components/v2/labeled-field';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
 import { TextInputV2 } from '@/components/v2/text-input';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
@@ -37,16 +30,16 @@ export default function AccountScreen() {
   const [nameSaved, setNameSaved] = useState(false);
   const [draftLookup, setDraftLookup] = useState<DraftLookup>({ status: 'loading' });
   // Only one pending commitment is ever allowed per owner (enforced
-  // server-side too); "Start a new draft instead" checks this so it can
-  // steer to the existing one instead of letting prepare_challenge_from_draft
+  // server-side too); the Challenge setup card checks this so it can steer
+  // to the existing one instead of letting prepare_challenge_from_draft
   // reject a second one later, deeper into onboarding.
   const [hasPendingCommitment, setHasPendingCommitment] = useState(false);
   const createChallengeEntry = useCreateChallengeEntry();
   const { refreshResumableSession } = createChallengeEntry;
   // Re-checked on every return to Account, not just once on mount — a
   // resumable local session can be created or cleared entirely inside
-  // app/create/*, and this screen needs the current answer before "Start a
-  // new draft instead" can decide whether to prompt Continue/Discard.
+  // app/create/*, and this screen needs the current answer before the
+  // Challenge setup card can decide whether to offer Continue/Discard.
   // Without this, navigating back here after creating unfinished progress
   // elsewhere would silently offer the stale "no session" behavior — the
   // same silent-discard risk this hook exists to prevent.
@@ -61,7 +54,7 @@ export default function AccountScreen() {
     setDraftLookup({ status: 'loading' });
     const result = await fetchLatestEditableDraft(user.id);
     if (!result.ok) {
-      setDraftLookup({ status: 'error', message: 'Could not check for a saved draft. Check your connection.' });
+      setDraftLookup({ status: 'error', message: 'Could not check for an unfinished challenge. Check your connection.' });
       return;
     }
     setDraftLookup(result.draftId ? { status: 'found' } : { status: 'none' });
@@ -100,9 +93,14 @@ export default function AccountScreen() {
     }
   };
 
+  const openPendingCommitment = () => {
+    void playSelectionHaptic();
+    router.push('/account/pending-commitment' as Href);
+  };
+
   // Shares its decision and confirmation UX with Home's "+ Create challenge"
   // (hooks/use-create-challenge-entry.ts): pending commitment still wins
-  // outright, but a resumable local creation session is now offered a
+  // outright, and a resumable local creation session is offered a
   // Continue/Start-new choice here too, instead of being silently
   // discarded — the same explicit destructive confirmation Home requires.
   const startNew = () => createChallengeEntry.requestCreateChallenge(hasPendingCommitment);
@@ -125,6 +123,21 @@ export default function AccountScreen() {
     void Linking.openURL(`mailto:${supportConfig.email}?subject=${encodeURIComponent('Kinwin support')}`);
   };
 
+  // draftLookup starts 'loading' on every mount (see loadDraftLookup) — it
+  // must read as a distinct, neutral state, not silently fall through to
+  // "none," or a user with a real saved draft could be told there is
+  // nothing unfinished and start a redundant parallel challenge before the
+  // real lookup even resolves.
+  const challengeSetupStatus = hasPendingCommitment
+    ? 'Your challenge is ready to activate.'
+    : draftLookup.status === 'loading'
+      ? 'Checking for an unfinished challenge…'
+      : draftLookup.status === 'found'
+        ? 'You have a challenge ready to review.'
+        : createChallengeEntry.hasResumableSession
+          ? 'You have an unfinished challenge.'
+          : 'No unfinished challenge right now.';
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <StatusBar style="light" />
@@ -132,7 +145,7 @@ export default function AccountScreen() {
         <View style={styles.content}>
           <View style={styles.header}>
             <Pressable
-              accessibilityHint="Returns to the Kinwin welcome screen"
+              accessibilityHint="Returns to the previous screen"
               accessibilityLabel="Go back"
               accessibilityRole="button"
               hitSlop={8}
@@ -141,24 +154,22 @@ export default function AccountScreen() {
             >
               <Text aria-hidden style={styles.backIcon}>‹</Text>
             </Pressable>
-            <Text style={styles.wordmark}>KINWIN</Text>
+            <Text accessibilityRole="header" numberOfLines={1} style={styles.title}>Account</Text>
           </View>
 
-          <View style={styles.intro}>
-            <Text style={styles.phaseLabel}>YOUR ACCOUNT</Text>
-            <Text accessibilityRole="header" style={styles.headline}>{user?.email}</Text>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>DISPLAY NAME (OPTIONAL)</Text>
-            <TextInputV2
-              accessibilityLabel="Display name"
-              onChangeText={(value) => { setDisplayName(value); setNameSaved(false); }}
-              placeholder="What should we call you?"
-              placeholderTextColor={theme.colors.warmGrey}
-              style={styles.input}
-              value={displayName}
-            />
+          <View style={styles.card}>
+            <Text numberOfLines={1} style={styles.email}>{user?.email}</Text>
+            <LabeledFieldV2 label="Display name (optional)">
+              <TextInputV2
+                accessibilityLabel="Display name"
+                onChangeText={(value) => { setDisplayName(value); setNameSaved(false); }}
+                placeholder="What should we call you?"
+                placeholderTextColor={theme.colors.warmGrey}
+                selectionColor={theme.colors.oxblood}
+                style={styles.input}
+                value={displayName}
+              />
+            </LabeledFieldV2>
             <Pressable
               accessibilityHint="Saves your display name"
               accessibilityRole="button"
@@ -170,101 +181,85 @@ export default function AccountScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>SAVED PROGRESS</Text>
-            <Text style={styles.body}>
-              This is a draft already saved on Kinwin’s servers, separate from any unfinished challenge you
-              haven’t reached Review with yet. Resume that instead from + Create challenge on Home.
-            </Text>
-            {draftLookup.status === 'loading' && <Text style={styles.body}>Checking for a saved draft…</Text>}
-            {draftLookup.status === 'error' && <Text style={styles.error}>{draftLookup.message}</Text>}
-            {draftLookup.status === 'none' && (
-              <Text style={styles.body}>No saved draft yet. Complete setup once to save your promise here.</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>CHALLENGE SETUP</Text>
+            {!hasPendingCommitment && draftLookup.status === 'error' ? (
+              <Text style={styles.error}>{draftLookup.message}</Text>
+            ) : (
+              <Text style={styles.cardBody}>{challengeSetupStatus}</Text>
             )}
-            {draftLookup.status === 'found' && (
-              <>
-                <Text style={styles.body}>You have a saved draft from a previous session.</Text>
-                <AnimatedPrimaryButton
-                  accessibilityHint="Restores your saved draft into onboarding for review"
-                  label="Continue saved draft"
-                  onPress={() => void continueDraft()}
-                  reducedMotion={reducedMotion}
-                />
-              </>
+
+            {hasPendingCommitment && (
+              <PrimaryButtonV2
+                accessibilityHint="Opens your pending commitment to finish setup"
+                label="Continue setup"
+                onPress={openPendingCommitment}
+                reducedMotion={reducedMotion}
+              />
             )}
-            <Pressable
-              accessibilityHint={
-                hasPendingCommitment
-                  ? 'Opens your existing pending commitment. Only one is allowed at a time.'
-                  : createChallengeEntry.hasResumableSession
+
+            {!hasPendingCommitment && draftLookup.status === 'found' && (
+              <PrimaryButtonV2
+                accessibilityHint="Restores your saved challenge for review"
+                label="Continue"
+                onPress={() => void continueDraft()}
+                reducedMotion={reducedMotion}
+              />
+            )}
+
+            {!hasPendingCommitment && draftLookup.status !== 'loading' && (
+              <Pressable
+                accessibilityHint={
+                  createChallengeEntry.hasResumableSession
                     ? 'Offers to continue your unfinished challenge or start a new one'
-                    : 'Starts a new onboarding draft'
-              }
-              accessibilityRole="button"
-              onPress={startNew}
-              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-            >
-              <Text style={styles.textButtonLabel}>
-                {hasPendingCommitment ? 'Resolve your pending commitment first' : 'Start a new draft instead'}
-              </Text>
-            </Pressable>
+                    : 'Starts a new challenge'
+                }
+                accessibilityRole="button"
+                onPress={startNew}
+                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              >
+                <Text style={styles.textButtonLabel}>
+                  {createChallengeEntry.hasResumableSession ? 'Continue or start new' : 'Start a challenge'}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>PENDING COMMITMENT</Text>
-            <Text style={styles.body}>
-              If a completed draft has been saved on the server as a pending commitment, view its
-              status, continue setup, or cancel it there.
-            </Text>
-            <Pressable
-              accessibilityHint="Opens your pending commitment, if any"
-              accessibilityRole="button"
-              onPress={() => { void playSelectionHaptic(); router.push('/account/pending-commitment' as Href); }}
-              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
-            >
-              <Text style={styles.textButtonLabel}>View pending commitment</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>PREFERENCES</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>PREFERENCES</Text>
             <Pressable
               accessibilityHint="Toggles whether How Kinwin works is shown before creating a challenge"
               accessibilityRole="switch"
               accessibilityState={{ checked: profile?.showChallengeIntro ?? true }}
               onPress={() => void toggleShowIntro()}
-              style={({ pressed }) => [styles.toggleRow, pressed && styles.textButtonPressed]}
+              style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
             >
-              <Text style={styles.toggleLabel}>Show &quot;How Kinwin works&quot; before creating a challenge</Text>
-              <Text style={styles.textButtonLabel}>{(profile?.showChallengeIntro ?? true) ? 'On' : 'Off'}</Text>
+              <Text style={styles.rowLabel}>Show &quot;How Kinwin works&quot; before creating a challenge</Text>
+              <Text style={styles.rowValue}>{(profile?.showChallengeIntro ?? true) ? 'On' : 'Off'}</Text>
             </Pressable>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>SUPPORT</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>SUPPORT &amp; LEGAL</Text>
             {supportConfig ? (
               <Pressable
                 accessibilityHint={`Opens your email app to contact Kinwin support at ${supportConfig.email}`}
                 accessibilityRole="button"
                 onPress={contactSupport}
-                style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
-                <Text style={styles.textButtonLabel}>Contact Kinwin</Text>
+                <Text style={styles.rowLabel}>Contact Kinwin</Text>
               </Pressable>
             ) : (
-              <Text style={styles.body}>Support contact is not configured in this build yet.</Text>
+              <Text style={styles.cardBody}>Support contact is not configured in this build yet.</Text>
             )}
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>LEGAL</Text>
             <Pressable
               accessibilityHint="Opens Kinwin's privacy page"
               accessibilityRole="button"
               onPress={() => { void playSelectionHaptic(); router.push('/legal/privacy' as Href); }}
-              style={({ pressed }) => [styles.textButton, pressed && styles.textButtonPressed]}
+              style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
             >
-              <Text style={styles.textButtonLabel}>Privacy</Text>
+              <Text style={styles.rowLabel}>Privacy</Text>
             </Pressable>
             {/* No Terms row: Kinwin has no custom Terms of Service yet.
                 Apple's standard EULA applies to App Store submissions by
@@ -308,43 +303,40 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 24,
+    paddingHorizontal: theme.spacing.medium, paddingTop: 6, paddingBottom: theme.spacing.large, gap: 16,
   },
-  header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
+  header: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
   backButton: {
     width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
-    marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
+    marginLeft: -9, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
-  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
-  intro: { gap: 8 },
-  phaseLabel: { color: theme.colors.copper, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 26, fontWeight: '400', lineHeight: 32,
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
+  title: { color: theme.colors.ivory, fontSize: 20, fontWeight: '700' },
+  card: {
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, padding: theme.spacing.medium, gap: 12,
   },
-  field: { gap: 8 },
-  label: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
-  input: {
-    minHeight: 50, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 14, color: theme.colors.bone, fontSize: 15,
-  },
-  section: { gap: 10, borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 20 },
-  sectionLabel: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
-  body: { color: theme.colors.boneMuted, fontSize: 13, lineHeight: 19 },
+  cardLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 },
+  cardBody: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
+  email: { color: theme.colors.ivory, fontSize: 17, fontWeight: '700' },
+  input: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
   error: { color: '#E37D6A', fontSize: 13, lineHeight: 19 },
   textButton: { minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
-  toggleRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  toggleLabel: { flex: 1, color: theme.colors.boneMuted, fontSize: 13, lineHeight: 19 },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
+  row: {
+    minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingBottom: 12,
+  },
+  rowLast: { borderBottomWidth: 0, paddingBottom: 0 },
+  rowPressed: { opacity: 0.7 },
+  rowLabel: { flex: 1, color: theme.colors.ivory, fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  rowValue: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '700' },
   signOutButton: {
-    minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 8,
+    minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 4,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,
   },
   signOutButtonPressed: { backgroundColor: theme.colors.surface },
-  signOutLabel: { color: theme.colors.boneMuted, fontSize: 14, fontWeight: '700' },
+  signOutLabel: { color: theme.colors.ivoryMuted, fontSize: 14, fontWeight: '700' },
 });

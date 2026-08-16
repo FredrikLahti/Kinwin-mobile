@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedPrimaryButton } from '@/components/animated-primary-button';
+import { LabeledFieldV2 } from '@/components/v2/labeled-field';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { TextInputV2 } from '@/components/v2/text-input';
-import { kinwinTheme as theme } from '@/constants/theme';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
@@ -43,7 +44,7 @@ export default function ForgotPasswordScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             <View style={styles.header}>
@@ -57,12 +58,12 @@ export default function ForgotPasswordScreen() {
               >
                 <Text aria-hidden style={styles.backIcon}>‹</Text>
               </Pressable>
-              <Text style={styles.wordmark}>KINWIN</Text>
+              <Text numberOfLines={1} style={styles.wordmark}>KINWIN</Text>
             </View>
 
             <View style={styles.intro}>
-              <Text accessibilityRole="header" style={styles.headline}>Reset your password.</Text>
-              <Text style={styles.supportingCopy}>Enter your account email. If an account exists for it, we&apos;ll send instructions.</Text>
+              <Text accessibilityRole="header" style={styles.headline}>Reset your password</Text>
+              <Text style={styles.supportingCopy}>Enter your account email. If an account exists for it, we’ll send instructions.</Text>
             </View>
 
             {sent ? (
@@ -71,8 +72,7 @@ export default function ForgotPasswordScreen() {
               </Text>
             ) : (
               <View style={styles.form}>
-                <View style={styles.field}>
-                  <Text style={styles.label}>EMAIL</Text>
+                <LabeledFieldV2 label="Email">
                   <TextInputV2
                     accessibilityLabel="Email"
                     autoCapitalize="none"
@@ -81,15 +81,16 @@ export default function ForgotPasswordScreen() {
                     onChangeText={setEmail}
                     placeholder="you@example.com"
                     placeholderTextColor={theme.colors.warmGrey}
+                    selectionColor={theme.colors.oxblood}
                     style={styles.input}
                     textContentType="emailAddress"
                     value={email}
                   />
-                </View>
+                </LabeledFieldV2>
                 {errorMessage && (
                   <Text accessibilityLiveRegion="assertive" style={styles.error}>{errorMessage}</Text>
                 )}
-                <AnimatedPrimaryButton
+                <PrimaryButtonV2
                   accessibilityHint="Sends password reset instructions to this email"
                   disabled={!canSubmit}
                   label={submitting ? 'Sending…' : 'Send reset instructions'}
@@ -119,37 +120,28 @@ export default function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: theme.colors.ink },
+  keyboardAvoidingView: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   content: {
     flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center',
-    paddingHorizontal: 26, paddingTop: 6, paddingBottom: 24, gap: 22,
+    paddingHorizontal: theme.spacing.medium, paddingTop: 6, paddingBottom: theme.spacing.small, gap: 22,
   },
-  header: { minHeight: 52, flexDirection: 'row', alignItems: 'center' },
+  header: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
   backButton: {
     width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
-    marginLeft: -9, marginRight: 4, borderRadius: theme.radius.precise,
+    marginLeft: -9, borderRadius: theme.radius.precise,
   },
   backButtonPressed: { backgroundColor: theme.colors.surface },
-  backIcon: { color: theme.colors.copperBright, fontSize: 32, fontWeight: '300', lineHeight: 35 },
-  wordmark: { color: theme.colors.bone, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  backIcon: { color: theme.colors.crimsonBright, fontSize: 30, fontWeight: '300', lineHeight: 33 },
+  wordmark: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700', letterSpacing: 4 },
   intro: { gap: 8 },
-  headline: {
-    color: theme.colors.bone,
-    fontFamily: Platform.select({ android: 'serif', default: 'Georgia', ios: 'Georgia', web: 'Georgia' }),
-    fontSize: 32, fontWeight: '400', letterSpacing: -0.5, lineHeight: 38,
-  },
-  supportingCopy: { color: theme.colors.boneMuted, fontSize: 14, lineHeight: 21 },
+  headline: { color: theme.colors.ivory, fontSize: 26, fontWeight: '700', lineHeight: 32 },
+  supportingCopy: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 21 },
   form: { gap: 16 },
-  field: { gap: 8 },
-  label: { color: theme.colors.copper, fontSize: 9, fontWeight: '800', letterSpacing: 1.35 },
-  input: {
-    minHeight: 50, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 14, color: theme.colors.bone, fontSize: 15,
-  },
-  notice: { color: theme.colors.copperBright, fontSize: 14, lineHeight: 21 },
+  input: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
+  notice: { color: theme.colors.ivory, fontSize: 14, lineHeight: 21 },
   error: { color: '#E37D6A', fontSize: 13, lineHeight: 19 },
   textButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   textButtonPressed: { opacity: 0.7 },
-  textButtonLabel: { color: theme.colors.copperBright, fontSize: 13, fontWeight: '700' },
+  textButtonLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '700' },
 });

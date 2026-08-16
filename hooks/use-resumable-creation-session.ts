@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/auth-context';
-import { createLatestRequestGuard, CreationSessionSnapshot, readCreationSession } from '@/lib/challenge-creation/creation-session';
+import {
+  CreationSessionCheckpoint,
+  createLatestRequestGuard,
+  CreationSessionSnapshot,
+  isResumeEligibleSession,
+  readCreationSession,
+} from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
 
 export type ResumableCreationSessionState =
   | { readonly status: 'loading' }
   | { readonly status: 'none' }
-  | { readonly status: 'found'; readonly session: CreationSessionSnapshot };
+  | {
+      readonly status: 'found';
+      // checkpoint narrowed to non-null: "found" is defined as
+      // isResumeEligibleSession(session), which already guarantees this —
+      // consumers (Continue) never need to null-check it again.
+      readonly session: CreationSessionSnapshot & { readonly checkpoint: CreationSessionCheckpoint };
+    };
 
 /**
  * Read-only lookup of the signed-in user's resumable local creation
@@ -15,6 +27,13 @@ export type ResumableCreationSessionState =
  * should do) and Account (to avoid contradicting the separate, complete
  * server-draft "Saved progress" concept). Never writes; see
  * hooks/use-creation-session-autosave.ts for that.
+ *
+ * "found" here specifically means isResumeEligibleSession(session) —
+ * a snapshot that only exists because of quiet background autosave
+ * (never explicitly Saved & exited) is reported as "none", exactly like
+ * no session at all. This is the one place that filtering happens, so
+ * Home and Account can never drift on what counts as something the user
+ * consciously chose to save for later.
  */
 export function useResumableCreationSession(): ResumableCreationSessionState & { readonly refresh: () => void } {
   const { status: authStatus, user } = useAuth();
@@ -38,7 +57,18 @@ export function useResumableCreationSession(): ResumableCreationSessionState & {
     const userId = user.id;
     void readCreationSession(userId, creationSessionStorage).then((session) => {
       if (!guardRef.current.isCurrent(token)) return;
-      setState(session ? { status: 'found', session } : { status: 'none' });
+      // session.checkpoint (not isResumeEligibleSession(session), which
+      // returns a plain boolean) is checked directly here so TypeScript
+      // narrows checkpoint to non-null for the 'found' branch below —
+      // isResumeEligibleSession remains the single documented rule for
+      // what "eligible" means and is what every other caller should use.
+      // Re-spreading with the narrowed checkpoint carries that narrowing
+      // into the constructed object's type, not just this expression.
+      setState(
+        session && session.checkpoint && isResumeEligibleSession(session)
+          ? { status: 'found', session: { ...session, checkpoint: session.checkpoint } }
+          : { status: 'none' },
+      );
     });
   }, [authStatus, user]);
 
