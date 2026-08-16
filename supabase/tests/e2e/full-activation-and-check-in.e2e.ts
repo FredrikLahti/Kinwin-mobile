@@ -297,4 +297,140 @@ test('activate_challenge_draft + append-check-in-event: real activation and a re
     assert.equal(data, null);
     assert.ok(error, 'expected User B\'s attempt to be rejected');
   });
+
+  let firstEventId = '';
+  await t.test('(test setup) read the original check-in event id', async () => {
+    const { data, error } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId).eq('event_type', 'build_completion').single();
+    assert.equal(error, null, `original event lookup failed: ${error?.message}`);
+    firstEventId = data!.id;
+  });
+
+  const correctionOperationId = `e2e-correction-${randomUUID()}`;
+  let correctionEventId = '';
+  await t.test('a correction changes the effective answer without touching the original event', async () => {
+    const { data, error } = await ownerA.functions.invoke('append-check-in-event', {
+      body: {
+        challengeId,
+        periodId: firstPeriodId,
+        operationId: correctionOperationId,
+        fact: { kind: 'build_completion', completions: 0 },
+        isCorrection: true,
+        correctionOfEventId: firstEventId,
+        source: 'ios',
+        clientRecordedAt: new Date().toISOString(),
+      },
+    });
+    assert.equal(error, null, `correction submission failed: ${error?.message}`);
+    assert.equal(data.status, 'inserted');
+    assert.ok(data.eventId, 'expected an eventId in the correction response');
+    correctionEventId = data.eventId;
+
+    const { data: correctionRow, error: correctionError } = await ownerA
+      .from('check_in_events')
+      .select('event_type, event_payload, correction_of_event_id')
+      .eq('id', correctionEventId)
+      .single();
+    assert.equal(correctionError, null, `correction row lookup failed: ${correctionError?.message}`);
+    assert.equal(correctionRow!.event_type, 'correction');
+    assert.deepEqual(correctionRow!.event_payload, { kind: 'build_completion', completions: 0 });
+    assert.equal(correctionRow!.correction_of_event_id, firstEventId);
+
+    const { data: originalRow, error: originalError } = await ownerA
+      .from('check_in_events')
+      .select('event_type, event_payload')
+      .eq('id', firstEventId)
+      .single();
+    assert.equal(originalError, null, `original event lookup failed: ${originalError?.message}`);
+    assert.equal(originalRow!.event_type, 'build_completion', 'the original event must remain untouched — append-only');
+    assert.deepEqual(originalRow!.event_payload, { kind: 'build_completion', completions: 1 }, 'the original event\'s recorded fact must never change');
+
+    const { data: allRows } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId);
+    assert.equal(allRows?.length, 2, 'expected exactly the original event plus the new correction — never an update in place');
+  });
+
+  await t.test('resubmitting the same correction operation id replays idempotently, without a second row', async () => {
+    const { data, error } = await ownerA.functions.invoke('append-check-in-event', {
+      body: {
+        challengeId,
+        periodId: firstPeriodId,
+        operationId: correctionOperationId,
+        fact: { kind: 'build_completion', completions: 0 },
+        isCorrection: true,
+        correctionOfEventId: firstEventId,
+        source: 'ios',
+        clientRecordedAt: new Date().toISOString(),
+      },
+    });
+    assert.equal(error, null, `idempotent correction replay failed: ${error?.message}`);
+    assert.equal(data.status, 'idempotent_replay');
+    assert.equal(data.eventId, correctionEventId);
+
+    const { data: allRows } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId);
+    assert.equal(allRows?.length, 2, 'a resubmitted correction operation id must not create a third row');
+  });
+
+  await t.test('a correction targeting an event that is no longer the currently-effective one is rejected', async () => {
+    const { data, error } = await ownerA.functions.invoke('append-check-in-event', {
+      body: {
+        challengeId,
+        periodId: firstPeriodId,
+        operationId: `e2e-correction-${randomUUID()}`,
+        fact: { kind: 'build_completion', completions: 1 },
+        isCorrection: true,
+        correctionOfEventId: firstEventId, // stale — the correction above is now effective, not this
+        source: 'ios',
+        clientRecordedAt: new Date().toISOString(),
+      },
+    });
+    assert.equal(data, null);
+    const status = (error as { context?: { status?: number } })?.context?.status;
+    assert.equal(status, 409, `expected 409 (correction_target_mismatch) for a stale correction target, got: ${status}`);
+
+    const { data: allRows } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId);
+    assert.equal(allRows?.length, 2, 'a rejected correction attempt must not create a row');
+  });
+
+  await t.test('another user cannot correct User A\'s check-in', async () => {
+    const { data, error } = await ownerB.functions.invoke('append-check-in-event', {
+      body: {
+        challengeId,
+        periodId: firstPeriodId,
+        operationId: `e2e-correction-${randomUUID()}`,
+        fact: { kind: 'build_completion', completions: 1 },
+        isCorrection: true,
+        correctionOfEventId: correctionEventId,
+        source: 'ios',
+        clientRecordedAt: new Date().toISOString(),
+      },
+    });
+    assert.equal(data, null);
+    assert.ok(error, 'expected User B\'s correction attempt against User A\'s challenge to be rejected');
+
+    const { data: allRows } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId);
+    assert.equal(allRows?.length, 2, 'a rejected cross-user correction attempt must not create a row');
+  });
+
+  await t.test('(test setup, last: leaves the challenge terminal) a correction against a no-longer-active challenge is rejected', async () => {
+    const { error: finalizeError } = await service.from('challenges').update({ challenge_status: 'completed_success', completed_at: new Date().toISOString() }).eq('id', challengeId);
+    assert.equal(finalizeError, null, `service-role finalize simulation failed: ${finalizeError?.message}`);
+
+    const { data, error } = await ownerA.functions.invoke('append-check-in-event', {
+      body: {
+        challengeId,
+        periodId: firstPeriodId,
+        operationId: `e2e-correction-${randomUUID()}`,
+        fact: { kind: 'build_completion', completions: 1 },
+        isCorrection: true,
+        correctionOfEventId: correctionEventId,
+        source: 'ios',
+        clientRecordedAt: new Date().toISOString(),
+      },
+    });
+    assert.equal(data, null);
+    const status = (error as { context?: { status?: number } })?.context?.status;
+    assert.equal(status, 400, `expected 400 (invalid_state) once the challenge is no longer active, got: ${status}`);
+
+    const { data: allRows } = await ownerA.from('check_in_events').select('id').eq('challenge_id', challengeId).eq('period_id', firstPeriodId);
+    assert.equal(allRows?.length, 2, 'a correction rejected for an inactive challenge must not create a row');
+  });
 });

@@ -72,6 +72,23 @@ test('correction is available while the reporting window is open and unavailable
   assert.equal(closed.correction.available, false);
 });
 
+// --- correctionAction: the one, unambiguous correction the UI may offer ---
+
+test('correctionAction targets the currently effective report for Build and Cut back, and disappears once the window closes', () => {
+  const build = buildActiveChallengeViewModel(findScenario('build-correction-available'));
+  assert.equal(build.correctionAction.available, true);
+  if (build.correctionAction.available) {
+    assert.equal(build.correctionAction.direction, 'build');
+    assert.equal(build.correctionAction.target.eventId, build.correction.available ? build.correction.targets[0].eventId : undefined);
+  }
+  const cutBack = buildActiveChallengeViewModel(findScenario('cut-back-correction'));
+  assert.equal(cutBack.correctionAction.available, true);
+  if (cutBack.correctionAction.available) assert.equal(cutBack.correctionAction.direction, 'cut_back');
+
+  const closed = buildActiveChallengeViewModel(findScenario('build-correction-closed'));
+  assert.equal(closed.correctionAction.available, false);
+});
+
 // --- Cut back reflects the challenge's own unit and the actual reported total ---
 
 test('cut back copy uses the challenge unit and the actual reported total, not a generic count', () => {
@@ -224,6 +241,66 @@ test('the Stop lapse-correction target is deterministically an effective stop_la
 test('the Stop lapse-correction target is null when no uncorrected lapse exists, even if a correction target exists', () => {
   const viewModel = buildActiveChallengeViewModel(findScenario('stop-active-intact'));
   assert.equal(viewModel.stopLapseCorrectionTarget, null);
+});
+
+// --- correctionAction for Stop: never a blind pick among several live chains ---
+
+test('correctionAction offers stop_lapse_to_intact using the deterministic lapse target when a lapse is on record, even with an unrelated intact chain also live', () => {
+  const period = buildPeriod({
+    periodKind: 'continuous',
+    startsAt: '2026-01-01T00:00:00Z' as IsoDateTime,
+    endsAt: '2026-01-08T00:00:00Z' as IsoDateTime,
+    reportingClosesAt: '2026-01-08T10:00:00Z' as IsoDateTime,
+    target: { type: 'maximum_lapses', maximum: 0 },
+  });
+  const earlyIntact = buildEvent({ periodId: period.id, eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-01-02T00:00:00Z' as IsoDateTime });
+  const lapse = buildEvent({ periodId: period.id, eventType: 'stop_lapse', fact: { kind: 'stop_lapse' }, clientRecordedAt: '2026-01-03T00:00:00Z' as IsoDateTime });
+  const challenge = findScenario('stop-lapse-recorded').challenge;
+  const viewModel = buildActiveChallengeViewModel({
+    challenge: { ...challenge, id: CHALLENGE_ID, ownerId: OWNER_ID },
+    periods: [period],
+    events: [earlyIntact, lapse].map((e) => ({ ...e, challengeId: CHALLENGE_ID, ownerId: OWNER_ID })),
+    now: '2026-01-05T00:00:00Z' as IsoDateTime,
+  });
+  // Two live chains exist (intact and lapse) — correction.targets has both,
+  // so this also proves correctionAction never falls back to
+  // stop_intact_to_lapse just because a lone intact target *would* have
+  // qualified in isolation: the lapse takes priority, and the intact chain
+  // here is one of two targets, not the required exactly-one.
+  assert.equal(viewModel.correctionAction.available, true);
+  if (viewModel.correctionAction.available) {
+    assert.equal(viewModel.correctionAction.direction, 'stop_lapse_to_intact');
+    assert.equal(viewModel.correctionAction.target.eventId, lapse.id);
+  }
+});
+
+test('correctionAction offers stop_intact_to_lapse only when exactly one live chain exists and it is intact', () => {
+  const period = buildPeriod({
+    periodKind: 'continuous',
+    startsAt: '2026-01-01T00:00:00Z' as IsoDateTime,
+    endsAt: '2026-01-08T00:00:00Z' as IsoDateTime,
+    reportingClosesAt: '2026-01-08T10:00:00Z' as IsoDateTime,
+    target: { type: 'maximum_lapses', maximum: 0 },
+  });
+  const onlyIntact = buildEvent({ periodId: period.id, eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-01-02T00:00:00Z' as IsoDateTime });
+  const challenge = findScenario('stop-active-intact').challenge;
+  const viewModel = buildActiveChallengeViewModel({
+    challenge: { ...challenge, id: CHALLENGE_ID, ownerId: OWNER_ID },
+    periods: [period],
+    events: [{ ...onlyIntact, challengeId: CHALLENGE_ID, ownerId: OWNER_ID }],
+    now: '2026-01-05T00:00:00Z' as IsoDateTime,
+  });
+  assert.equal(viewModel.correctionAction.available, true);
+  if (viewModel.correctionAction.available) {
+    assert.equal(viewModel.correctionAction.direction, 'stop_intact_to_lapse');
+    assert.equal(viewModel.correctionAction.target.eventId, onlyIntact.id);
+  }
+});
+
+test('correctionAction stays unavailable for Stop when nothing has been reported yet for the period', () => {
+  const viewModel = buildActiveChallengeViewModel(findScenario('stop-active-intact'));
+  assert.equal(viewModel.correction.available, false);
+  assert.equal(viewModel.correctionAction.available, false);
 });
 
 // --- Duplicated status copy: nextAction.detail is blank unless it adds genuinely new information ---

@@ -4,7 +4,10 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { RealCheckInCorrectionSheetV2 } from '@/components/v2/real-check-in-correction-sheet';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { formatClockTime } from '@/lib/challenge-ux-preview/view-model';
 import { describeChallengeIdentity, describeConsequence, describeDurationPosition, describeProgress } from '@/lib/home/challenge-summary';
@@ -25,11 +28,13 @@ function formatDate(iso: string): string {
 
 export default function ActiveChallengeDetailScreen() {
   const router = useRouter();
-  const { state: real } = useRealActiveChallenge();
+  const reducedMotion = useReducedMotion();
+  const { state: real, refresh } = useRealActiveChallenge();
   const [invitations, setInvitations] = useState<readonly OwnerInvitation[]>([]);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [organizer,setOrganizer]=useState<OwnerRewardOrganizer|null>(null);
   const [sharingIds, setSharingIds] = useState<ReadonlySet<string>>(new Set());
+  const [correctionSheetOpen, setCorrectionSheetOpen] = useState(false);
   const challengeId = real.status === 'ready' ? real.data.challenge.id : '';
   const loadInvitations = useCallback(async () => { if (!challengeId) return; const [result,organizerResult] = await Promise.all([fetchOwnerInvitations(challengeId),fetchOwnerRewardOrganizer(challengeId)]); if (result.ok) setInvitations(result.value); else setInviteError(result.message);if(organizerResult.ok)setOrganizer(organizerResult.value);else setInviteError(organizerResult.message); }, [challengeId]);
   useFocusEffect(useCallback(() => { void loadInvitations(); }, [loadInvitations]));
@@ -122,6 +127,17 @@ export default function ActiveChallengeDetailScreen() {
             <Text style={styles.sectionLabel}>{real.view.currentPeriodHeadline.toUpperCase()}</Text>
             <Text style={styles.body}>{real.view.currentPeriodCopy}</Text>
             <Text style={styles.bodyMuted}>You can report until {formatClockTime(focusPeriod.reportingClosesAt)} after this period ends.</Text>
+            {real.view.correctionAction.available && (
+              <Pressable
+                accessibilityHint="Opens a correction for this period's report"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => { void playSelectionHaptic(); setCorrectionSheetOpen(true); }}
+                style={styles.correctionLink}
+              >
+                <Text style={styles.correctionLinkText}>Correct report</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -163,6 +179,18 @@ export default function ActiveChallengeDetailScreen() {
         {organizer?.kind==='other'&&<View style={styles.section}><Text style={styles.sectionLabel}>REWARD ORGANIZER</Text><View style={styles.recipientRow}><View style={styles.recipientCopy}><Text style={styles.body}>{organizer.displayName}</Text><Text style={[styles.inviteStatus,organizer.status==='accepted'&&styles.accepted]}>{organizer.status?STATUS_COPY[organizer.status]:'Not shared'}</Text></View><Pressable accessibilityHint={`Opens the share sheet for ${organizer.displayName}'s private access`} accessibilityRole="button" disabled={sharingIds.has('organizer')} onPress={()=>void shareOrganizerInvite()} style={[styles.inviteButton, sharingIds.has('organizer') && styles.inviteButtonBusy]}><Text style={styles.inviteButtonText}>{sharingIds.has('organizer')?'Preparing…':organizer.status==='accepted'?'Share access again':organizer.invitationId?'Share again':'Share access'}</Text></Pressable></View></View>}
 
       </ScrollView>
+
+      <BottomSheetV2 onClose={() => setCorrectionSheetOpen(false)} reducedMotion={reducedMotion} visible={correctionSheetOpen}>
+        {focusPeriod && real.view.correctionAction.available ? (
+          <RealCheckInCorrectionSheetV2
+            challenge={challenge}
+            correctionAction={real.view.correctionAction}
+            onClose={() => setCorrectionSheetOpen(false)}
+            onSubmitted={() => void refresh()}
+            period={focusPeriod}
+          />
+        ) : null}
+      </BottomSheetV2>
     </SafeAreaView>
   );
 }
@@ -191,6 +219,8 @@ const styles = StyleSheet.create({
   identityRule: { color: theme.colors.ivoryMuted, fontSize: 15, fontWeight: '600' },
   body: { color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
   bodyMuted: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 18 },
+  correctionLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center', marginTop: 2 },
+  correctionLinkText: { color: theme.colors.warmGrey, fontSize: 12, fontWeight: '700' },
   recipientList: { gap: 8, marginTop: 4 },
   recipientRow: { minHeight: 58, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: theme.colors.structureLine, borderRadius: theme.radius.controlled, backgroundColor: theme.colors.surface },
   recipientCopy:{flex:1,paddingVertical:9,paddingRight:8},

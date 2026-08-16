@@ -98,7 +98,31 @@ export type ActiveChallengeViewModel = {
    */
   readonly stopLapseCorrectionTarget: CorrectionTarget | null;
   readonly finalResult: { readonly status: 'success' | 'failure' } | null;
+  readonly correctionAction: CorrectionAction;
 };
+
+/**
+ * The one, unambiguous correction the UI may offer for the current focus
+ * period right now — never a generic "pick a target" affordance. Build and
+ * Cut back always have at most one valid target when `correction.available`
+ * (see `buildOrCutBackStatus`'s own `targets: [{...}]`), so those two are
+ * unconditional once available. Stop is the one direction with potentially
+ * several simultaneously-live chains (an intact ping and a separate lapse
+ * both being independently correctable), so it gets two narrow, explicitly
+ * safe cases instead of exposing `correction.targets` directly:
+ *   - `stop_lapse_to_intact`: an effective, uncorrected lapse is on record
+ *     (`stopLapseCorrectionTarget`, already deterministic — see its own
+ *     doc comment) — "that lapse was a mistake."
+ *   - `stop_intact_to_lapse`: the opposite direction. Only offered when
+ *     there is exactly one valid correction target for this period and it
+ *     is an intact chain — i.e. genuinely unambiguous, not a guess among
+ *     several candidates. Any other shape (multiple live chains, or none)
+ *     leaves this unavailable rather than picking one.
+ */
+export type CorrectionAction =
+  | { readonly available: false }
+  | { readonly available: true; readonly direction: 'build' | 'cut_back'; readonly target: CorrectionTarget }
+  | { readonly available: true; readonly direction: 'stop_lapse_to_intact' | 'stop_intact_to_lapse'; readonly target: CorrectionTarget };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -442,6 +466,25 @@ function progressSummary(
   return { periodsClosed: closedOrdered.length, periodsTotal: ordered.length, periodsMet, streakLabel, progressSoFarLabel, requirementLabel };
 }
 
+function resolveCorrectionAction(
+  direction: ActivatedChallengeSnapshot['successRule']['direction'],
+  status: CurrentPeriodStatus,
+  correction: CorrectionAvailability,
+  stopLapseCorrectionTarget: CorrectionTarget | null,
+): CorrectionAction {
+  if (direction === 'build' || direction === 'cut_back') {
+    return correction.available ? { available: true, direction, target: correction.targets[0] } : { available: false };
+  }
+  // stop
+  if (status.kind === 'stop_lapse_on_record' && stopLapseCorrectionTarget !== null) {
+    return { available: true, direction: 'stop_lapse_to_intact', target: stopLapseCorrectionTarget };
+  }
+  if (correction.available && correction.targets.length === 1 && correction.targets[0].fact.kind === 'stop_intact') {
+    return { available: true, direction: 'stop_intact_to_lapse', target: correction.targets[0] };
+  }
+  return { available: false };
+}
+
 function errorViewModel(challenge: ActivatedChallengeSnapshot, focusPeriodId: ChallengePeriodId): ActiveChallengeViewModel {
   return {
     direction: challenge.successRule.direction,
@@ -458,6 +501,7 @@ function errorViewModel(challenge: ActivatedChallengeSnapshot, focusPeriodId: Ch
     correction: { available: false },
     stopLapseCorrectionTarget: null,
     finalResult: null,
+    correctionAction: { available: false },
   };
 }
 
@@ -498,6 +542,7 @@ export function buildActiveChallengeViewModel(input: ChallengeUxPreviewInput): A
     correction,
     stopLapseCorrectionTarget,
     finalResult,
+    correctionAction: resolveCorrectionAction(direction, status, correction, stopLapseCorrectionTarget),
   };
 }
 
