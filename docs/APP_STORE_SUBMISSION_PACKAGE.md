@@ -47,7 +47,7 @@ Purpose: let the founder move quickly on the App Store Connect / TestFlight subm
 
 ## Draft App Review notes
 
-> Kinwin is a commitment/accountability app. A user sets a personal goal with a measurable rule, and pledges a payment (currently Stripe **test mode** only — no real money) that is given as a reward to a person they name if they fail. The person receiving the reward is *not* the user attempting the challenge — the user explicitly commits not to take part in that reward themselves. This is not a lottery, wager, or prize draw: the payment amount and the recipient are both fixed and chosen by the user in advance, and the outcome is entirely determined by the user's own tracked behavior, not chance or a competitive outcome against other users.
+> Kinwin is a commitment/accountability app. A user sets a personal goal with a measurable rule, and pledges a payment (currently Stripe **test mode** only — no real money) that is given as a reward to a person they name if they fail. The person receiving the reward is *not* the user attempting the challenge — the user explicitly commits not to take part in that reward themselves. This is not a lottery, wager, or prize draw: the payment amount and the recipient are both fixed and chosen by the user in advance, and the outcome is determined by the user's own self-reported check-ins, recorded through Kinwin's trusted server-side check-in path and evaluated against the challenge's rules — not by chance or a competitive outcome against other users. Kinwin does not independently verify that the reported real-world behavior actually occurred.
 >
 > Reward fulfillment (currently Tremendous's sandbox/TestFlight environment, not production) issues a gift-card-style reward to the named recipient, not the app user.
 >
@@ -77,7 +77,7 @@ Kinwin's core mechanic, stated precisely for submission purposes:
 5. If the challenge fails, the pledged card is charged (currently Stripe TEST mode, so no real money moves during the beta), and a reward — currently fulfilled via Tremendous's sandbox/TestFlight environment, never production — becomes available for the named organizer to claim on the recipients' behalf.
 6. **The user who set the challenge explicitly commits, at creation time, not to participate in that reward themselves** — a required consent checkbox on the final review screen states this plainly: *"If the challenge fails, the reward is for my recipients. I will not take part in their experience."*
 
-This is not gambling, a game of chance, or a prize competition: the stake amount and the recipient are fixed in advance by the user, and the outcome depends entirely on the user's own verifiable behavior, not chance or competition against other users.
+This is not gambling, a game of chance, or a prize competition: the stake amount and recipient are fixed in advance by the user, and the outcome is determined by the user's self-reported check-ins as recorded and evaluated against the challenge's configured rules, not by chance or competition against other users.
 
 **Nothing above is legally reviewed language.** It is engineering's factual description of what the code actually does, written for App Review clarity — not a substitute for real legal review of consequence/payment/reward wording before any public, real-money launch (tracked as its own open item in `docs/LAUNCH_READINESS.md`'s "Product decisions before public launch").
 

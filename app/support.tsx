@@ -55,7 +55,7 @@ export default function SupportScreen() {
         <View style={s.section}>
           <Text style={s.sectionHeading}>Managing your account</Text>
           <Text style={s.paragraph}>
-            You can delete your Kinwin account at any time from Account → Delete account. This is permanent and removes your challenge history, check-ins, Playbook entries, social activity, and Kin connections.
+            You can delete your Kinwin account from Account → Delete account. If you have an active challenge or an unresolved payment or reward from a failed one, deletion isn’t available until that’s resolved. Once it goes through, deletion is permanent and removes your challenge history, check-ins, Playbook entries, social activity, and Kin connections.
           </Text>
         </View>
 
