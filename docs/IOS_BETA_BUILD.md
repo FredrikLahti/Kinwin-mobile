@@ -12,7 +12,7 @@ or production Stripe or Tremendous use. Backend deployment remains governed by
 - Version: `1.0.0`
 - iOS beta bundle identifier: `com.kinwin.mobile.beta`
 - Custom scheme: `kinwin`
-- Build number: managed remotely by EAS (`cli.appVersionSource: "remote"` in `eas.json`, required for a dynamic `app.config.js`, since EAS CLI cannot rewrite a `.js` config file to bump a locally-stored number). `app.config.js`'s `ios.buildNumber: '1'` is only ever read once, to initialize the remote counter on the very first `remote`-mode build; every build after that increments the number EAS itself already has on record (`build.beta.autoIncrement: true`), never the local file.
+- Build number: managed remotely by EAS (`cli.appVersionSource: "remote"` in `eas.json`). Kinwin uses a dynamic `app.config.js`, so EAS cannot use local `autoIncrement` to rewrite the build number in a static app config. Remote version management lets `build.beta.autoIncrement: true` increment the EAS-managed build number without modifying the local config. `app.config.js`'s `ios.buildNumber: '1'` initializes the first remote iOS build number to `1` under current EAS CLI behavior; every build after that increments the EAS-managed value, never the local file.
 - EAS profile: `beta`, internal distribution, real-device iOS build, EAS environment `preview`
 
 The beta identifier is intentionally not declared to be the final App Store identifier. Confirm
