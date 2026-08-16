@@ -188,6 +188,7 @@ export async function finalizeChallenge(challengeId: string): Promise<FinalizeCh
 export type SubmitCheckInResult =
   | { readonly ok: true; readonly status: 'inserted' | 'idempotent_replay'; readonly eventId: string }
   | { readonly ok: false; readonly kind: 'rejected'; readonly reason: string }
+  | { readonly ok: false; readonly kind: 'invalid_state'; readonly message: string }
   | { readonly ok: false; readonly kind: 'not_configured' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
@@ -229,6 +230,15 @@ export async function submitCheckIn(input: {
         const body = await context.json();
         if (body?.status === 'rejected' && typeof body.reason === 'string') {
           return { ok: false, kind: 'rejected', reason: body.reason };
+        }
+        // The challenge itself is no longer 'active' (already finalized, or
+        // moved to awaiting_resolution) — a real, reachable race for a
+        // correction submitted right as the challenge completes in the
+        // background. Distinct from `rejected` (a planCheckInAppend
+        // decision about this one period) so callers can word it correctly:
+        // this is about the challenge, not this specific check-in.
+        if (context.status === 400 && body?.error === 'invalid_state') {
+          return { ok: false, kind: 'invalid_state', message: 'This challenge is no longer active.' };
         }
       } catch {
         // fall through to the generic network/unknown classification below
