@@ -15,9 +15,10 @@ test('a stale correction target is not retryable, since retrying the same reques
   assert.equal(copy.retryable, false);
 });
 
-test('a genuine operation id conflict is retryable', () => {
+test('an operation id conflict is NOT retryable — the correction sheet reuses the same operationId and fact on every retry, so retrying would hit the identical permanent conflict again', () => {
   const copy = describeCorrectionFailure({ ok: false, kind: 'rejected', reason: 'operation_id_conflict' });
-  assert.equal(copy.retryable, true);
+  assert.equal(copy.retryable, false);
+  assert.match(copy.message, /close this screen/i);
 });
 
 test('an unrecognized rejection reason falls back to plain copy, never the raw reason string', () => {

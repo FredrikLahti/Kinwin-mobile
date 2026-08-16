@@ -29,7 +29,15 @@ function describeCorrectionRejectionReason(reason: string): CorrectionFailureCop
     case 'correction_without_prior_entry':
       return { message: 'There is nothing to correct for this period anymore.', retryable: false };
     case 'operation_id_conflict':
-      return { message: 'This correction could not be matched to your last attempt. Please try again.', retryable: true };
+      // Not retryable *within this attempt*: the correction sheet reuses
+      // the exact same operationId (and the exact same attemptedFact) on
+      // every "Try again" tap — see real-check-in-correction-sheet.tsx's
+      // own header comment — so retrying here would resubmit the identical
+      // request and hit the identical, permanent conflict every time. Only
+      // closing this sheet and reopening it mints a fresh operationId (a
+      // genuinely new logical attempt), which is the only thing that can
+      // actually resolve this.
+      return { message: "This correction couldn't be safely retried. Close this screen and try again.", retryable: false };
     default:
       return { message: 'This correction could not be saved.', retryable: false };
   }

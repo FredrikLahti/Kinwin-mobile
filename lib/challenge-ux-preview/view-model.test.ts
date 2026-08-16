@@ -245,7 +245,8 @@ test('the Stop lapse-correction target is null when no uncorrected lapse exists,
 
 // --- correctionAction for Stop: never a blind pick among several live chains ---
 
-test('correctionAction offers stop_lapse_to_intact using the deterministic lapse target when a lapse is on record, even with an unrelated intact chain also live', () => {
+/** Builds a fresh Stop period plus N independent original chains for it, each its own root event (never implicitly superseding another — see stop-reduction.ts). */
+function stopPeriodWithChains(chains: ReadonlyArray<{ readonly fact: 'stop_intact' | 'stop_lapse'; readonly clientRecordedAt: string }>) {
   const period = buildPeriod({
     periodKind: 'continuous',
     startsAt: '2026-01-01T00:00:00Z' as IsoDateTime,
@@ -253,25 +254,76 @@ test('correctionAction offers stop_lapse_to_intact using the deterministic lapse
     reportingClosesAt: '2026-01-08T10:00:00Z' as IsoDateTime,
     target: { type: 'maximum_lapses', maximum: 0 },
   });
-  const earlyIntact = buildEvent({ periodId: period.id, eventType: 'stop_intact', fact: { kind: 'stop_intact' }, clientRecordedAt: '2026-01-02T00:00:00Z' as IsoDateTime });
-  const lapse = buildEvent({ periodId: period.id, eventType: 'stop_lapse', fact: { kind: 'stop_lapse' }, clientRecordedAt: '2026-01-03T00:00:00Z' as IsoDateTime });
-  const challenge = findScenario('stop-lapse-recorded').challenge;
-  const viewModel = buildActiveChallengeViewModel({
+  const events = chains.map((chain) =>
+    buildEvent({ periodId: period.id, eventType: chain.fact, fact: { kind: chain.fact }, clientRecordedAt: chain.clientRecordedAt as IsoDateTime }),
+  );
+  return { period, events };
+}
+
+function viewModelFor(period: ReturnType<typeof stopPeriodWithChains>['period'], events: ReturnType<typeof stopPeriodWithChains>['events'], scenarioId: string) {
+  const challenge = findScenario(scenarioId).challenge;
+  return buildActiveChallengeViewModel({
     challenge: { ...challenge, id: CHALLENGE_ID, ownerId: OWNER_ID },
     periods: [period],
-    events: [earlyIntact, lapse].map((e) => ({ ...e, challengeId: CHALLENGE_ID, ownerId: OWNER_ID })),
+    events: events.map((e) => ({ ...e, challengeId: CHALLENGE_ID, ownerId: OWNER_ID })),
     now: '2026-01-05T00:00:00Z' as IsoDateTime,
   });
+}
+
+test('correctionAction offers stop_lapse_to_intact when exactly one lapse chain is live and nothing else exists', () => {
+  const { period, events } = stopPeriodWithChains([{ fact: 'stop_lapse', clientRecordedAt: '2026-01-03T00:00:00Z' }]);
+  const viewModel = viewModelFor(period, events, 'stop-lapse-recorded');
+  assert.equal(viewModel.correctionAction.available, true);
+  if (viewModel.correctionAction.available) {
+    assert.equal(viewModel.correctionAction.direction, 'stop_lapse_to_intact');
+    assert.equal(viewModel.correctionAction.target.eventId, events[0].id);
+  }
+});
+
+test('correctionAction offers stop_lapse_to_intact for the one live lapse even with an unrelated intact chain also live — correcting it truly restores the period to kept', () => {
+  const { period, events } = stopPeriodWithChains([
+    { fact: 'stop_intact', clientRecordedAt: '2026-01-02T00:00:00Z' },
+    { fact: 'stop_lapse', clientRecordedAt: '2026-01-03T00:00:00Z' },
+  ]);
+  const [earlyIntact, lapse] = events;
+  const viewModel = viewModelFor(period, events, 'stop-lapse-recorded');
   // Two live chains exist (intact and lapse) — correction.targets has both,
   // so this also proves correctionAction never falls back to
   // stop_intact_to_lapse just because a lone intact target *would* have
-  // qualified in isolation: the lapse takes priority, and the intact chain
-  // here is one of two targets, not the required exactly-one.
+  // qualified in isolation: exactly one of the two targets is a lapse,
+  // which is what actually makes lapse_to_intact safe here — not merely
+  // that a lapse exists.
   assert.equal(viewModel.correctionAction.available, true);
   if (viewModel.correctionAction.available) {
     assert.equal(viewModel.correctionAction.direction, 'stop_lapse_to_intact');
     assert.equal(viewModel.correctionAction.target.eventId, lapse.id);
   }
+  assert.ok(earlyIntact.id, 'sanity: the unrelated intact chain is genuinely present in this fixture');
+});
+
+test('correctionAction is unavailable when two independent lapse chains are simultaneously live — correcting only one would still leave the period failed', () => {
+  const { period, events } = stopPeriodWithChains([
+    { fact: 'stop_lapse', clientRecordedAt: '2026-01-02T00:00:00Z' },
+    { fact: 'stop_lapse', clientRecordedAt: '2026-01-04T00:00:00Z' },
+  ]);
+  const viewModel = viewModelFor(period, events, 'stop-lapse-recorded');
+  assert.equal(viewModel.currentPeriodStatus.kind, 'stop_lapse_on_record');
+  // stopLapseCorrectionTarget itself stays deterministic/non-null (it only
+  // ever picks the most recent one) — the fix is specifically that
+  // correctionAction refuses to act on it when a second, equally-live
+  // lapse exists, never that the underlying target-picking becomes null.
+  assert.ok(viewModel.stopLapseCorrectionTarget !== null);
+  assert.equal(viewModel.correctionAction.available, false);
+});
+
+test('correctionAction is unavailable when two independent intact chains are simultaneously live — no single unambiguous target for stop_intact_to_lapse either', () => {
+  const { period, events } = stopPeriodWithChains([
+    { fact: 'stop_intact', clientRecordedAt: '2026-01-02T00:00:00Z' },
+    { fact: 'stop_intact', clientRecordedAt: '2026-01-04T00:00:00Z' },
+  ]);
+  const viewModel = viewModelFor(period, events, 'stop-active-intact');
+  assert.equal(viewModel.correction.available, true, 'sanity: correction targets do exist — this is about correctionAction refusing to guess among them');
+  assert.equal(viewModel.correctionAction.available, false);
 });
 
 test('correctionAction offers stop_intact_to_lapse only when exactly one live chain exists and it is intact', () => {

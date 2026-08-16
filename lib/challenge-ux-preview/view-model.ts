@@ -476,10 +476,30 @@ function resolveCorrectionAction(
     return correction.available ? { available: true, direction, target: correction.targets[0] } : { available: false };
   }
   // stop
-  if (status.kind === 'stop_lapse_on_record' && stopLapseCorrectionTarget !== null) {
-    return { available: true, direction: 'stop_lapse_to_intact', target: stopLapseCorrectionTarget };
+  if (!correction.available) return { available: false };
+
+  // resolveStopHistory's chains are each independently correctable, and
+  // `hasUncorrectedLapse` (-> status 'stop_lapse_on_record') only means AT
+  // LEAST one chain is currently a lapse — it says nothing about how many.
+  // Correcting just the single most-recent one (stopLapseCorrectionTarget)
+  // while a second, unrelated lapse chain is still live would leave the
+  // period genuinely still failed despite the UI having just said "restore
+  // to kept" — misleading and unsafe. Only offer this when there is
+  // exactly one currently-effective lapse target; two or more is the
+  // "several candidates, cannot safely know which one" case the founder's
+  // rule forbids guessing on, so correction stays unavailable rather than
+  // silently acting on only one of them. A lone lapse alongside any number
+  // of unrelated intact chains is still safe — the copy only ever refers
+  // to "the lapse", and there is exactly one.
+  const lapseTargets = correction.targets.filter((target) => target.fact.kind === 'stop_lapse');
+  if (status.kind === 'stop_lapse_on_record') {
+    if (lapseTargets.length === 1 && stopLapseCorrectionTarget !== null) {
+      return { available: true, direction: 'stop_lapse_to_intact', target: stopLapseCorrectionTarget };
+    }
+    return { available: false };
   }
-  if (correction.available && correction.targets.length === 1 && correction.targets[0].fact.kind === 'stop_intact') {
+
+  if (correction.targets.length === 1 && correction.targets[0].fact.kind === 'stop_intact') {
     return { available: true, direction: 'stop_intact_to_lapse', target: correction.targets[0] };
   }
   return { available: false };
