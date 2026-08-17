@@ -15,6 +15,14 @@ export async function fetchPlaybookEntries():Promise<PlaybookResult<readonly Pla
  const {data,error}=await supabase.from('playbook_entries').select('id, owner_id, category, content, source_challenge_id, created_at, updated_at').is('archived_at',null).order('updated_at',{ascending:false});
  return error?failed():{ok:true,value:((data??[]) as Row[]).map(fromRow)};
 }
+export async function fetchArchivedPlaybookEntries():Promise<PlaybookResult<readonly PlaybookEntry[]>>{
+ if(!supabase)return unavailable();
+ const {data,error}=await supabase.from('playbook_entries').select('id, owner_id, category, content, source_challenge_id, created_at, updated_at').not('archived_at','is',null).order('updated_at',{ascending:false});
+ return error?failed():{ok:true,value:((data??[]) as Row[]).map(fromRow)};
+}
+export async function unarchivePlaybookEntry(id:string):Promise<PlaybookResult<null>>{
+ if(!supabase)return unavailable(); const {error}=await supabase.from('playbook_entries').update({archived_at:null}).eq('id',id); return error?failed():{ok:true,value:null};
+}
 export async function fetchPlaybookEntry(id:string):Promise<PlaybookResult<PlaybookEntry|null>>{
  if(!supabase)return unavailable();
  const {data,error}=await supabase.from('playbook_entries').select('id, owner_id, category, content, source_challenge_id, created_at, updated_at').eq('id',id).is('archived_at',null).maybeSingle();

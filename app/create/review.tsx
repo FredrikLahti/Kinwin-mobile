@@ -20,7 +20,8 @@ import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment, prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
 
-type SaveState = 'idle' | 'signed_out' | 'saving' | 'preparing' | 'error';
+type SaveState = 'idle' | 'signed_out' | 'saving' | 'preparing' | 'error' | 'conflict';
+type ConflictKind = 'pending_conflict' | 'active_conflict';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   adventure: 'Adventure',
@@ -71,6 +72,7 @@ export default function CreateReviewScreen() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
+  const [conflictKind, setConflictKind] = useState<ConflictKind | null>(null);
   const resumedRef = useRef(false);
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'review');
 
@@ -168,6 +170,19 @@ export default function CreateReviewScreen() {
     const prepared = await prepareChallengeFromDraft(draftId, ownerId);
     if (!prepared.ok) {
       setLastFailedStep('prepare');
+      // A pending/active conflict is a permanent business state, not a
+      // transient failure — retrying prepareChallengeFromDraft again can
+      // only ever fail the same way, so this gets its own state with no
+      // Retry action rather than falling into the generic error footer.
+      // The draft this screen already saved (savedDraftId, set just before
+      // runPrepare was called) stays exactly as it is: prepare failed before
+      // the server touched or archived it, so it remains a resumable
+      // ready_for_activation draft the user can return to later.
+      if (prepared.kind === 'pending_conflict' || prepared.kind === 'active_conflict') {
+        setConflictKind(prepared.kind);
+        setSaveState('conflict');
+        return;
+      }
       setSaveState('error');
       switch (prepared.kind) {
         case 'not_authenticated':
@@ -292,7 +307,19 @@ export default function CreateReviewScreen() {
     void saveDraft();
   };
 
+  // The one intentional way out of a pending/active conflict. A pending
+  // commitment already has its own real screen (fetchPendingCommitment
+  // reads pending_activation rows) so that conflict goes straight there; an
+  // active/completion_mode/awaiting_resolution challenge has no matching
+  // row on that screen, so it goes to Home instead, which already surfaces
+  // whatever the user's current challenge actually is.
+  const leaveConflict = () => {
+    void playImportantHaptic();
+    router.replace((conflictKind === 'pending_conflict' ? '/account/pending-commitment' : '/home') as Href);
+  };
+
   const busy = saveState === 'saving' || saveState === 'preparing';
+  const conflicted = saveState === 'conflict';
 
   return (
     <CreateFlowScreenV2
@@ -301,32 +328,53 @@ export default function CreateReviewScreen() {
       navigationLocked={busy}
       footer={
         <View style={styles.footerStack}>
-          {saveState === 'error' && (
-            <View style={styles.errorRow}>
-              <Text style={styles.errorText}>{saveErrorMessage ?? 'Something went wrong.'}</Text>
-              <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" hitSlop={6} onPress={retrySave} style={styles.retryAction}>
-                <Text style={styles.retryText}>Retry</Text>
-              </Pressable>
+          {conflicted ? (
+            <View style={styles.conflictCard}>
+              <Text style={styles.conflictTitle}>
+                {conflictKind === 'pending_conflict' ? 'You already have a pending commitment' : 'You already have an active challenge'}
+              </Text>
+              <Text style={styles.conflictBody}>
+                {conflictKind === 'pending_conflict'
+                  ? 'Finish or cancel it before starting another. This new challenge is saved, and you can come back to it once that one is resolved.'
+                  : 'Finish or resolve it before starting another. This new challenge is saved, and you can come back to it once that one is resolved.'}
+              </Text>
+              <PrimaryButtonV2
+                accessibilityHint={conflictKind === 'pending_conflict' ? 'Opens your pending commitment' : 'Returns to Home'}
+                label={conflictKind === 'pending_conflict' ? 'View pending commitment' : 'Go to Home'}
+                onPress={leaveConflict}
+                reducedMotion={reducedMotion}
+              />
             </View>
+          ) : (
+            <>
+              {saveState === 'error' && (
+                <View style={styles.errorRow}>
+                  <Text style={styles.errorText}>{saveErrorMessage ?? 'Something went wrong.'}</Text>
+                  <Pressable accessibilityHint="Retries saving your commitment" accessibilityRole="button" hitSlop={6} onPress={retrySave} style={styles.retryAction}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              )}
+              {saveState === 'signed_out' && (
+                <Pressable
+                  accessibilityHint="Opens sign in, then returns here to save your commitment"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
+                  style={styles.retryAction}
+                >
+                  <Text style={styles.retryText}>Sign in to save your commitment</Text>
+                </Pressable>
+              )}
+              <PrimaryButtonV2
+                accessibilityHint={draftIsValid ? 'Saves your commitment and continues to sharing' : 'Confirm you will not take part in the reward before continuing'}
+                disabled={!draftIsValid || busy}
+                label={busy ? 'Saving…' : 'Confirm commitment'}
+                onPress={confirmCommitment}
+                reducedMotion={reducedMotion}
+              />
+            </>
           )}
-          {saveState === 'signed_out' && (
-            <Pressable
-              accessibilityHint="Opens sign in, then returns here to save your commitment"
-              accessibilityRole="button"
-              hitSlop={6}
-              onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
-              style={styles.retryAction}
-            >
-              <Text style={styles.retryText}>Sign in to save your commitment</Text>
-            </Pressable>
-          )}
-          <PrimaryButtonV2
-            accessibilityHint={draftIsValid ? 'Saves your commitment and continues to sharing' : 'Confirm you will not take part in the reward before continuing'}
-            disabled={!draftIsValid || busy}
-            label={busy ? 'Saving…' : 'Confirm commitment'}
-            onPress={confirmCommitment}
-            reducedMotion={reducedMotion}
-          />
         </View>
       }
       headline="Review your challenge"
@@ -427,6 +475,12 @@ const styles = StyleSheet.create({
   membershipRow: { borderTopWidth: 1, borderTopColor: theme.colors.structureLine, paddingTop: 12 },
   membershipText: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
   footerStack: { gap: 10 },
+  conflictCard: {
+    gap: 10, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12,
+  },
+  conflictTitle: { color: theme.colors.ivory, fontSize: 14, fontWeight: '700' },
+  conflictBody: { color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
   errorRow: { gap: 4 },
   errorText: { color: '#E37D6A', fontSize: 12, lineHeight: 17 },
   retryAction: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center' },

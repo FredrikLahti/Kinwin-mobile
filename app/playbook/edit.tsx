@@ -45,11 +45,21 @@ export default function EditPlaybookEntry() {
       ? await updatePlaybookEntry(id, { category, content })
       : await createPlaybookEntry(buildPlaybookCreateInput({ ownerId: user.id, category, content, sourceChallengeId }));
     setSaving(false);
-    if (result.ok) router.replace((safeReturn ? `${safeReturn}&saved=1` : '/playbook') as Href);
-    else setError(result.message);
+    if (result.ok) {
+      // safeReturn (a fresh entry created from a just-completed challenge's
+      // result screen) genuinely navigates forward to a different route, so
+      // it stays a replace. The plain case (existing Playbook entries, or a
+      // new entry started from the Playbook list) was pushed on top of the
+      // one /playbook index already on the stack — router.back() returns to
+      // that same instance, which already refetches on focus, instead of
+      // pushing a second index on top of it (see index.tsx's useFocusEffect
+      // and the regression test for the exact repro this replaced).
+      if (safeReturn) router.replace(`${safeReturn}&saved=1` as Href);
+      else router.back();
+    } else setError(result.message);
   };
-  const archive = () => id && Alert.alert('Archive this entry?', 'It will leave your Playbook without being permanently deleted.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Archive', style: 'destructive', onPress: async () => { const result = await archivePlaybookEntry(id); if (result.ok) router.replace('/playbook' as Href); else setError(result.message); } }]);
-  const remove = () => id && Alert.alert('Delete this entry?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { const result = await deletePlaybookEntry(id); if (result.ok) router.replace('/playbook' as Href); else setError(result.message); } }]);
+  const archive = () => id && Alert.alert('Archive this entry?', 'It will leave your Playbook without being permanently deleted.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Archive', style: 'destructive', onPress: async () => { const result = await archivePlaybookEntry(id); if (result.ok) router.back(); else setError(result.message); } }]);
+  const remove = () => id && Alert.alert('Delete this entry?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { const result = await deletePlaybookEntry(id); if (result.ok) router.back(); else setError(result.message); } }]);
 
   return <SafeAreaView style={styles.safe}><StatusBar style="light" /><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
     <View style={styles.header}><Pressable accessibilityLabel="Go back" accessibilityRole="button" onPress={() => router.back()} style={styles.iconButton}><Feather color={theme.colors.ivory} name="chevron-left" size={24} /></Pressable><Text style={styles.wordmark}>KINWIN</Text></View>

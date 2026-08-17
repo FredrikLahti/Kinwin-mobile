@@ -40,9 +40,13 @@
   server-side against the server's own timezone database.
 * The timezone is frozen at final activation and never changes for the rest of the
   challenge, regardless of later travel or a device's own timezone changing.
-* Measurement starts at the next local midnight strictly after the activation instant —
-  never the activation instant itself, even if activation happens to land exactly on a
-  local midnight.
+* The challenge becomes active at the moment it is activated. Measurement starts at the
+  activation instant's own local calendar date, at that date's local midnight — never
+  deferred to the next day. This makes today's period exist immediately, so a specific-day
+  schedule (for example Monday/Wednesday/Friday) that includes today already counts today
+  toward the challenge; a schedule where today is not a selected day is still active
+  immediately, with its first required scheduled completion naturally falling on the next
+  selected day.
 * Challenge duration is measured in whole local calendar weeks, not a fixed number of UTC
   hours.
 * Daylight saving transitions preserve local midnight period boundaries: a local day (or

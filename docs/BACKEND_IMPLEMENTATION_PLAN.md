@@ -250,9 +250,10 @@ product decisions (tracked in `docs/PRODUCTION_DATA_MODEL.md` and
 - **Prerequisite product decisions:** "Exact timezone and daylight-saving period
   generation" — resolved for this package; see `docs/PRODUCT_DECISIONS.md`'s "Timezone,
   start, and DST rules" section for the finalized rules (IANA timezone frozen at
-  activation, measurement starts at next local midnight, duration in local calendar
-  weeks, DST preserves local midnight boundaries, travel/device-timezone changes never
-  alter generated periods).
+  activation, measurement starts at the activation instant's own local calendar date so
+  the challenge is active immediately rather than deferred to the next day, duration in
+  local calendar weeks, DST preserves local midnight boundaries, travel/device-timezone
+  changes never alter generated periods).
 - **Minimum tests:** `supabase/tests/130_server_generated_periods.sql` proves daily and
   weekly Build periods, daily and weekly Cut back periods, one continuous Stop period,
   correct period count and final boundary, a real Europe/Stockholm spring-forward

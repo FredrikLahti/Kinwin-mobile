@@ -136,11 +136,13 @@ function localCalendarDayUtcMs(iso: string, timeZone: string): number {
 }
 
 /**
- * "Starts tomorrow" / "Starts Monday" instead of a bare, unexplained "Not
+ * "Starts today" / "Starts Monday" instead of a bare, unexplained "Not
  * started yet" — a period that has not started is a normal, expected state
- * (every activation's first period starts at the next local midnight), not
- * an error, so naming the real date answers "why can't I check in?"
- * honestly. Must compare calendar days in the challenge's own timezone —
+ * (a specific-days build's first scheduled day can fall after activation,
+ * even though the challenge itself is active immediately — see
+ * docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"), not an
+ * error, so naming the real date answers "why can't I check in?" honestly.
+ * Must compare calendar days in the challenge's own timezone —
  * comparing raw UTC calendar days undercounts for any timezone ahead of
  * UTC (e.g. a period starting 22:00 UTC is already the next calendar day
  * in Europe/Stockholm, so a same-UTC-day comparison would wrongly say

@@ -3,7 +3,7 @@ import type {
   MeasurementMode,
   RhythmState,
 } from '@/contexts/onboarding-context';
-import { deriveStructuredSuccessRule } from '@/domain/challenge/success-rule';
+import { deriveStructuredSuccessRule } from '../domain/challenge/success-rule';
 
 type SuccessRuleInput = {
   behaviorDirection: BehaviorDirection | null;

@@ -14,6 +14,16 @@ function classifyError(error: { message: string }): { readonly kind: 'network' |
 export type PrepareChallengeFromDraftResult =
   | { readonly ok: true; readonly challengeId: string; readonly status: string }
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
+  // The server (prepare_challenge_from_draft, see
+  // supabase/migrations/20260820000000_challenge_completion_lifecycle.sql)
+  // rejects preparation with a permanent, non-retryable conflict when the
+  // caller already has another pending_activation commitment, or an already
+  // active/completion_mode/awaiting_resolution challenge. Both are real
+  // business states, not transient failures — recognized here by their
+  // known, stable exception text so the UI can show a human-readable
+  // conflict state and a real way out instead of a Retry that can only ever
+  // fail again the same way.
+  | { readonly ok: false; readonly kind: 'pending_conflict' | 'active_conflict' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
 /**
@@ -32,7 +42,10 @@ export async function prepareChallengeFromDraft(draftId: string, userId: string)
 
   const { data, error } = await supabase.rpc('prepare_challenge_from_draft', { draft_id: draftId });
   if (error) {
-    const isNetworkError = error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('fetch');
+    const message = error.message.toLowerCase();
+    if (message.includes('pending commitment already exists')) return { ok: false, kind: 'pending_conflict' };
+    if (message.includes('already have an active challenge')) return { ok: false, kind: 'active_conflict' };
+    const isNetworkError = message.includes('network') || message.includes('fetch');
     return { ok: false, kind: isNetworkError ? 'network' : 'unknown', message: error.message };
   }
 
