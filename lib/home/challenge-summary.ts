@@ -210,10 +210,19 @@ export function describeProgress(
  * Home's hero progress bar fill (0-100), from the same real
  * periodsClosed/periodsTotal counts as describeProgress — never a separate
  * estimate. Null (hide the bar) whenever there is nothing generated yet to
- * divide by, rather than showing a misleading 0% or dividing by zero.
+ * divide by, rather than showing a misleading 0% or dividing by zero. Also
+ * null for Stop: it is a single continuous period that only closes when the
+ * whole challenge ends, so periodsClosed/periodsTotal would sit at a flat,
+ * misleading 0% for the entire active duration regardless of real elapsed
+ * time — the same reason describeProgress and describeDurationPosition
+ * already withhold a period-based metric for this direction.
  */
-export function computeHeroProgressPercent(periodsClosed: number, periodsTotal: number): number | null {
-  if (periodsTotal <= 0) return null;
+export function computeHeroProgressPercent(
+  direction: ActivatedChallengeSnapshot['successRule']['direction'],
+  periodsClosed: number,
+  periodsTotal: number,
+): number | null {
+  if (direction === 'stop' || periodsTotal <= 0) return null;
   return Math.max(0, Math.min(100, (periodsClosed / periodsTotal) * 100));
 }
 

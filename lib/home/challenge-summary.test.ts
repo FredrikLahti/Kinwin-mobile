@@ -225,17 +225,26 @@ test('describeDurationPosition: week/day periods show a position, continuous and
 });
 
 test('computeHeroProgressPercent: fills proportionally to real closed/total periods', () => {
-  assert.equal(computeHeroProgressPercent(0, 4), 0);
-  assert.equal(computeHeroProgressPercent(2, 4), 50);
-  assert.equal(computeHeroProgressPercent(4, 4), 100);
-  assert.equal(computeHeroProgressPercent(3, 7), (3 / 7) * 100);
+  assert.equal(computeHeroProgressPercent('build', 0, 4), 0);
+  assert.equal(computeHeroProgressPercent('build', 2, 4), 50);
+  assert.equal(computeHeroProgressPercent('build', 4, 4), 100);
+  assert.equal(computeHeroProgressPercent('cut_back', 3, 7), (3 / 7) * 100);
 });
 
 test('computeHeroProgressPercent: no periods generated yet hides the bar instead of dividing by zero', () => {
-  assert.equal(computeHeroProgressPercent(0, 0), null);
+  assert.equal(computeHeroProgressPercent('build', 0, 0), null);
 });
 
 test('computeHeroProgressPercent: always clamped to [0, 100] even given inconsistent inputs', () => {
-  assert.equal(computeHeroProgressPercent(-1, 4), 0);
-  assert.equal(computeHeroProgressPercent(9, 4), 100);
+  assert.equal(computeHeroProgressPercent('build', -1, 4), 0);
+  assert.equal(computeHeroProgressPercent('build', 9, 4), 100);
+});
+
+// Regression for a real Codex finding on this PR: Stop is a single
+// continuous period that only closes at the very end of the challenge, so
+// periodsClosed/periodsTotal would otherwise render a flat, misleading 0%
+// bar for the entire active duration.
+test('computeHeroProgressPercent: Stop never shows a period-based bar, even with periods generated', () => {
+  assert.equal(computeHeroProgressPercent('stop', 0, 1), null);
+  assert.equal(computeHeroProgressPercent('stop', 1, 1), null);
 });

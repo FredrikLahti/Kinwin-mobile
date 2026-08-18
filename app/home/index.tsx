@@ -182,7 +182,7 @@ export default function HomeV2() {
     ? describeProgress(real.data.challenge, real.view.currentPeriodStatus, real.view.progress, focusPeriod)
     : null;
   const progressPercent = real.status === 'ready'
-    ? computeHeroProgressPercent(real.view.progress.periodsClosed, real.view.progress.periodsTotal)
+    ? computeHeroProgressPercent(real.view.direction, real.view.progress.periodsClosed, real.view.progress.periodsTotal)
     : null;
   // Restrained secondary reminder (Section 15) — real stake snapshot data,
   // never phrased as a threat, never showing the owner as a beneficiary.
