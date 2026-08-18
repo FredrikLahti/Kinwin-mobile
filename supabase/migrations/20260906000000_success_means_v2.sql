@@ -37,6 +37,14 @@
 --      regardless of what the client claims its own baseline or total to
 --      be — the server never trusts a client-supplied baseline number,
 --      only its own re-derivation.
+--   4. ruleVersion 2 ONLY: the continuity safeguard is independently
+--      re-derived and compared too, not just its `type` string — a V2
+--      payload cannot submit e.g. maximum_consecutive_missed_days with
+--      maximum 999 to silently gut the fixed safeguard while otherwise
+--      passing every other check. The safeguard is UNCHANGED by a V2
+--      selection (see domain/challenge/success-rule.ts's
+--      applySuccessThreshold), so it must match the re-derived baseline's
+--      safeguard exactly, same spirit as point 3.
 --
 -- Baseline formula parity with the JS domain layer
 -- (domain/challenge/success-rule.ts's deriveSuccessRuleForChallengeRule):
@@ -106,6 +114,9 @@ declare
   derived_total integer;
   derived_allowed integer;
   derived_baseline integer;
+  expected_safeguard_type text;
+  expected_safeguard_value integer;
+  success_safeguard_numeric integer;
 begin
   if caller is null then
     raise exception 'authentication required' using errcode = '28000';
@@ -261,6 +272,39 @@ begin
         if success_min_required is null or success_min_required < derived_baseline or success_min_required > derived_total then
           raise exception 'v2 build successRule minimumRequiredCompletions must be between Kinwin''s baseline and the total' using errcode = '22023';
         end if;
+
+        -- The continuity safeguard is UNCHANGED by a V2 selection (only the
+        -- overall minimum differs from the baseline — see
+        -- domain/challenge/success-rule.ts's applySuccessThreshold). The
+        -- structural check below this block only ever validated the
+        -- safeguard's `type` string, never its numeric maximum/minimum, so
+        -- a V2 payload could otherwise submit e.g.
+        -- maximum_consecutive_missed_days with maximum 999 and silently
+        -- gut the safeguard while still passing every other check.
+        expected_safeguard_type := case
+          when rhythm_period_unit = 'day' then 'maximum_consecutive_missed_days'
+          when rhythm_target >= 2 then 'minimum_completions_per_week'
+          else 'maximum_consecutive_missed_weeks'
+        end;
+        if success_safeguard_type is distinct from expected_safeguard_type then
+          raise exception 'v2 build successRule continuity safeguard type must match Kinwin''s baseline' using errcode = '22023';
+        end if;
+        begin
+          success_safeguard_numeric := coalesce(
+            (draft.draft_payload #>> '{successRule,continuitySafeguard,maximum}')::integer,
+            (draft.draft_payload #>> '{successRule,continuitySafeguard,minimum}')::integer
+          );
+        exception when others then
+          raise exception 'v2 build successRule continuity safeguard value is invalid' using errcode = '22023';
+        end;
+        expected_safeguard_value := case
+          when expected_safeguard_type = 'maximum_consecutive_missed_days' then 2
+          when expected_safeguard_type = 'maximum_consecutive_missed_weeks' then 1
+          else rhythm_target - 1 -- minimum_completions_per_week
+        end;
+        if success_safeguard_numeric is distinct from expected_safeguard_value then
+          raise exception 'v2 build successRule continuity safeguard value must match Kinwin''s baseline' using errcode = '22023';
+        end if;
       end if;
       if success_min_required is null or success_min_required <= 0
         or success_total_planned is null or success_total_planned < success_min_required then
@@ -319,6 +363,22 @@ begin
         if success_min_periods_within_limit is null or success_min_periods_within_limit < derived_baseline
           or success_min_periods_within_limit > derived_total then
           raise exception 'v2 cut_back successRule minimumPeriodsWithinLimit must be between Kinwin''s baseline and the total' using errcode = '22023';
+        end if;
+
+        -- Same continuity-safeguard-value re-derivation as build, above —
+        -- the structural check below only validates the safeguard's type.
+        expected_safeguard_type := case when boundary_period_unit = 'day' then 'maximum_consecutive_exceeded_days' else 'maximum_consecutive_exceeded_weeks' end;
+        if success_safeguard_type is distinct from expected_safeguard_type then
+          raise exception 'v2 cut_back successRule continuity safeguard type must match Kinwin''s baseline' using errcode = '22023';
+        end if;
+        begin
+          success_safeguard_numeric := (draft.draft_payload #>> '{successRule,continuitySafeguard,maximum}')::integer;
+        exception when others then
+          raise exception 'v2 cut_back successRule continuity safeguard value is invalid' using errcode = '22023';
+        end;
+        expected_safeguard_value := case when boundary_period_unit = 'day' then 2 else 1 end;
+        if success_safeguard_numeric is distinct from expected_safeguard_value then
+          raise exception 'v2 cut_back successRule continuity safeguard value must match Kinwin''s baseline' using errcode = '22023';
         end if;
       end if;
       if success_total_periods is null or success_min_periods_within_limit is null

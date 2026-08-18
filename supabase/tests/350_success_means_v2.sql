@@ -125,6 +125,39 @@ select test.assert_fails(
 );
 reset role;
 
+-- Malicious: a valid total/minimum but a gutted continuity safeguard
+-- (maximum_consecutive_missed_days: 999 instead of Kinwin's fixed 2). The
+-- overall threshold alone being in bounds must never be enough — the
+-- safeguard itself must also match the server-derived baseline exactly.
+set role service_role;
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  '35aaaaaa-0000-0000-0000-000000000005',
+  '35111111-0000-0000-0000-000000000001',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1, 'id', '35aaaaaa-0000-0000-0000-000000000005', 'ownerId', '35111111-0000-0000-0000-000000000001',
+    'goal', 'Sleep better',
+    'behavior', jsonb_build_object('description', 'Strength train', 'completionDefinition', 'Complete the planned session', 'rule', jsonb_build_object('direction', 'build', 'measurement', jsonb_build_object('type', 'completion', 'unit', 'completion'), 'rhythm', jsonb_build_object('type', 'daily', 'periodUnit', 'day', 'target', 1))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'build', 'ruleVersion', 2, 'totalPlannedCompletions', 28, 'minimumRequiredCompletions', 27, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_missed_days', 'maximum', 999), 'periodTarget', 1, 'periodUnit', 'day'),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner', 'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true, 'invitationMessage', 'Join me in this promise.', 'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);
+reset role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '35111111-0000-0000-0000-000000000001', false);
+select test.assert_fails(
+  'v2_build_gutted_continuity_safeguard_rejected',
+  $stmt$select public.prepare_challenge_from_draft('35aaaaaa-0000-0000-0000-000000000005')$stmt$,
+  '22023'
+);
+reset role;
+
 -- A genuinely valid, stricter-than-baseline V2 selection is accepted and
 -- behaves exactly like a V1 success (see 090's success-path assertions —
 -- not fully re-duplicated here, just the key shape checks).
@@ -196,6 +229,41 @@ select set_config('request.jwt.claim.sub', '35111111-0000-0000-0000-000000000002
 select test.assert_fails(
   'v2_limit_below_baseline_selection_rejected',
   $stmt$select public.prepare_challenge_from_draft('35bbbbbb-0000-0000-0000-000000000001')$stmt$,
+  '22023'
+);
+reset role;
+
+-- Malicious: valid total/minimum but a gutted continuity safeguard. Runs
+-- before Owner 35...002's one successful preparation below, so this
+-- rejection is never masked by "another pending commitment already
+-- exists" — see the analogous ordering fix this needed for the exact
+-- same reason (Codex review on this PR caught the underlying validation
+-- gap this proves is closed).
+set role service_role;
+insert into public.challenge_drafts (id, owner_id, schema_version, draft_payload, draft_status) values (
+  '35bbbbbb-0000-0000-0000-000000000003',
+  '35111111-0000-0000-0000-000000000002',
+  1,
+  jsonb_build_object(
+    'schemaVersion', 1, 'id', '35bbbbbb-0000-0000-0000-000000000003', 'ownerId', '35111111-0000-0000-0000-000000000002',
+    'goal', 'Drink less',
+    'behavior', jsonb_build_object('description', 'Alcohol', 'completionDefinition', 'Stay under the limit', 'rule', jsonb_build_object('direction', 'cut_back', 'measurement', jsonb_build_object('type', 'count', 'unit', 'drinks'), 'boundary', jsonb_build_object('periodUnit', 'day', 'maximumValue', 3))),
+    'duration', jsonb_build_object('unit', 'week', 'value', 4),
+    'successRule', jsonb_build_object('direction', 'cut_back', 'ruleVersion', 2, 'measurementType', 'count', 'maximumAllowedValue', 3, 'periodUnit', 'day', 'totalPeriods', 28, 'minimumPeriodsWithinLimit', 27, 'continuitySafeguard', jsonb_build_object('type', 'maximum_consecutive_exceeded_days', 'maximum', 999)),
+    'recipients', jsonb_build_array(jsonb_build_object('id', 'r1', 'name', 'Anna')),
+    'rewardOrganizer', jsonb_build_object('type', 'recipient', 'recipientId', 'r1'),
+    'experienceCategory', 'dinner', 'stake', jsonb_build_object('minorUnits', 7500, 'currency', 'USD'),
+    'sitOutAcknowledged', true, 'invitationMessage', 'Join me in this promise.', 'membershipSelection', 'monthly_trial'
+  ),
+  'ready_for_activation'
+);
+reset role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '35111111-0000-0000-0000-000000000002', false);
+select test.assert_fails(
+  'v2_limit_gutted_continuity_safeguard_rejected',
+  $stmt$select public.prepare_challenge_from_draft('35bbbbbb-0000-0000-0000-000000000003')$stmt$,
   '22023'
 );
 reset role;
