@@ -174,6 +174,10 @@ export default function HomeV2() {
   // challenge is never shown twice. Never fabricates an event — a
   // current-state item always renders as present-tense state, not as if
   // something just happened.
+  //
+  // fetchKinActivity itself excludes the viewer's own activity (Kin-only,
+  // by design — see its own doc comment in lib/supabase/kin-repository.ts),
+  // so no additional filtering is needed here.
   const eventChallengeIds = new Set(kinActivity.map((item) => item.challengeId).filter((id): id is string => id !== null));
   const kinHomeItems: readonly KinHomeItem[] = [
     ...kinActivity.map((item): KinHomeItem => ({ kind: 'event', key: item.id, item })),

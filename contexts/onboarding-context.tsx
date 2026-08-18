@@ -202,6 +202,27 @@ type OnboardingContextValue = {
 };
 
 /**
+ * A duration outside [2, 12] whole weeks can never be produced by any
+ * current live control (app/create/duration.tsx's presets and custom
+ * stepper both clamp to this range), but neither restore boundary below
+ * re-validates the range of a persisted or server-loaded value before
+ * putting it back into onboarding state — only its *type* is checked
+ * upstream (lib/challenge-creation/creation-session.ts's
+ * isFiniteNumberOrNull for a local checkpoint; nothing at all for a
+ * resumed server draft's raw duration.value, see
+ * domain/challenge/to-onboarding-draft.ts). A stale, corrupted, or
+ * otherwise out-of-range persisted value would otherwise land the user on
+ * Duration with a value Continue can never accept and no visible reason
+ * why. Nulled rather than clamped: silently turning a persisted "1" into
+ * "2" would misrepresent a choice the user never actually made, whereas
+ * null is the same "nothing chosen yet" state a brand-new visit to this
+ * step already handles correctly, with every control still live.
+ */
+function sanitizeDurationWeeks(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value >= 2 && value <= 12 ? value : null;
+}
+
+/**
  * Pure projection of what onboarding state results from restoring a local
  * creation-session checkpoint — extracted so this can be unit tested
  * directly (savedDraftId must always come back null, regardless of what it
@@ -211,15 +232,20 @@ type OnboardingContextValue = {
  * hooks/use-resumable-creation-session.ts already filtered down to an
  * explicitly-saved one (see isResumeEligibleSession) — there is no other
  * path that calls this — so what's being restored *is* the checkpoint.
+ * durationWeeks is sanitized before either the live fields or the stored
+ * checkpoint are built from it — never only on the live side — so a
+ * resumed session's own "unsaved changes since last save" comparison
+ * never sees a false diff between the two the instant it opens.
  */
 export function computeRestoredCreationSessionState(
-  fields: CreationSessionFieldsInput,
+  rawFields: CreationSessionFieldsInput,
   lastRoute: string,
   savedAt: string,
 ): CreationSessionFieldsInput & {
   readonly savedDraftId: null;
   readonly checkpoint: { readonly fields: CreationSessionFieldsInput; readonly lastRoute: string; readonly savedAt: string };
 } {
+  const fields = { ...rawFields, durationWeeks: sanitizeDurationWeeks(rawFields.durationWeeks) };
   return { ...fields, savedDraftId: null, checkpoint: { fields, lastRoute, savedAt } };
 }
 
@@ -277,7 +303,12 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setBehaviorDirection(data.behaviorDirection);
     setMeasurementMode(data.measurementMode);
     setRhythm({ ...data.rhythm, selectedWeekdays: [...data.rhythm.selectedWeekdays] });
-    setDurationWeeks(data.durationWeeks);
+    // A resumed server draft's raw duration.value is never re-validated
+    // between the database and here (domain/challenge/to-onboarding-draft.ts
+    // is a plain passthrough) — sanitize the same way a restored local
+    // checkpoint is, so an out-of-range value can never land the user on
+    // Duration with nothing they can do about it.
+    setDurationWeeks(sanitizeDurationWeeks(data.durationWeeks));
     setRecipients(data.recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })));
     setRewardOrganizer(data.rewardOrganizer);
     setExperienceCategory(data.experienceCategory);

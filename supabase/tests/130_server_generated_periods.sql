@@ -1,4 +1,5 @@
--- Exercises private.generate_challenge_periods (20260809000000): the
+-- Exercises private.generate_challenge_periods (20260809000000, redefined by
+-- 20260905000000 to start the first period today rather than tomorrow): the
 -- trusted, deterministic period generator designed to be called from the
 -- future full-activation transaction. Every fixture here is inserted
 -- directly as service_role (bypassing prepare_challenge_from_draft, which
@@ -13,11 +14,16 @@
 -- 25-UTC-hour local day. America/Santiago's 2026-09-06 transition (added
 -- in review) additionally covers the narrower nonexistent-local-midnight
 -- case, where a zone's spring-forward happens at exactly local midnight.
+-- Activation instants for the two DST-edge cases below are computed with
+-- `at time zone` (never a hand-written UTC offset literal) so the actual
+-- server tzdata resolves the real offset either side of each transition.
 
 set role service_role;
 
--- Daily Build periods, deliberately starting the day before the spring-
--- forward transition so the first generated period is the 23-hour day.
+-- Daily Build periods, deliberately activated ON the spring-forward
+-- transition day itself (after the 02:00->03:00 local gap) so the first
+-- generated period — today, under starts-today semantics — is the 23-hour
+-- day.
 do $$
 declare
   v_owner uuid := gen_random_uuid();
@@ -48,7 +54,7 @@ begin
   insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
     values (v_challenge, v_owner, v_draft, 1, 1, 'pending_activation');
 
-  select private.generate_challenge_periods(v_challenge, '2027-03-27 12:00:00+01'::timestamptz, 'Europe/Stockholm') into v_result;
+  select private.generate_challenge_periods(v_challenge, (timestamp '2027-03-28 12:00:00' at time zone 'Europe/Stockholm'), 'Europe/Stockholm') into v_result;
 
   perform test.assert_equals('daily_build_period_count', (select count(*) from public.challenge_periods where challenge_id = v_challenge), 14::bigint);
   perform test.assert_equals('daily_build_all_period_kind_day',
@@ -104,9 +110,11 @@ begin
   insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
     values (v_challenge, v_owner, v_draft, 1, 1, 'pending_activation');
 
-  -- Next local midnight after this instant is the nominal (nonexistent)
-  -- 2026-09-06 00:00:00 America/Santiago.
-  select private.generate_challenge_periods(v_challenge, '2026-09-05 10:00:00-04'::timestamptz, 'America/Santiago') into v_result;
+  -- This instant's own local calendar date (today, under starts-today
+  -- semantics) is the nominal (nonexistent) 2026-09-06 00:00:00 America/
+  -- Santiago boundary. Computed with `at time zone`, well after the
+  -- 00:00-01:00 gap, so it is itself a real, unambiguous instant.
+  select private.generate_challenge_periods(v_challenge, (timestamp '2026-09-06 10:00:00' at time zone 'America/Santiago'), 'America/Santiago') into v_result;
 
   -- The nominal local midnight does not round-trip back to 00:00:00 — proof
   -- this specific day really does hit the gap, not a false positive.
@@ -172,8 +180,9 @@ begin
   insert into public.challenges (id, owner_id, source_draft_id, schema_version, rule_engine_version, challenge_status)
     values (v_challenge, v_owner, v_draft, 1, 1, 'pending_activation');
 
-  -- Next local midnight after this instant is 2026-10-18, so week 2
-  -- (2026-10-25 -> 2026-11-01) contains the autumn transition.
+  -- This instant's own local calendar date is 2026-10-17, so week 1 runs
+  -- 2026-10-17 -> 2026-10-24 and week 2 (2026-10-24 -> 2026-10-31) contains
+  -- the autumn transition.
   select private.generate_challenge_periods(v_challenge, '2026-10-17 12:00:00+02'::timestamptz, 'Europe/Stockholm') into v_result;
 
   perform test.assert_equals('weekly_build_period_count', (select count(*) from public.challenge_periods where challenge_id = v_challenge), 3::bigint);

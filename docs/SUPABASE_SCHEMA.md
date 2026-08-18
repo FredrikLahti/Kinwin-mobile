@@ -153,8 +153,9 @@ parameter — the caller cannot supply rule content), and atomically creates eve
 `challenge_periods` row: one per local calendar day for a daily Build rhythm or a
 day-boundary Cut back rule, one per rolling seven-local-day challenge week for a
 weekly_count/specific_days Build rhythm or a week-boundary Cut back rule, or one
-continuous row for a Stop challenge. `starts_at` is the next local midnight strictly
-after the activation instant; `planned_ends_at` is `duration.value` whole local weeks
+continuous row for a Stop challenge. `starts_at` is the activation instant's own local
+calendar date at local midnight, so the challenge is active immediately rather than
+deferred to the next day; `planned_ends_at` is `duration.value` whole local weeks
 later; every individual boundary is computed from local-naive timestamp arithmetic and
 converted to a UTC instant separately, so a day or week containing a DST transition
 correctly spans 23 or 25 UTC hours while every boundary still lands on true local

@@ -210,12 +210,19 @@ export type FetchActivityResult =
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
 /**
- * The Kin activity feed: every social_activity row RLS already scoped to
- * the caller (own activity plus accepted Kin's — see 20260815000000's
- * select policy), newest first, capped at a small, restrained window —
- * this is meant to feel like a short list of recent moments, never an
- * endless feed. Reactions are fetched separately (same RLS shape) and
- * folded in client-side into per-activity counts plus "did I react".
+ * The Kin activity feed: real Kin activity only, never the caller's own —
+ * every consumer of this feed (Home's "From your Kin" module, the Kin tab's
+ * Activity list) is specifically about what a Kin did, not a combined
+ * "me + Kin" timeline. RLS's own select policy (20260815000000) is
+ * necessarily broader (own activity plus accepted Kin's, since a user must
+ * also be able to see their own social_activity rows through other paths,
+ * e.g. reactions on their own activity) — the `.neq('owner_id', userId)`
+ * below is this feed's own, additional application-layer scoping on top of
+ * that RLS floor, not a relaxation of it. Newest first, capped at a small,
+ * restrained window — this is meant to feel like a short list of recent
+ * moments, never an endless feed. Reactions are fetched separately (same
+ * RLS shape) and folded in client-side into per-activity counts plus "did I
+ * react" (which can legitimately be the caller reacting to a Kin's item).
  */
 export async function fetchKinActivity(userId: string, limit = 30): Promise<FetchActivityResult> {
   if (!supabase) return { ok: false, kind: 'not_configured' };
@@ -224,6 +231,7 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
   const { data: rows, error } = await supabase
     .from('social_activity')
     .select('id, owner_id, challenge_id, kind, payload, created_at')
+    .neq('owner_id', userId)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) return { ok: false, ...classifyError(error) };
