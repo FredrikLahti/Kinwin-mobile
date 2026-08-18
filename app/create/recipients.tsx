@@ -94,7 +94,7 @@ export default function CreateRecipientsScreen() {
       headline="Who gets the reward?"
       onBack={() => router.back()}
       progressLabel={`Step ${currentStep} of ${totalSteps}: loved ones`}
-      supportingCopy="If you don’t keep your promise, the stake becomes a reward for the people you choose here. You don’t take part in it yourself."
+      supportingCopy="Choose 1 to 4 other people who benefit if you fail. The stake becomes their reward, and you don’t take part in it yourself."
       totalSteps={totalSteps}
     >
       <View style={styles.section}>

@@ -33,7 +33,6 @@ export default function HomeScreen() {
 
           <View style={styles.copy}>
             <Text style={styles.title}>Kinwin</Text>
-            <Text style={styles.tagline}>Promise something. Back it with a stake that matters.</Text>
             <Text style={styles.eyebrow}>A new beginning</Text>
           </View>
 
@@ -90,12 +89,6 @@ const styles = StyleSheet.create({
     fontSize: 48,
     fontWeight: '700',
     letterSpacing: -1.5,
-  },
-  tagline: {
-    maxWidth: 360,
-    color: '#343432',
-    fontSize: 24,
-    lineHeight: 32,
   },
   eyebrow: {
     color: '#62625D',
