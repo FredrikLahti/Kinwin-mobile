@@ -175,15 +175,12 @@ export default function HomeV2() {
   // current-state item always renders as present-tense state, not as if
   // something just happened.
   //
-  // fetchKinActivity intentionally returns the viewer's own activity plus
-  // their accepted Kin's (it backs the unified "Activity" feed on the Kin
-  // tab, where that's correct) — this module is titled "FROM YOUR KIN"
-  // specifically, so the viewer's own events must be excluded here even
-  // though the same data source includes them.
-  const kinOnlyActivity = kinActivity.filter((item) => item.ownerId !== user?.id);
-  const eventChallengeIds = new Set(kinOnlyActivity.map((item) => item.challengeId).filter((id): id is string => id !== null));
+  // fetchKinActivity itself excludes the viewer's own activity (Kin-only,
+  // by design — see its own doc comment in lib/supabase/kin-repository.ts),
+  // so no additional filtering is needed here.
+  const eventChallengeIds = new Set(kinActivity.map((item) => item.challengeId).filter((id): id is string => id !== null));
   const kinHomeItems: readonly KinHomeItem[] = [
-    ...kinOnlyActivity.map((item): KinHomeItem => ({ kind: 'event', key: item.id, item })),
+    ...kinActivity.map((item): KinHomeItem => ({ kind: 'event', key: item.id, item })),
     ...kinCurrentChallenges
       .filter((c) => !eventChallengeIds.has(c.challengeId))
       .map((item): KinHomeItem => ({ kind: 'current', key: item.challengeId, item })),
