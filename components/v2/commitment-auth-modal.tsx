@@ -61,7 +61,7 @@ export function CommitmentAuthModalV2({ visible, onClose }: CommitmentAuthModalV
               </Pressable>
             </View>
             <Text style={styles.contextCopy}>
-              Nothing is charged yet. You&apos;ll confirm the commitment itself on the next screen, after this.
+              Nothing is charged yet. After signing in, you&apos;ll return to Review to confirm the commitment.
             </Text>
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <AuthFormV2

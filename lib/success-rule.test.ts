@@ -11,8 +11,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { RhythmState } from '@/contexts/onboarding-context';
+import type { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 
-import { calculateSuccessRule } from './success-rule';
+import { calculateSuccessRule, resolvePersistedSuccessRule } from './success-rule';
 
 const EMPTY_RHYTHM: RhythmState = {
   amountUnit: '', period: null, selectedWeekdays: [], targetValue: '', timeUnit: null, type: null,
@@ -157,6 +158,77 @@ test('Avoid: a selectedThreshold argument is ignored entirely — it always show
     ...BASE, behaviorDirection: 'stop', durationWeeks: 6, measurementMode: 'abstinence',
     rhythm: { ...EMPTY_RHYTHM, type: 'continuous' },
   }, 999);
+  assert.ok(rule);
+  assert.equal(rule!.overall, 'No lapses during the full 6-week challenge.');
+  assert.equal(rule!.isStopRule, true);
+});
+
+// resolvePersistedSuccessRule: the presentation path for an already-defined,
+// restored/persisted draft (app/account/pending-commitment.tsx's
+// CommitmentSummary reads a fetched PendingCommitment.draftData through
+// this). A real regression let this silently drop successThresholdOverride
+// by calling calculateSuccessRule directly with only one argument — the
+// server-persisted commitment stayed correct, but the pending-commitment
+// screen displayed Kinwin's V1 baseline instead of the user's actual,
+// stricter V2 selection. These fixtures are shaped exactly like a real
+// OnboardingDraftData round-tripped through the server (readonly rhythm
+// fields included), not the looser SuccessRuleInput calculateSuccessRule
+// itself accepts, so a regression that only compiles against the narrower
+// type would not be caught by the tests above.
+function persistedDraft(overrides: Partial<OnboardingDraftData>): OnboardingDraftData {
+  return {
+    goal: 'A generic goal',
+    behaviorText: 'A generic behavior',
+    definitionText: 'A generic definition',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { ...EMPTY_RHYTHM, type: 'daily' },
+    durationWeeks: 4,
+    successThresholdOverride: null,
+    recipients: [],
+    rewardOrganizer: null,
+    experienceCategory: null,
+    stakeAmount: null,
+    currency: 'USD',
+    sitOutAcknowledged: false,
+    invitationMessage: '',
+    membershipChoice: null,
+    ...overrides,
+  };
+}
+
+test('resolvePersistedSuccessRule (Build): a persisted stricter override presents as the real selection, not the V1 baseline', () => {
+  const baseline = resolvePersistedSuccessRule(persistedDraft({ successThresholdOverride: null }));
+  assert.ok(baseline);
+  assert.equal(baseline!.overall, 'Keep your promise on at least 25 of 28 days.');
+
+  const stricter = resolvePersistedSuccessRule(persistedDraft({ successThresholdOverride: 27 }));
+  assert.ok(stricter);
+  assert.equal(stricter!.overall, 'Keep your promise on at least 27 of 28 days.');
+});
+
+test('resolvePersistedSuccessRule (Limit/cut_back): a persisted stricter override is retained in the presentation', () => {
+  const stricter = resolvePersistedSuccessRule(persistedDraft({
+    behaviorDirection: 'cut', measurementMode: 'time',
+    rhythm: { ...EMPTY_RHYTHM, type: 'maximum_per_period', period: 'day', targetValue: '120', timeUnit: 'minutes' },
+    successThresholdOverride: 27,
+  }));
+  assert.ok(stricter);
+  assert.equal(stricter!.overall, 'Stay within your limit on at least 27 of 28 days.');
+});
+
+test('resolvePersistedSuccessRule: a V1 baseline draft (no override) still presents exactly as before', () => {
+  const rule = resolvePersistedSuccessRule(persistedDraft({ successThresholdOverride: null }));
+  assert.ok(rule);
+  assert.equal(rule!.overall, 'Keep your promise on at least 25 of 28 days.');
+});
+
+test('resolvePersistedSuccessRule (Avoid): always the fixed zero-lapse statement, regardless of successThresholdOverride', () => {
+  const rule = resolvePersistedSuccessRule(persistedDraft({
+    behaviorDirection: 'stop', measurementMode: 'abstinence', durationWeeks: 6,
+    rhythm: { ...EMPTY_RHYTHM, type: 'continuous' },
+    successThresholdOverride: 999,
+  }));
   assert.ok(rule);
   assert.equal(rule!.overall, 'No lapses during the full 6-week challenge.');
   assert.equal(rule!.isStopRule, true);
