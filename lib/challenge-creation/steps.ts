@@ -8,7 +8,7 @@ import { BehaviorDirection } from '@/contexts/onboarding-context';
 // that variable sequence, instead of every screen hard-coding a number that
 // would be wrong for two of the three types.
 export type ChallengeCreationStep =
-  | 'goal' | 'type' | 'rule' | 'frequency' | 'duration' | 'recipients' | 'consequence' | 'review';
+  | 'goal' | 'type' | 'rule' | 'frequency' | 'duration' | 'success_means' | 'recipients' | 'consequence' | 'review';
 
 export function getStepInfo(
   direction: BehaviorDirection | null,
@@ -18,29 +18,32 @@ export function getStepInfo(
   // sequence so the progress bar doesn't jump backward once a shorter type
   // is picked.
   const isBuild = direction === 'build' || direction === null;
-  const totalSteps = isBuild ? 8 : 7;
+  const totalSteps = isBuild ? 9 : 8;
   const positions: Record<ChallengeCreationStep, number> = isBuild
-    ? { goal: 1, type: 2, rule: 3, frequency: 4, duration: 5, recipients: 6, consequence: 7, review: 8 }
-    : { goal: 1, type: 2, rule: 3, frequency: 3, duration: 4, recipients: 5, consequence: 6, review: 7 };
+    ? { goal: 1, type: 2, rule: 3, frequency: 4, duration: 5, success_means: 6, recipients: 7, consequence: 8, review: 9 }
+    : { goal: 1, type: 2, rule: 3, frequency: 3, duration: 4, success_means: 5, recipients: 6, consequence: 7, review: 8 };
   return { currentStep: positions[step], totalSteps };
 }
 
 // The concrete /create/* route sequence per direction — matches exactly
 // what each screen's own "continue" handler pushes to (see goal.tsx,
-// type.tsx's NEXT_SCREEN, build/limit/avoid/frequency/duration/recipients/
-// consequence.tsx). 'rule' resolves to build/limit/avoid depending on
-// direction; 'frequency' only exists for Build.
+// type.tsx's NEXT_SCREEN, build/limit/avoid/frequency/duration/
+// success-means/recipients/consequence.tsx). 'rule' resolves to
+// build/limit/avoid depending on direction; 'frequency' only exists for
+// Build. success-means sits between duration and recipients for all three
+// directions (Avoid's is a read-only "zero lapses" statement, not an
+// adjustable control — see app/create/success-means.tsx).
 const BUILD_ROUTE_SEQUENCE = [
   '/create/goal', '/create/type', '/create/build', '/create/frequency',
-  '/create/duration', '/create/recipients', '/create/consequence', '/create/review',
+  '/create/duration', '/create/success-means', '/create/recipients', '/create/consequence', '/create/review',
 ] as const;
 const CUT_ROUTE_SEQUENCE = [
   '/create/goal', '/create/type', '/create/limit',
-  '/create/duration', '/create/recipients', '/create/consequence', '/create/review',
+  '/create/duration', '/create/success-means', '/create/recipients', '/create/consequence', '/create/review',
 ] as const;
 const STOP_ROUTE_SEQUENCE = [
   '/create/goal', '/create/type', '/create/avoid',
-  '/create/duration', '/create/recipients', '/create/consequence', '/create/review',
+  '/create/duration', '/create/success-means', '/create/recipients', '/create/consequence', '/create/review',
 ] as const;
 
 function creationRouteSequence(direction: BehaviorDirection | null): readonly string[] {

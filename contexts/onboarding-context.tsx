@@ -106,6 +106,7 @@ type ResettableOnboardingFields = {
   sitOutAcknowledged: boolean;
   stakeAmount: number | null;
   stakeAmountInput: string;
+  successThresholdOverride: number | null;
 };
 
 /**
@@ -140,6 +141,7 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
+    successThresholdOverride: null,
   };
 }
 
@@ -181,9 +183,12 @@ type OnboardingContextValue = {
   setSitOutAcknowledged: Dispatch<SetStateAction<boolean>>;
   setStakeAmount: Dispatch<SetStateAction<number | null>>;
   setStakeAmountInput: Dispatch<SetStateAction<string>>;
+  setSuccessThresholdOverride: Dispatch<SetStateAction<number | null>>;
   sitOutAcknowledged: boolean;
   stakeAmount: number | null;
   stakeAmountInput: string;
+  /** Success Means: the user's selected overall minimum, or null to use Kinwin's baseline. See domain/challenge/from-onboarding-draft.ts's OnboardingDraftData.successThresholdOverride. */
+  successThresholdOverride: number | null;
   /** Explicit mapping boundary: hydrates every onboarding field from a normalized, already-validated draft. */
   loadDraftData: (data: OnboardingDraftData, draftId: string) => void;
   /**
@@ -223,6 +228,21 @@ function sanitizeDurationWeeks(value: number | null): number | null {
 }
 
 /**
+ * Same "null rather than clamp" philosophy as sanitizeDurationWeeks, for
+ * the same reason: this only rejects a structurally corrupt persisted
+ * value (not an integer, not positive). It deliberately does NOT bounds-
+ * check against the current baseline/total — those depend on duration and
+ * rhythm, which the Success Means screen (via
+ * domain/challenge/success-rule.ts's clampSuccessThreshold) is what
+ * actually re-derives and clamps into range whenever upstream inputs
+ * change. Nulling a merely-stale-but-structurally-valid value here would
+ * incorrectly discard a still-restorable stricter intent.
+ */
+function sanitizeSuccessThresholdOverride(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/**
  * Pure projection of what onboarding state results from restoring a local
  * creation-session checkpoint — extracted so this can be unit tested
  * directly (savedDraftId must always come back null, regardless of what it
@@ -245,7 +265,11 @@ export function computeRestoredCreationSessionState(
   readonly savedDraftId: null;
   readonly checkpoint: { readonly fields: CreationSessionFieldsInput; readonly lastRoute: string; readonly savedAt: string };
 } {
-  const fields = { ...rawFields, durationWeeks: sanitizeDurationWeeks(rawFields.durationWeeks) };
+  const fields = {
+    ...rawFields,
+    durationWeeks: sanitizeDurationWeeks(rawFields.durationWeeks),
+    successThresholdOverride: sanitizeSuccessThresholdOverride(rawFields.successThresholdOverride),
+  };
   return { ...fields, savedDraftId: null, checkpoint: { fields, lastRoute, savedAt } };
 }
 
@@ -267,6 +291,7 @@ type CreationSessionFieldsInput = {
   sitOutAcknowledged: boolean;
   stakeAmount: number | null;
   stakeAmountInput: string;
+  successThresholdOverride: number | null;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -295,6 +320,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [stakeAmount, setStakeAmount] = useState<number | null>(initialFields.stakeAmount);
   const [stakeAmountInput, setStakeAmountInput] = useState(initialFields.stakeAmountInput);
   const [rhythm, setRhythm] = useState<RhythmState>(initialFields.rhythm);
+  const [successThresholdOverride, setSuccessThresholdOverride] = useState<number | null>(initialFields.successThresholdOverride);
 
   const loadDraftData = useCallback((data: OnboardingDraftData, draftId: string) => {
     setGoal(data.goal);
@@ -309,6 +335,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     // checkpoint is, so an out-of-range value can never land the user on
     // Duration with nothing they can do about it.
     setDurationWeeks(sanitizeDurationWeeks(data.durationWeeks));
+    setSuccessThresholdOverride(sanitizeSuccessThresholdOverride(data.successThresholdOverride));
     setRecipients(data.recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })));
     setRewardOrganizer(data.rewardOrganizer);
     setExperienceCategory(data.experienceCategory);
@@ -335,6 +362,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setMeasurementMode(fields.measurementMode);
     setRhythm(fields.rhythm);
     setDurationWeeks(fields.durationWeeks);
+    setSuccessThresholdOverride(fields.successThresholdOverride);
     setRecipients([createRecipientDraft()]);
     setRewardOrganizer(fields.rewardOrganizer);
     setExperienceCategory(fields.experienceCategory);
@@ -357,6 +385,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setMeasurementMode(restored.measurementMode);
     setRhythm({ ...restored.rhythm, selectedWeekdays: [...restored.rhythm.selectedWeekdays] });
     setDurationWeeks(restored.durationWeeks);
+    setSuccessThresholdOverride(restored.successThresholdOverride);
     setRecipients(restored.recipients.length > 0 ? restored.recipients.map((recipient) => ({ ...recipient })) : [createRecipientDraft()]);
     setRewardOrganizer(restored.rewardOrganizer);
     setExperienceCategory(restored.experienceCategory);
@@ -414,9 +443,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setSitOutAcknowledged,
       setStakeAmount,
       setStakeAmountInput,
+      setSuccessThresholdOverride,
       sitOutAcknowledged,
       stakeAmount,
       stakeAmountInput,
+      successThresholdOverride,
     }),
     [
       behaviorDirection,
@@ -440,6 +471,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       sitOutAcknowledged,
       stakeAmount,
       stakeAmountInput,
+      successThresholdOverride,
     ],
   );
 

@@ -45,8 +45,9 @@ function validateRule(draft: ChallengeDraft, issues: ActivationIssue[]) {
   const rule = draft.behavior.rule;
   const success = draft.successRule;
   const derived = deriveSuccessRuleForChallengeRule(rule, draft.duration.value);
-  if (!derived || !successRulesEqual(success, derived)) {
-    issues.push(issue('successRule', 'inconsistent', 'The success rule must exactly match the versioned challenge rule.'));
+  const consistent = derived && (success.ruleVersion === 1 ? successRulesEqual(success, derived) : successRuleWithinV2Bounds(success, derived));
+  if (!derived || !consistent) {
+    issues.push(issue('successRule', 'inconsistent', 'The success rule must exactly match the versioned challenge rule, or be a valid Success Means selection at or above Kinwin’s baseline.'));
     return;
   }
   if (rule.direction !== success.direction) {
@@ -92,6 +93,35 @@ function successRulesEqual(left: ChallengeDraft['successRule'], right: Challenge
         safeguardsEqual(left.continuitySafeguard, right.continuitySafeguard);
     case 'stop':
       return right.direction === 'stop' && left.lapseRule.type === right.lapseRule.type;
+  }
+}
+
+/**
+ * ruleVersion 2's counterpart to successRulesEqual: every field must match
+ * the derived V1 baseline exactly EXCEPT the overall minimum, which the
+ * user may only have made stricter — never below the baseline, never
+ * above the total. Stop/Avoid has no V2 (see types.ts); returning false
+ * for it here rejects any V2 stop successRule as inconsistent.
+ */
+function successRuleWithinV2Bounds(left: ChallengeDraft['successRule'], baseline: ChallengeDraft['successRule']) {
+  if (left.direction !== baseline.direction) return false;
+  switch (left.direction) {
+    case 'build':
+      if (baseline.direction !== 'build') return false;
+      return left.totalPlannedCompletions === baseline.totalPlannedCompletions &&
+        left.periodTarget === baseline.periodTarget && left.periodUnit === baseline.periodUnit &&
+        safeguardsEqual(left.continuitySafeguard, baseline.continuitySafeguard) &&
+        left.minimumRequiredCompletions >= baseline.minimumRequiredCompletions &&
+        left.minimumRequiredCompletions <= left.totalPlannedCompletions;
+    case 'cut_back':
+      if (baseline.direction !== 'cut_back') return false;
+      return left.measurementType === baseline.measurementType && left.maximumAllowedValue === baseline.maximumAllowedValue &&
+        left.periodUnit === baseline.periodUnit && left.totalPeriods === baseline.totalPeriods &&
+        safeguardsEqual(left.continuitySafeguard, baseline.continuitySafeguard) &&
+        left.minimumPeriodsWithinLimit >= baseline.minimumPeriodsWithinLimit &&
+        left.minimumPeriodsWithinLimit <= left.totalPeriods;
+    case 'stop':
+      return false;
   }
 }
 

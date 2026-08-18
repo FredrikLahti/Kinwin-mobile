@@ -70,7 +70,10 @@ type EvaluatedPeriod = { readonly period: ChallengePeriod; readonly state: Effec
 export function evaluateChallenge(input: ChallengeEvaluationInput): ChallengeEvaluation {
   const { challenge, periods, events, evaluatedAt } = input;
 
-  if (challenge.ruleEngineVersion !== 1 || challenge.successRule.ruleVersion !== 1) {
+  // ruleVersion 2 (build/cut_back Success Means selections) reads the
+  // exact same stored minimum fields as ruleVersion 1 — no other branch
+  // below needs to change for V2 to be evaluated correctly.
+  if (challenge.ruleEngineVersion !== 1 || (challenge.successRule.ruleVersion !== 1 && challenge.successRule.ruleVersion !== 2)) {
     return notEvaluable(['unsupported_rule_version'], null);
   }
   if (periods.length === 0) return notEvaluable(['periods_not_generated'], null);

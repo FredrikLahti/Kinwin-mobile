@@ -24,6 +24,7 @@ function emptyFields(): CreationSessionFields {
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
+    successThresholdOverride: null,
   };
 }
 

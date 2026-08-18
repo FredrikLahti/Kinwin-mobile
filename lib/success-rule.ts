@@ -40,15 +40,24 @@ function formatCutBoundary(measurementMode: MeasurementMode, rhythm: RhythmState
   return `Maximum ${rhythm.targetValue} ${unit} per ${rhythm.period}`;
 }
 
-export function calculateSuccessRule({
-  behaviorDirection,
-  behaviorText,
-  definitionText,
-  durationWeeks,
-  goal,
-  measurementMode,
-  rhythm,
-}: SuccessRuleInput): SuccessRule | null {
+export function calculateSuccessRule(
+  {
+    behaviorDirection,
+    behaviorText,
+    definitionText,
+    durationWeeks,
+    goal,
+    measurementMode,
+    rhythm,
+  }: SuccessRuleInput,
+  /**
+   * The Success Means step's selected overall minimum — see
+   * domain/challenge/success-rule.ts's applySuccessThreshold, which this
+   * is passed straight through to. null (the default) formats Kinwin's
+   * baseline, exactly today's behavior.
+   */
+  selectedThreshold: number | null = null,
+): SuccessRule | null {
   const behavior = behaviorText.trim();
   const priorTextIsValid =
     goal.trim().length >= 3 && behavior.length >= 3 && definitionText.trim().length >= 3;
@@ -64,7 +73,7 @@ export function calculateSuccessRule({
     measurement: measurementMode,
     durationWeeks,
     rhythm,
-  });
+  }, selectedThreshold);
   if (!structured) return null;
 
   if (structured.successRule.direction === 'build') {

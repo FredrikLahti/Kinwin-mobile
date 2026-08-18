@@ -24,6 +24,7 @@ function buildDraft() {
     sitOutAcknowledged: true,
     invitationMessage: 'Join me in this promise.',
     membershipChoice: 'monthly_trial',
+    successThresholdOverride: null,
   };
   const result = mapOnboardingDraft(data, {
     draftId: 'draft-1' as ChallengeDraftId,

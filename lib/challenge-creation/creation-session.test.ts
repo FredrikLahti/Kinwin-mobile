@@ -78,6 +78,7 @@ function emptyFields(): CreationSessionFields {
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
+    successThresholdOverride: null,
   };
 }
 
@@ -191,6 +192,146 @@ test('explicit discard: clearCreationSession removes the whole session (working 
 test('clearCreationSession on a user with no session is a safe no-op', async () => {
   const storage = inMemoryStorage();
   await assert.doesNotReject(clearCreationSession('user-1', storage));
+});
+
+// --- v3 -> v4 migration (Success Means added successThresholdOverride) ---
+//
+// v3 sessions predate the successThresholdOverride field entirely; they
+// are stored under a *different* key (kinwin:creation-session:v3:<userId>)
+// than v4 sessions (…v4:<userId>) — see creationSessionStorageKey. A
+// legitimate, already-persisted v3 Save & exit / crash-recovery session
+// must survive the v3->v4 upgrade, not be silently treated as corrupt and
+// discarded just because this one additive field didn't exist yet.
+
+const V3_FIELDS = {
+  behaviorDirection: 'build' as const,
+  behaviorText: 'Strength train',
+  definitionText: 'Complete the planned session',
+  durationWeeks: 4,
+  experienceCategory: 'dinner' as const,
+  goal: 'Sleep better',
+  invitationMessage: 'Join me in this promise.',
+  invitationMessageCustomized: true,
+  membershipChoice: 'monthly_trial' as const,
+  measurementMode: 'completion' as const,
+  recipients: [{ id: 'recipient-a', name: 'Anna' }],
+  rewardOrganizer: { type: 'recipient' as const, recipientId: 'recipient-a' },
+  rhythm: { amountUnit: '', period: 'day' as const, selectedWeekdays: [], targetValue: '', timeUnit: null, type: 'daily' as const },
+  sitOutAcknowledged: true,
+  stakeAmount: 75,
+  stakeAmountInput: '75',
+  // Deliberately no successThresholdOverride — this is exactly the shape
+  // a real pre-Success-Means installation would have persisted.
+};
+
+function v3Key(userId: string): string {
+  return `kinwin:creation-session:v3:${userId}`;
+}
+
+function v3Snapshot(lastRoute: string) {
+  return {
+    schemaVersion: 3,
+    working: { fields: V3_FIELDS, lastRoute, updatedAt: '2026-01-01T00:00:00.000Z' },
+    checkpoint: { fields: V3_FIELDS, lastRoute, savedAt: '2026-01-01T00:00:00.000Z' },
+  };
+}
+
+test('v3->v4 migration: a valid v3 checkpoint/working session survives and every existing field is retained', async () => {
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/frequency')) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored, 'a legitimate v3 session must not be silently discarded');
+  assert.equal(restored.schemaVersion, CREATION_SESSION_SCHEMA_VERSION);
+  assert.ok(restored.working);
+  assert.ok(restored.checkpoint);
+  for (const [key, value] of Object.entries(V3_FIELDS)) {
+    assert.deepEqual((restored.working!.fields as unknown as Record<string, unknown>)[key], value, `working.fields.${key} must be retained unchanged`);
+    assert.deepEqual((restored.checkpoint!.fields as unknown as Record<string, unknown>)[key], value, `checkpoint.fields.${key} must be retained unchanged`);
+  }
+});
+
+test('v3->v4 migration: successThresholdOverride becomes null (Kinwin\'s baseline), never invented', async () => {
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/frequency')) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.working?.fields.successThresholdOverride, null);
+  assert.equal(restored?.checkpoint?.fields.successThresholdOverride, null);
+});
+
+for (const oldRoute of ['/create/recipients', '/create/consequence', '/create/review']) {
+  test(`v3->v4 migration: a session formerly at ${oldRoute} (at/after the old Duration boundary) resumes at success-means instead of skipping the new step`, async () => {
+    const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot(oldRoute)) });
+    const restored = await readCreationSession('user-1', storage);
+    assert.equal(restored?.working?.lastRoute, '/create/success-means');
+    assert.equal(restored?.checkpoint?.lastRoute, '/create/success-means');
+  });
+}
+
+for (const earlyRoute of ['/create/goal', '/create/type', '/create/build', '/create/frequency', '/create/duration']) {
+  test(`v3->v4 migration: a session at ${earlyRoute} (before the old Duration boundary) keeps its route unchanged`, async () => {
+    const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot(earlyRoute)) });
+    const restored = await readCreationSession('user-1', storage);
+    assert.equal(restored?.working?.lastRoute, earlyRoute);
+    assert.equal(restored?.checkpoint?.lastRoute, earlyRoute);
+  });
+}
+
+test('v3->v4 migration: the migrated session is persisted under the v4 key and the v3 key is retired, so v3 is never re-read', async () => {
+  const seed: Record<string, string> = { [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/duration')) };
+  const storage = inMemoryStorage(seed);
+  const first = await readCreationSession('user-1', storage);
+  assert.ok(first);
+
+  const v3StillThere = await storage.getItem(v3Key('user-1'));
+  assert.equal(v3StillThere, null, 'the legacy v3 entry must be removed once migrated');
+
+  const v4StillThere = await storage.getItem(creationSessionStorageKey('user-1'));
+  assert.ok(v4StillThere, 'the migrated session must be persisted under the canonical v4 key');
+
+  // A second read must not depend on the v3 key existing at all anymore.
+  const second = await readCreationSession('user-1', storage);
+  assert.deepEqual(second, first);
+});
+
+test('v3->v4 migration: genuinely malformed v3 data is rejected and removed, exactly like malformed v4 data', async () => {
+  const malformed = { schemaVersion: 3, working: { fields: {}, lastRoute: '/create/goal', updatedAt: '2026-01-01T00:00:00.000Z' }, checkpoint: null };
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(malformed) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored, null);
+  assert.equal(await storage.getItem(v3Key('user-1')), null, 'malformed v3 data must be proactively removed, not left to fail again later');
+});
+
+test('v3->v4 migration: unparseable v3 JSON is rejected and removed', async () => {
+  const storage = inMemoryStorage({ [v3Key('user-1')]: 'not valid json{{{' });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored, null);
+  assert.equal(await storage.getItem(v3Key('user-1')), null);
+});
+
+test('v3->v4 migration: a v3-only working session with no checkpoint migrates the working half alone', async () => {
+  const v3WorkingOnly = { schemaVersion: 3, working: { fields: V3_FIELDS, lastRoute: '/create/duration', updatedAt: '2026-01-01T00:00:00.000Z' }, checkpoint: null };
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3WorkingOnly) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored?.working);
+  assert.equal(restored.checkpoint, null);
+  assert.equal(restored.working.fields.successThresholdOverride, null);
+});
+
+test('native v4 sessions are read directly and never consult (or need) a v3 fallback', async () => {
+  const storage = inMemoryStorage();
+  const fields: CreationSessionFields = { ...emptyFields(), goal: 'Native v4 session', successThresholdOverride: 27 };
+  await writeWorking('user-1', fields, '/create/success-means', storage);
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored?.working);
+  assert.deepEqual(restored.working.fields, fields);
+  assert.equal(restored.working.lastRoute, '/create/success-means');
+  assert.equal(await storage.getItem(v3Key('user-1')), null, 'a native v4 write must never touch the legacy v3 key');
+});
+
+test('v4 takes priority: if both a v4 session and a leftover v3 key exist for the same user, the v4 one wins and v3 is left untouched', async () => {
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/recipients')) });
+  await writeWorking('user-1', { ...emptyFields(), goal: 'Real v4 progress' }, '/create/duration', storage);
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.working?.fields.goal, 'Real v4 progress');
+  assert.equal(restored?.working?.lastRoute, '/create/duration', 'must not be route-migrated — this is a real v4 session, not a migrated v3 one');
 });
 
 test('write/clear ordering: a clear requested while an earlier write is still in flight always wins, even once that write is allowed to finish', async () => {
@@ -718,6 +859,7 @@ test('the complete ChallengeDraft boundary is not weakened: a genuinely partial 
     sitOutAcknowledged: fields.sitOutAcknowledged,
     invitationMessage: fields.invitationMessage,
     membershipChoice: fields.membershipChoice,
+    successThresholdOverride: fields.successThresholdOverride,
   };
   const result = mapOnboardingDraft(asDraftInput, {
     draftId: 'draft-1' as never,

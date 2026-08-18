@@ -32,6 +32,7 @@ export type CreationSessionFields = {
   readonly sitOutAcknowledged: boolean;
   readonly stakeAmount: number | null;
   readonly stakeAmountInput: string;
+  readonly successThresholdOverride: number | null;
 };
 
 // Bumped from 2: replaces the single savedForLater boolean with a real
@@ -47,7 +48,18 @@ export type CreationSessionFields = {
 // necessarily by the *latest* edit being explicitly saved — exactly the
 // conflation this version fixes — so it must never be reinterpreted as a
 // v3 checkpoint).
-export const CREATION_SESSION_SCHEMA_VERSION = 3;
+//
+// Bumped from 3 to 4: CreationSessionFields gained successThresholdOverride
+// (Success Means), an ADDITIVE field with a clear default (null — "use
+// Kinwin's baseline", see domain/challenge/success-rule.ts). Unlike every
+// earlier bump on this constant, a v3 payload here is not orphaned or
+// discarded: readCreationSession explicitly migrates it forward (see
+// migrateCreationSessionV3ToV4 below) rather than losing a legitimate
+// in-progress Save & exit / crash-recovery session just because this one
+// field was added. v3 is never written to again once migrated — only read
+// and converted.
+export const CREATION_SESSION_SCHEMA_VERSION = 4;
+const LEGACY_V3_SCHEMA_VERSION = 3;
 
 /**
  * Quiet crash-recovery state, overwritten by every background autosave
@@ -90,6 +102,7 @@ export const RESUMABLE_CREATION_ROUTES = [
   '/create/limit',
   '/create/avoid',
   '/create/duration',
+  '/create/success-means',
   '/create/recipients',
   '/create/consequence',
   '/create/review',
@@ -117,6 +130,7 @@ export function hasMeaningfulCreationProgress(fields: CreationSessionFields): bo
     fields.behaviorDirection !== null ||
     fields.measurementMode !== null ||
     fields.durationWeeks !== null ||
+    fields.successThresholdOverride !== null ||
     fields.rhythm.type !== null ||
     fields.rhythm.targetValue.trim().length > 0 ||
     fields.rhythm.selectedWeekdays.length > 0 ||
@@ -140,7 +154,11 @@ export type CreationSessionStorage = {
 
 /** Isolates snapshots per authenticated user and per schema version — a signed-in user can never read another signed-in user's key, and a version bump can never misread an older shape. */
 export function creationSessionStorageKey(userId: string): string {
-  return `kinwin:creation-session:v${CREATION_SESSION_SCHEMA_VERSION}:${userId}`;
+  return creationSessionStorageKeyForVersion(CREATION_SESSION_SCHEMA_VERSION, userId);
+}
+
+function creationSessionStorageKeyForVersion(version: number, userId: string): string {
+  return `kinwin:creation-session:v${version}:${userId}`;
 }
 
 // Runtime-checked mirrors of the string-union types CreationSessionFields is
@@ -222,7 +240,8 @@ function isValidCreationSessionFields(value: unknown): value is CreationSessionF
     isValidRhythm(fields.rhythm) &&
     typeof fields.sitOutAcknowledged === 'boolean' &&
     isFiniteNumberOrNull(fields.stakeAmount) &&
-    typeof fields.stakeAmountInput === 'string'
+    typeof fields.stakeAmountInput === 'string' &&
+    isFiniteNumberOrNull(fields.successThresholdOverride)
   );
 }
 
@@ -257,6 +276,109 @@ function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot 
 }
 
 /**
+ * v3's CreationSessionFields shape — every field v4 has, except
+ * successThresholdOverride (which did not exist yet). Structural
+ * sub-validators (isValidRhythm, isValidRecipients, etc.) are shared with
+ * v4 unchanged, since none of those fields changed shape; only the
+ * successThresholdOverride check is intentionally absent here.
+ */
+type CreationSessionFieldsV3 = Omit<CreationSessionFields, 'successThresholdOverride'>;
+
+function isValidCreationSessionFieldsV3(value: unknown): value is CreationSessionFieldsV3 {
+  if (!value || typeof value !== 'object') return false;
+  const fields = value as Record<string, unknown>;
+  return (
+    isNullableEnum(fields.behaviorDirection, BEHAVIOR_DIRECTIONS) &&
+    typeof fields.behaviorText === 'string' &&
+    typeof fields.definitionText === 'string' &&
+    isFiniteNumberOrNull(fields.durationWeeks) &&
+    isNullableEnum(fields.experienceCategory, EXPERIENCE_CATEGORIES) &&
+    typeof fields.goal === 'string' &&
+    typeof fields.invitationMessage === 'string' &&
+    typeof fields.invitationMessageCustomized === 'boolean' &&
+    (fields.membershipChoice === null || fields.membershipChoice === 'monthly_trial') &&
+    isNullableEnum(fields.measurementMode, MEASUREMENT_MODES) &&
+    isValidRecipients(fields.recipients) &&
+    isValidRewardOrganizer(fields.rewardOrganizer) &&
+    isValidRhythm(fields.rhythm) &&
+    typeof fields.sitOutAcknowledged === 'boolean' &&
+    isFiniteNumberOrNull(fields.stakeAmount) &&
+    typeof fields.stakeAmountInput === 'string'
+  );
+}
+
+type CreationSessionWorkingV3 = { readonly fields: CreationSessionFieldsV3; readonly lastRoute: string; readonly updatedAt: string };
+type CreationSessionCheckpointV3 = { readonly fields: CreationSessionFieldsV3; readonly lastRoute: string; readonly savedAt: string };
+type CreationSessionSnapshotV3 = {
+  readonly schemaVersion: typeof LEGACY_V3_SCHEMA_VERSION;
+  readonly working: CreationSessionWorkingV3 | null;
+  readonly checkpoint: CreationSessionCheckpointV3 | null;
+};
+
+function isValidCreationSessionWorkingV3(value: unknown): value is CreationSessionWorkingV3 {
+  if (!value || typeof value !== 'object') return false;
+  const working = value as Record<string, unknown>;
+  return typeof working.lastRoute === 'string' && typeof working.updatedAt === 'string' && isValidCreationSessionFieldsV3(working.fields);
+}
+
+function isValidCreationSessionCheckpointV3(value: unknown): value is CreationSessionCheckpointV3 {
+  if (!value || typeof value !== 'object') return false;
+  const checkpoint = value as Record<string, unknown>;
+  return typeof checkpoint.lastRoute === 'string' && typeof checkpoint.savedAt === 'string' && isValidCreationSessionFieldsV3(checkpoint.fields);
+}
+
+function isValidV3SnapshotShape(value: unknown): value is CreationSessionSnapshotV3 {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<CreationSessionSnapshotV3>;
+  return (
+    candidate.schemaVersion === LEGACY_V3_SCHEMA_VERSION &&
+    (candidate.working === null || isValidCreationSessionWorkingV3(candidate.working)) &&
+    (candidate.checkpoint === null || isValidCreationSessionCheckpointV3(candidate.checkpoint))
+  );
+}
+
+// Success Means introduced a new mandatory step between Duration and
+// Recipients (see lib/challenge-creation/steps.ts's BUILD/CUT/STOP_ROUTE_
+// SEQUENCE). A v3 session resumed at any of these three routes predates
+// that step entirely — resuming it verbatim would silently skip Success
+// Means. Every earlier v3 route (goal through duration) is still the exact
+// same logical position in v4's sequence and needs no remapping.
+const ROUTES_AT_OR_AFTER_OLD_DURATION_BOUNDARY = ['/create/recipients', '/create/consequence', '/create/review'];
+
+function migrateV3RouteToV4(route: string): string {
+  return ROUTES_AT_OR_AFTER_OLD_DURATION_BOUNDARY.includes(route) ? '/create/success-means' : route;
+}
+
+/**
+ * Never invents a threshold: successThresholdOverride is always null for a
+ * migrated v3 session, meaning "use Kinwin's existing V1 baseline" — the
+ * same default a brand-new v4 session gets (see
+ * domain/challenge/success-rule.ts's clampSuccessThreshold(null, bounds)).
+ */
+function migrateV3FieldsToV4(fields: CreationSessionFieldsV3): CreationSessionFields {
+  return { ...fields, successThresholdOverride: null };
+}
+
+/**
+ * Exported for direct testing. Returns null for anything that is not a
+ * structurally valid v3 snapshot — callers must treat that exactly like
+ * any other corrupt/incompatible payload (remove it, do not resurrect a
+ * malformed session under the new key).
+ */
+export function migrateCreationSessionV3ToV4(value: unknown): CreationSessionSnapshot | null {
+  if (!isValidV3SnapshotShape(value)) return null;
+  return {
+    schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+    working: value.working
+      ? { fields: migrateV3FieldsToV4(value.working.fields), lastRoute: migrateV3RouteToV4(value.working.lastRoute), updatedAt: value.working.updatedAt }
+      : null,
+    checkpoint: value.checkpoint
+      ? { fields: migrateV3FieldsToV4(value.checkpoint.fields), lastRoute: migrateV3RouteToV4(value.checkpoint.lastRoute), savedAt: value.checkpoint.savedAt }
+      : null,
+  };
+}
+
+/**
  * The single rule for what counts as "Continue challenge"-eligible —
  * centralized so Home and Account (both via
  * hooks/use-resumable-creation-session.ts) can never drift on it. A
@@ -279,7 +401,18 @@ function creationSessionFieldsEqual(a: CreationSessionFields, b: CreationSession
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Returns null for "no session" and for corrupt/incompatible data alike — callers never need to distinguish the two. Corrupt data is proactively removed so it cannot linger and fail again later. */
+/**
+ * Returns null for "no session" and for corrupt/incompatible data alike —
+ * callers never need to distinguish the two. Corrupt data is proactively
+ * removed so it cannot linger and fail again later.
+ *
+ * If no current-version (v4) session exists, falls back to the legacy v3
+ * key and migrates it in place (see migrateCreationSessionV3ToV4): a
+ * structurally valid v3 session is converted, persisted under the v4 key,
+ * and the v3 key is retired — v3 is read and migrated exactly once, never
+ * kept around as an independently writable schema. A genuinely malformed
+ * v3 payload is removed, exactly like a malformed v4 one.
+ */
 export async function readCreationSession(
   userId: string,
   storage: CreationSessionStorage,
@@ -292,21 +425,60 @@ export async function readCreationSession(
   } catch {
     return null;
   }
-  if (!raw) return null;
 
-  let parsed: unknown;
+  if (raw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      await storage.removeItem(key).catch(() => undefined);
+      return null;
+    }
+    if (!isValidSnapshotShape(parsed)) {
+      await storage.removeItem(key).catch(() => undefined);
+      return null;
+    }
+    return parsed;
+  }
+
+  return migrateLegacyV3Session(userId, storage);
+}
+
+async function migrateLegacyV3Session(userId: string, storage: CreationSessionStorage): Promise<CreationSessionSnapshot | null> {
+  const legacyKey = creationSessionStorageKeyForVersion(LEGACY_V3_SCHEMA_VERSION, userId);
+  let legacyRaw: string | null;
   try {
-    parsed = JSON.parse(raw);
+    legacyRaw = await storage.getItem(legacyKey);
   } catch {
-    await storage.removeItem(key).catch(() => undefined);
+    return null;
+  }
+  if (!legacyRaw) return null;
+
+  let legacyParsed: unknown;
+  try {
+    legacyParsed = JSON.parse(legacyRaw);
+  } catch {
+    await storage.removeItem(legacyKey).catch(() => undefined);
     return null;
   }
 
-  if (!isValidSnapshotShape(parsed)) {
-    await storage.removeItem(key).catch(() => undefined);
+  const migrated = migrateCreationSessionV3ToV4(legacyParsed);
+  if (!migrated) {
+    await storage.removeItem(legacyKey).catch(() => undefined);
     return null;
   }
-  return parsed;
+
+  // Best-effort: persist the migration and retire the v3 key so it is
+  // never re-read. If either write fails, the migrated session is still
+  // returned in-memory so this read isn't lost — the next read simply
+  // repeats the same (idempotent) migration from the still-present v3 key.
+  try {
+    await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(migrated));
+    await storage.removeItem(legacyKey);
+  } catch {
+    // See comment above — non-fatal.
+  }
+  return migrated;
 }
 
 // A generation is bumped exactly when a user's creation lifecycle closes —

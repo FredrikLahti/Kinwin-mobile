@@ -57,10 +57,10 @@ export default function CreateDurationScreen() {
     setDurationWeeks(nextDuration);
   };
 
-  const continueToRecipients = () => {
+  const continueToSuccessMeans = () => {
     if (!canContinue) return;
     Keyboard.dismiss();
-    router.push('/create/recipients');
+    router.push('/create/success-means');
   };
 
   return (
@@ -69,10 +69,10 @@ export default function CreateDurationScreen() {
       currentStep={currentStep}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to loved ones' : 'Choose a duration from 2 to 12 weeks before continuing'}
+          accessibilityHint={canContinue ? 'Continues to what success means' : 'Choose a duration from 2 to 12 weeks before continuing'}
           disabled={!canContinue}
           label="Continue"
-          onPress={continueToRecipients}
+          onPress={continueToSuccessMeans}
           reducedMotion={reducedMotion}
         />
       }
@@ -139,13 +139,6 @@ export default function CreateDurationScreen() {
           </Pressable>
         </View>
       )}
-
-      {rule && (
-        <View style={styles.summary}>
-          <Text style={styles.summaryLabel}>SUCCESS MEANS</Text>
-          <Text style={styles.summaryText}>{rule.overall}</Text>
-        </View>
-      )}
     </CreateFlowScreenV2>
   );
 }
@@ -183,10 +176,4 @@ const styles = StyleSheet.create({
   customNumber: { color: theme.colors.ivory, fontSize: 24, fontWeight: '700' },
   customUnit: { color: theme.colors.ivoryMuted, fontSize: 13 },
   disabledControl: { opacity: 0.35 },
-  summary: {
-    borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
-    paddingHorizontal: 16, paddingVertical: 14, borderRadius: theme.radius.precise,
-  },
-  summaryLabel: { color: theme.colors.ivoryMuted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
-  summaryText: { marginTop: 5, color: theme.colors.ivory, fontSize: 15, lineHeight: 21 },
 });
