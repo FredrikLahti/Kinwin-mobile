@@ -11,12 +11,12 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 const STEPS = [
-  'Create a challenge for a habit or behavior you want to change.',
-  'Choose who gets the reward if you miss it.',
-  'Choose the experience and the stake.',
-  'Complete the challenge and you pay nothing.',
-  'Miss it and the stake funds their reward.',
-  'You do not participate in that reward yourself.',
+  'Promise a behavior: something to build, limit, or avoid.',
+  'Put real money behind it. An amount you would rather not lose.',
+  'Choose the loved ones who benefit if you do not keep it.',
+  'Keep your promise, and nothing is charged.',
+  'Miss it, and the stake funds their reward.',
+  'You do not take part in that reward.',
 ];
 
 export default function CreateIntroScreen() {

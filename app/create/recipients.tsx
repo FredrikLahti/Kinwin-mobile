@@ -94,6 +94,7 @@ export default function CreateRecipientsScreen() {
       headline="Who gets the reward?"
       onBack={() => router.back()}
       progressLabel={`Step ${currentStep} of ${totalSteps}: loved ones`}
+      supportingCopy="Choose 1 to 4 other people who benefit if you fail. The stake becomes their reward, and you don’t take part in it yourself."
       totalSteps={totalSteps}
     >
       <View style={styles.section}>
@@ -141,6 +142,7 @@ export default function CreateRecipientsScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>ORGANIZER</Text>
+        <Text style={styles.sectionHelper}>Coordinates the reward for the group. Doesn’t control the challenge or the payment.</Text>
         <View style={styles.organizerList}>
           {recipientChoices.map((recipient) => {
             const selected = rewardOrganizer?.type === 'recipient' && rewardOrganizer.recipientId === recipient.id;
@@ -187,6 +189,7 @@ export default function CreateRecipientsScreen() {
 const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  sectionHelper: { marginTop: -4, color: theme.colors.ivoryMuted, fontSize: 12, lineHeight: 17 },
   recipientList: { gap: 8 },
   recipientRow: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,

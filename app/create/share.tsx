@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
+import { formatMoney } from '@/lib/home/challenge-summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
@@ -42,7 +43,7 @@ export default function CreateShareScreen() {
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
   const recipientNamesText = recipientNames.join(', ');
   const categoryLabel = experienceCategory ? CATEGORY_LABELS[experienceCategory] : 'shared';
-  const stakeLabel = stakeAmount ? `$${stakeAmount.toLocaleString('en-US')}` : 'the stake';
+  const stakeLabel = stakeAmount ? formatMoney(stakeAmount * 100, onboarding.currency) : 'the stake';
   const senderName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'They';
   const ruleSummary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
 

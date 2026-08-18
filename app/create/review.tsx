@@ -16,6 +16,7 @@ import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { formatMoney } from '@/lib/home/challenge-summary';
 import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment, prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
@@ -30,15 +31,6 @@ const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   getaway: 'Getaway',
   wellness: 'Wellness',
 };
-
-// Compact and scales cleanly to any recipient count, unlike a prose
-// sentence ("Mom, Dad, and Elsa gets...") whose grammar has to change with
-// the count. "Mom, Dad +1" reads the same shape whether there are 2 or 4.
-function formatRecipientsCompact(names: string[]): string {
-  if (names.length === 0) return 'Your recipients';
-  if (names.length <= 2) return names.join(', ');
-  return `${names[0]}, ${names[1]} +${names.length - 2}`;
-}
 
 export default function CreateReviewScreen() {
   const router = useRouter();
@@ -103,13 +95,12 @@ export default function CreateReviewScreen() {
   const successRule = calculateSuccessRule(onboarding);
   const ruleSummary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
-  const recipientsCompact = formatRecipientsCompact(recipientNames);
   const organizerName =
     rewardOrganizer?.type === 'recipient'
       ? recipients.find((recipient) => recipient.id === rewardOrganizer.recipientId)?.name.trim()
       : rewardOrganizer?.name.trim();
   const categoryLabel = experienceCategory ? CATEGORY_LABELS[experienceCategory] : null;
-  const formattedStake = stakeAmount ? `$${stakeAmount.toLocaleString('en-US')}` : null;
+  const formattedStake = stakeAmount ? formatMoney(stakeAmount * 100, onboarding.currency) : null;
 
   const recipientPronoun = recipientNames.length === 1 ? 'you' : 'you all';
   const suggestedMessage =
@@ -382,53 +373,62 @@ export default function CreateReviewScreen() {
       progressLabel={`Step ${currentStep} of ${totalSteps}: review`}
       totalSteps={totalSteps}
     >
-      <View style={styles.recap}>
-        {goal.trim().length > 0 && <Text style={styles.goalText}>{goal.trim()}</Text>}
-        <Text style={styles.recapText}>{ruleSummary || 'Complete the earlier steps.'}</Text>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>YOUR PROMISE</Text>
+        <View style={styles.recap}>
+          {goal.trim().length > 0 && <Text style={styles.goalText}>{goal.trim()}</Text>}
+          <Text style={styles.recapText}>{ruleSummary || 'Complete the earlier steps.'}</Text>
+        </View>
       </View>
 
-      <View style={styles.outcomes}>
-        <View style={styles.outcomeRow}>
-          <Text style={styles.outcomeLabel}>Success</Text>
-          <Text style={styles.outcomeValue}>Pay nothing</Text>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>SUCCESS</Text>
+        <View style={styles.plainCard}>
+          <Text style={styles.plainCardText}>{successRule?.overall ?? 'Complete the earlier steps.'}</Text>
         </View>
-        <View style={[styles.outcomeRow, styles.outcomeRowLast]}>
-          <Text style={styles.outcomeLabel}>If missed</Text>
-          <View style={styles.missedDetails}>
-            <Text style={styles.missedRecipients}>{recipientsCompact}</Text>
-            <Text style={styles.missedCategory}>{categoryLabel ? `${categoryLabel} experience` : 'Reward'}</Text>
-            {formattedStake && <Text style={styles.missedStake}>{formattedStake}</Text>}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>AT STAKE</Text>
+        <View style={styles.plainCard}>
+          <Text style={styles.stakeAmountText}>{formattedStake ?? 'Not set'}</Text>
+          <Text style={styles.stakeSubtext}>Charged only if you fail.</Text>
+        </View>
+        <Text style={styles.testModeNotice}>{BETA_PAYMENT_TEST_MODE_NOTICE}</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>IF YOU FAIL</Text>
+        <View style={styles.summaryTable}>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>RECIPIENTS</Text>
+            <Text style={styles.summaryValue}>{recipientNames.join(', ') || 'Not set'}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>REWARD</Text>
+            <Text style={styles.summaryValue}>{categoryLabel ? `${categoryLabel} experience` : 'Not set'}</Text>
+          </View>
+          <View style={[styles.summaryRow, styles.summaryRowLast]}>
+            <Text style={styles.summaryLabel}>ORGANIZER</Text>
+            <Text style={styles.summaryValue}>{organizerName || 'Not set'}</Text>
           </View>
         </View>
+
+        <Pressable
+          accessibilityHint="Confirms you will not participate in the recipients' experience if the challenge fails"
+          accessibilityRole="button"
+          accessibilityState={{ selected: sitOutAcknowledged }}
+          onPress={toggleAcknowledgement}
+          style={[styles.acknowledgement, sitOutAcknowledged && styles.acknowledgementSelected]}
+        >
+          <View style={[styles.checkbox, sitOutAcknowledged && styles.checkboxSelected]}>
+            {sitOutAcknowledged && <Text style={styles.checkmark}>✓</Text>}
+          </View>
+          <Text style={styles.acknowledgementText}>
+            If I fail, the reward above goes to my recipients. I will not take part in it.
+          </Text>
+        </Pressable>
       </View>
-
-      <Text style={styles.testModeNotice}>{BETA_PAYMENT_TEST_MODE_NOTICE}</Text>
-
-      <View style={styles.summaryTable}>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>RECIPIENTS</Text>
-          <Text style={styles.summaryValue}>{recipientNames.join(', ') || 'Not set'}</Text>
-        </View>
-        <View style={[styles.summaryRow, styles.summaryRowLast]}>
-          <Text style={styles.summaryLabel}>ORGANIZER</Text>
-          <Text style={styles.summaryValue}>{organizerName || 'Not set'}</Text>
-        </View>
-      </View>
-
-      <Pressable
-        accessibilityHint="Confirms you will not participate in the recipients' experience if the challenge fails"
-        accessibilityRole="button"
-        accessibilityState={{ selected: sitOutAcknowledged }}
-        onPress={toggleAcknowledgement}
-        style={[styles.acknowledgement, sitOutAcknowledged && styles.acknowledgementSelected]}
-      >
-        <View style={[styles.checkbox, sitOutAcknowledged && styles.checkboxSelected]}>
-          {sitOutAcknowledged && <Text style={styles.checkmark}>✓</Text>}
-        </View>
-        <Text style={styles.acknowledgementText}>
-          If the challenge fails, the reward is for my recipients. I will not take part in their experience.
-        </Text>
-      </Pressable>
 
       <View style={styles.membershipRow}>
         <Text style={styles.membershipText}>Kinwin membership is free during the beta. No card is charged for membership.</Text>
@@ -438,22 +438,22 @@ export default function CreateReviewScreen() {
 }
 
 const styles = StyleSheet.create({
+  section: { gap: 8 },
+  sectionLabel: { color: theme.colors.warmGrey, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
   recap: {
     borderLeftWidth: 2, borderLeftColor: theme.colors.oxblood, backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.precise, paddingHorizontal: 16, paddingVertical: 14,
   },
   goalText: { color: theme.colors.ivory, fontSize: 17, fontWeight: '700', lineHeight: 22 },
   recapText: { marginTop: 5, color: theme.colors.ivoryMuted, fontSize: 13, lineHeight: 19 },
-  outcomes: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
-  outcomeRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14, paddingVertical: 10 },
-  outcomeRowLast: { borderBottomWidth: 0 },
-  outcomeLabel: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
-  outcomeValue: { flex: 1, marginLeft: 12, color: theme.colors.ivory, fontSize: 13, fontWeight: '700', textAlign: 'right' },
-  missedDetails: { flex: 1, marginLeft: 12, alignItems: 'flex-end', gap: 2 },
-  missedRecipients: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
-  missedCategory: { color: theme.colors.ivoryMuted, fontSize: 12 },
-  missedStake: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
-  testModeNotice: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
+  plainCard: {
+    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
+    backgroundColor: theme.colors.surface, paddingHorizontal: 16, paddingVertical: 14,
+  },
+  plainCardText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  stakeAmountText: { color: theme.colors.ivory, fontSize: 28, fontWeight: '700' },
+  stakeSubtext: { marginTop: 2, color: theme.colors.ivoryMuted, fontSize: 12 },
+  testModeNotice: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
   summaryTable: { borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine, backgroundColor: theme.colors.surface, overflow: 'hidden' },
   summaryRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine, paddingHorizontal: 14 },
   summaryRowLast: { borderBottomWidth: 0 },
