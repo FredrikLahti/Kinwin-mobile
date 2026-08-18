@@ -32,6 +32,7 @@ export type CreationSessionFields = {
   readonly sitOutAcknowledged: boolean;
   readonly stakeAmount: number | null;
   readonly stakeAmountInput: string;
+  readonly successThresholdOverride: number | null;
 };
 
 // Bumped from 2: replaces the single savedForLater boolean with a real
@@ -47,7 +48,13 @@ export type CreationSessionFields = {
 // necessarily by the *latest* edit being explicitly saved — exactly the
 // conflation this version fixes — so it must never be reinterpreted as a
 // v3 checkpoint).
-export const CREATION_SESSION_SCHEMA_VERSION = 3;
+//
+// Bumped from 3 to 4: CreationSessionFields gained successThresholdOverride
+// (Success Means). A v3 payload has no such key, so it would fail the new
+// deep isValidCreationSessionFields check and be treated as corrupt rather
+// than simply orphaned — bumping the version keeps that failure mode
+// impossible, same story as every previous bump on this constant.
+export const CREATION_SESSION_SCHEMA_VERSION = 4;
 
 /**
  * Quiet crash-recovery state, overwritten by every background autosave
@@ -90,6 +97,7 @@ export const RESUMABLE_CREATION_ROUTES = [
   '/create/limit',
   '/create/avoid',
   '/create/duration',
+  '/create/success-means',
   '/create/recipients',
   '/create/consequence',
   '/create/review',
@@ -117,6 +125,7 @@ export function hasMeaningfulCreationProgress(fields: CreationSessionFields): bo
     fields.behaviorDirection !== null ||
     fields.measurementMode !== null ||
     fields.durationWeeks !== null ||
+    fields.successThresholdOverride !== null ||
     fields.rhythm.type !== null ||
     fields.rhythm.targetValue.trim().length > 0 ||
     fields.rhythm.selectedWeekdays.length > 0 ||
@@ -222,7 +231,8 @@ function isValidCreationSessionFields(value: unknown): value is CreationSessionF
     isValidRhythm(fields.rhythm) &&
     typeof fields.sitOutAcknowledged === 'boolean' &&
     isFiniteNumberOrNull(fields.stakeAmount) &&
-    typeof fields.stakeAmountInput === 'string'
+    typeof fields.stakeAmountInput === 'string' &&
+    isFiniteNumberOrNull(fields.successThresholdOverride)
   );
 }
 

@@ -186,6 +186,99 @@ test('build: the minimum_completions_per_week safeguard is a per-period floor, n
   assert.ok(result.evaluable && result.status === 'failure');
 });
 
+// --- Success Means (ruleVersion 2): the result evaluator must actually use
+// the user-selected stricter threshold, not silently fall back to the V1
+// baseline. Exact boundary from the founder's brief: Build baseline=25/28,
+// selected=27/28 — 27 completions satisfies the threshold, 26 fails it
+// (continuity safeguard still applies either way). See docs/PRODUCT_DECISIONS.md.
+
+function dailyBuildPeriods(missedIndexes: readonly number[], total: number): { periods: ChallengePeriod[]; events: CheckInEvent[] } {
+  const periods: ChallengePeriod[] = [];
+  const events: CheckInEvent[] = [];
+  for (let index = 0; index < total; index += 1) {
+    const startsAt = new Date(Date.UTC(2026, 2, 1 + index)).toISOString() as IsoDateTime;
+    const endsAt = new Date(Date.UTC(2026, 2, 2 + index)).toISOString() as IsoDateTime;
+    const p = period({ startsAt, endsAt, target: { type: 'completion_target', target: 1 }, periodNumber: index + 1 });
+    periods.push(p);
+    if (!missedIndexes.includes(index)) {
+      events.push(event(p.id, { eventType: 'build_completion', fact: { kind: 'build_completion', completions: 1 } }));
+    }
+  }
+  return { periods, events };
+}
+
+test('build ruleVersion 2: a stricter selected threshold is what actually decides the result — 27 of 28 satisfies it', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'build' }> = {
+    direction: 'build', ruleVersion: 2, totalPlannedCompletions: 28, minimumRequiredCompletions: 27,
+    continuitySafeguard: { type: 'maximum_consecutive_missed_days', maximum: 2 }, periodTarget: 1, periodUnit: 'day',
+  };
+  // Single missed day (index 13) — 27 of 28 completed, continuity trivially intact (a run of 1).
+  const { periods, events } = dailyBuildPeriods([13], 28);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'success', 'the V1 baseline of 25/28 would pass this too — this only proves V2 does not reject a valid stricter pass');
+});
+
+test('build ruleVersion 2: falling one short of the stricter selected threshold fails, even though the V1 baseline of 25/28 would have passed', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'build' }> = {
+    direction: 'build', ruleVersion: 2, totalPlannedCompletions: 28, minimumRequiredCompletions: 27,
+    continuitySafeguard: { type: 'maximum_consecutive_missed_days', maximum: 2 }, periodTarget: 1, periodUnit: 'day',
+  };
+  // Two non-consecutive missed days (indexes 5 and 20) — 26 of 28 completed.
+  // Continuity stays intact (no run longer than 1), isolating this failure
+  // to the aggregate threshold alone: this is the exact regression the
+  // founder's brief warned about — Review showing 27/28 while the
+  // evaluator silently still used the old 25/28 baseline would wrongly
+  // pass this case.
+  const { periods, events } = dailyBuildPeriods([5, 20], 28);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+test('cut_back ruleVersion 2: a stricter selected threshold is what actually decides the result — 27 of 28 within limit satisfies it', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 2, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 28, minimumPeriodsWithinLimit: 27,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  const totals = Array.from({ length: 28 }, (_, index) => (index === 13 ? 9 : 1));
+  const { periods, events } = cutBackPeriodsAt(totals, rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'success');
+});
+
+test('cut_back ruleVersion 2: falling one short of the stricter selected threshold fails, even though the V1 baseline of 25/28 would have passed', () => {
+  const rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }> = {
+    direction: 'cut_back', ruleVersion: 2, measurementType: 'count', maximumAllowedValue: 3,
+    periodUnit: 'day', totalPeriods: 28, minimumPeriodsWithinLimit: 27,
+    continuitySafeguard: { type: 'maximum_consecutive_exceeded_days', maximum: 2 },
+  };
+  // Two non-consecutive exceeded days — 26 of 28 within limit, continuity intact.
+  const totals = Array.from({ length: 28 }, (_, index) => (index === 5 || index === 20 ? 9 : 1));
+  const { periods, events } = cutBackPeriodsAt(totals, rule);
+  const result = evaluateChallenge({ challenge: baseChallenge(rule), periods, events, evaluatedAt: NOW });
+  assert.equal(result.evaluable, true);
+  assert.ok(result.evaluable && result.status === 'failure');
+});
+
+// Like cutBackPeriods above, but with proper date arithmetic instead of
+// single-digit day-of-month string interpolation, so it can generate more
+// than 9 periods (needed for the 28-period Success Means boundary tests).
+function cutBackPeriodsAt(totals: readonly (number | null)[], rule: Extract<SuccessRuleSnapshot, { direction: 'cut_back' }>): { periods: ChallengePeriod[]; events: CheckInEvent[] } {
+  const periods: ChallengePeriod[] = [];
+  const events: CheckInEvent[] = [];
+  totals.forEach((total, index) => {
+    const startsAt = new Date(Date.UTC(2026, 2, 1 + index)).toISOString() as IsoDateTime;
+    const endsAt = new Date(Date.UTC(2026, 2, 2 + index)).toISOString() as IsoDateTime;
+    const p = period({ startsAt, endsAt, target: { type: 'maximum_value', maximum: rule.maximumAllowedValue, measurement: { type: 'count', unit: 'drinks' } }, periodNumber: index + 1 });
+    periods.push(p);
+    if (total !== null) events.push(event(p.id, { eventType: 'cut_back_total', fact: { kind: 'cut_back_total', total, unit: 'drinks' } }));
+  });
+  return { periods, events };
+}
+
 // --- Stop: sticky-lapse semantics at the challenge level (see check-in/period-state.test.ts for the unit-level coverage) ---
 
 function stopPeriodWithReportingWindow(): ChallengePeriod {

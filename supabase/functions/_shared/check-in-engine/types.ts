@@ -56,10 +56,19 @@ export type ChallengeRule =
       readonly boundary: { readonly periodUnit: 'challenge'; readonly maximumLapses: number };
     };
 
+// ruleVersion 2 (build/cut_back only): the SAME challenge rule, SAME
+// totalPlannedCompletions/totalPeriods and SAME continuitySafeguard as the
+// ruleVersion-1 baseline would derive — only minimumRequiredCompletions /
+// minimumPeriodsWithinLimit differs, and only by being user-selected and
+// strictly >= the V1 baseline (never below it, never above the total). See
+// domain/challenge/success-rule.ts's applySuccessThreshold, the sole
+// constructor for a V2 snapshot. Stop/Avoid has no V2: zero lapses cannot
+// be made "stricter", so it stays permanently ruleVersion 1 — see
+// docs/PRODUCT_DECISIONS.md.
 export type SuccessRuleSnapshot =
   | {
       readonly direction: 'build';
-      readonly ruleVersion: 1;
+      readonly ruleVersion: 1 | 2;
       readonly totalPlannedCompletions: number;
       readonly minimumRequiredCompletions: number;
       readonly continuitySafeguard:
@@ -71,7 +80,7 @@ export type SuccessRuleSnapshot =
     }
   | {
       readonly direction: 'cut_back';
-      readonly ruleVersion: 1;
+      readonly ruleVersion: 1 | 2;
       readonly measurementType: 'count' | 'time' | 'amount';
       readonly maximumAllowedValue: number;
       readonly periodUnit: Exclude<PeriodUnit, 'challenge'>;

@@ -34,6 +34,21 @@
 * If membership access expires during an active challenge, the challenge enters restricted Completion Mode. Essential check-ins, challenge status, final result, and consequence completion remain available, but new challenges and full member features require active membership.
 * Personal learnings should eventually be stored in “What works for me.”
 
+## Success Means
+
+* Kinwin computes a baseline success requirement for every Build and Limit challenge, derived from duration and rhythm. The user may make that requirement stricter. The user may never make it more lenient than the Kinwin baseline.
+* A dedicated "Success Means" step sits between Duration and Recipients, for all three challenge types (Build, Limit, Avoid), so success calculation is understood before money or recipients are chosen.
+* Build and Limit show the user an integer stepper for the overall threshold, bounded to `[Kinwin's baseline, total planned sessions/periods]` — never a free percentage slider, never a preset percentage list, and never a value below the baseline.
+* The continuity safeguard (e.g. "Never miss more than 2 days in a row.") is fixed and not user-adjustable — it applies in addition to the overall threshold, always, regardless of the selected threshold.
+* Avoid (Stop) has no adjustable threshold at all: success always means zero lapses for the full challenge. The Success Means step still shows Avoid a fixed, unambiguous statement of that ("no allowance, for the full challenge") — it is never presented as if a lapse allowance could exist.
+* For a newly configured Build or Limit challenge, the threshold defaults to Kinwin's current automatically-derived baseline. A challenge is never silently made stricter than that default; the user must explicitly increase it.
+* Once a challenge is activated, its success rule is immutable — the frozen `activation_snapshot` never changes, regardless of any later product change to how new challenges are configured.
+* Versioning: `successRule.ruleVersion` is `1` for a challenge whose overall threshold is exactly Kinwin's derived baseline (unchanged historical behavior — every already-created V1 draft/challenge remains valid forever, is never migrated or mutated in place, and is never reinterpreted as weaker than what it actually is). `ruleVersion` is `2` for a Build or Limit challenge whose user selected an overall threshold strictly greater than the baseline, while every other derived field (total planned, continuity safeguard, period target/unit) stays identical to what the baseline calculation would produce. Avoid never has a `ruleVersion 2` — zero lapses cannot be made "stricter" than zero lapses.
+* The trusted server boundary (`prepare_challenge_from_draft`) independently re-derives Kinwin's baseline and total from the draft's own duration and rhythm/boundary before accepting a `ruleVersion 2` selection — it never trusts a client-submitted baseline or total. A malicious or buggy client cannot save a weakened `ruleVersion 2` selection (below the real baseline) or an inflated one (above the real total); both are rejected server-side regardless of what the draft payload otherwise claims.
+* When an upstream input changes after a stricter threshold was selected (duration, Build frequency, selected weekdays, or Limit period), the previously selected threshold is preserved if it still fits the newly derived range; otherwise it is clamped into range — never left below the new baseline, never left above the new total, and never silently reinterpreted as a weaker challenge than the user actually chose.
+* The Review screen shows the user's actual selected requirement (e.g. "Complete at least 27 of 28 planned sessions.") together with the fixed continuity rule (e.g. "Never miss more than 2 days in a row.") — never only one while silently enforcing the other. Review is read-only confirmation; there is no second Success Means editor there.
+* Final challenge-result evaluation reads the same stored threshold Review displayed — a stricter `ruleVersion 2` selection is what actually decides success or failure, not a silently-reused baseline.
+
 ## Timezone, start, and DST rules
 
 * The challenge timezone is an IANA timezone (for example `Europe/Stockholm`), validated

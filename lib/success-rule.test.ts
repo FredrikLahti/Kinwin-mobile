@@ -119,3 +119,54 @@ test('Any direction: incomplete prior text (goal/behavior/definition under 3 cha
   });
   assert.equal(rule, null);
 });
+
+// Success Means: calculateSuccessRule's optional second parameter is what
+// app/create/success-means.tsx's live preview and app/create/review.tsx's
+// SUCCESS section both read from — the Review screen must show the user's
+// ACTUAL selection, never silently fall back to displaying the baseline
+// while a stricter value is what's really persisted (or vice versa).
+test('Build (daily), a stricter selected threshold changes the displayed "overall" text to the real selection, not the baseline', () => {
+  const baselineRule = calculateSuccessRule({
+    ...BASE, behaviorDirection: 'build', durationWeeks: 4, measurementMode: 'completion',
+    rhythm: { ...EMPTY_RHYTHM, type: 'daily' },
+  });
+  assert.ok(baselineRule);
+  assert.equal(baselineRule!.overall, 'Keep your promise on at least 25 of 28 days.');
+
+  const stricterRule = calculateSuccessRule({
+    ...BASE, behaviorDirection: 'build', durationWeeks: 4, measurementMode: 'completion',
+    rhythm: { ...EMPTY_RHYTHM, type: 'daily' },
+  }, 27);
+  assert.ok(stricterRule);
+  assert.equal(stricterRule!.overall, 'Keep your promise on at least 27 of 28 days.');
+  // Continuity is a fixed safeguard, unaffected by the overall threshold.
+  assert.equal(stricterRule!.continuity, baselineRule!.continuity);
+});
+
+test('Cut back (day), a stricter selected threshold changes the displayed "overall" text', () => {
+  const stricterRule = calculateSuccessRule({
+    ...BASE, behaviorDirection: 'cut', durationWeeks: 4, measurementMode: 'time',
+    rhythm: { ...EMPTY_RHYTHM, type: 'maximum_per_period', period: 'day', targetValue: '120', timeUnit: 'minutes' },
+  }, 27);
+  assert.ok(stricterRule);
+  assert.equal(stricterRule!.overall, 'Stay within your limit on at least 27 of 28 days.');
+});
+
+test('Avoid: a selectedThreshold argument is ignored entirely — it always shows the fixed zero-lapse statement', () => {
+  const rule = calculateSuccessRule({
+    ...BASE, behaviorDirection: 'stop', durationWeeks: 6, measurementMode: 'abstinence',
+    rhythm: { ...EMPTY_RHYTHM, type: 'continuous' },
+  }, 999);
+  assert.ok(rule);
+  assert.equal(rule!.overall, 'No lapses during the full 6-week challenge.');
+  assert.equal(rule!.isStopRule, true);
+});
+
+test('A below-baseline selectedThreshold is clamped up to the baseline rather than producing an invalid/null rule', () => {
+  const rule = calculateSuccessRule({
+    ...BASE, behaviorDirection: 'build', durationWeeks: 4, measurementMode: 'completion',
+    rhythm: { ...EMPTY_RHYTHM, type: 'daily' },
+  }, 1); // below the baseline of 25
+  assert.ok(rule);
+  assert.equal(rule!.overall, 'Keep your promise on at least 25 of 28 days.');
+});

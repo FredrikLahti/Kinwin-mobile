@@ -74,6 +74,7 @@ function buildOnboardingData(recipientLocalId: string): OnboardingDraftData {
     sitOutAcknowledged: true,
     invitationMessage: 'Join me in this promise.',
     membershipChoice: 'monthly_trial',
+    successThresholdOverride: null,
   };
 }
 
@@ -294,5 +295,87 @@ test('prepare_challenge_from_draft: trusted server boundary for pending commitme
       .from('challenge_recipients')
       .insert({ challenge_id: challengeId, display_name: 'Injected', sort_order: 3 });
     assert.equal(recipientError?.code, '42501', `expected permission-denied inserting challenge_recipients, got: ${JSON.stringify(recipientError)}`);
+  });
+
+  // Success Means (successRule ruleVersion 2) — see
+  // supabase/migrations/20260906000000_success_means_v2.sql. Owner C is
+  // fresh (never used above) so these do not collide with Owner A's live
+  // pending commitment.
+  const ownerC = freshClient();
+  let userIdC = '';
+  let v2DraftId = '';
+  let v2ChallengeId = '';
+  await t.test('User C signs up through GoTrue', async () => {
+    userIdC = (await signUpAndSignIn(ownerC, testEmail('owner-c'))).userId;
+  });
+
+  await t.test('a genuinely valid, stricter-than-baseline V2 Success Means draft is accepted through the real client mapping', async () => {
+    const localRecipientId = 'recipient-local-1';
+    v2DraftId = randomUUID();
+    const recipientIds = resolveRecipientIds([{ id: localRecipientId, name: 'Anna' }], () => randomUUID());
+    const data = { ...buildOnboardingData(localRecipientId), successThresholdOverride: 27 };
+    const mapped = mapOnboardingDraft(data, { draftId: v2DraftId as ChallengeDraftId, ownerId: userIdC as UserId, recipientIds });
+    assert.equal(mapped.ok, true, 'fixture must map to a valid draft');
+    if (!mapped.ok) throw new Error('unreachable');
+    assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.ruleVersion, 2);
+    assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.minimumRequiredCompletions, 27);
+
+    const plan = planDraftMutation(null, v2DraftId, userIdC, mapped.value);
+    assert.equal(plan.kind, 'insert');
+    if (plan.kind !== 'insert') throw new Error('unreachable');
+    const { error: insertError } = await ownerC.from('challenge_drafts').insert(plan.row);
+    assert.equal(insertError, null, `V2 draft insert failed: ${insertError?.message}`);
+
+    const { data: prepared, error } = await ownerC.rpc('prepare_challenge_from_draft', { draft_id: v2DraftId });
+    assert.equal(error, null, `prepare_challenge_from_draft failed for a valid V2 draft: ${error?.message}`);
+    assert.equal(prepared.status, 'pending_activation');
+    v2ChallengeId = prepared.challengeId;
+  });
+
+  await t.test('a malicious V2 draft crafted directly against challenge_drafts (bypassing the client mapping entirely) is rejected by the independent server re-derivation', async () => {
+    const maliciousDraftId = randomUUID();
+    const { error: insertError } = await ownerC.from('challenge_drafts').insert({
+      id: maliciousDraftId,
+      owner_id: userIdC,
+      schema_version: 1,
+      draft_status: 'ready_for_activation',
+      draft_payload: {
+        schemaVersion: 1,
+        id: maliciousDraftId,
+        ownerId: userIdC,
+        goal: 'Sleep better',
+        behavior: { description: 'Strength train', completionDefinition: 'Complete the planned session', rule: { direction: 'build', measurement: { type: 'completion', unit: 'completion' }, rhythm: { type: 'daily', periodUnit: 'day', target: 1 } } },
+        duration: { unit: 'week', value: 4 },
+        // Kinwin's true baseline for 4 weeks daily is 25 of 28 (see
+        // domain/challenge/success-rule.test.ts) — this claims a selected
+        // minimum of 10, far below it, while still declaring ruleVersion 2
+        // and a plausible-looking totalPlannedCompletions.
+        successRule: { direction: 'build', ruleVersion: 2, totalPlannedCompletions: 28, minimumRequiredCompletions: 10, continuitySafeguard: { type: 'maximum_consecutive_missed_days', maximum: 2 }, periodTarget: 1, periodUnit: 'day' },
+        recipients: [{ id: randomUUID(), name: 'Anna' }],
+        rewardOrganizer: { type: 'other', name: 'Anna' },
+        experienceCategory: 'dinner',
+        stake: { minorUnits: 7500, currency: 'USD' },
+        sitOutAcknowledged: true,
+        invitationMessage: 'Join me in this promise.',
+        membershipSelection: 'monthly_trial',
+      },
+    });
+    assert.equal(insertError, null, `malicious draft insert failed: ${insertError?.message}`);
+
+    const { data, error } = await ownerC.rpc('prepare_challenge_from_draft', { draft_id: maliciousDraftId });
+    assert.ok(error, 'expected the below-baseline V2 draft to be rejected');
+    assert.equal(data, null);
+
+    const { data: draft, error: readError } = await ownerC.from('challenge_drafts').select('draft_status').eq('id', maliciousDraftId).single();
+    assert.equal(readError, null, `malicious draft readback failed: ${readError?.message}`);
+    assert.equal(draft!.draft_status, 'ready_for_activation', 'a rejected malicious V2 draft must not be archived');
+
+    const { data: challenges } = await ownerC.from('challenges').select('id').eq('source_draft_id', maliciousDraftId);
+    assert.equal(challenges?.length, 0, 'a rejected malicious V2 draft must not produce a challenge');
+
+    // Owner C's real, valid V2 commitment from the previous test must be
+    // completely unaffected by the rejected attempt.
+    const { data: stillThere } = await ownerC.from('challenges').select('id').eq('id', v2ChallengeId);
+    assert.equal(stillThere?.length, 1);
   });
 });

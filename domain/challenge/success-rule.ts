@@ -68,14 +68,98 @@ export function deriveSuccessRuleForChallengeRule(
   }
 }
 
-export function deriveStructuredSuccessRule(source: SuccessRuleSource): StructuredRuleResult | null {
+/**
+ * Success Means: bounds of the user-adjustable overall threshold for a
+ * derived (ruleVersion 1) baseline snapshot. Returns null for Avoid/stop —
+ * that direction has no adjustable threshold at all (zero lapses, always).
+ */
+export function successThresholdBounds(baseline: SuccessRuleSnapshot): { readonly minimum: number; readonly total: number } | null {
+  switch (baseline.direction) {
+    case 'build':
+      return { minimum: baseline.minimumRequiredCompletions, total: baseline.totalPlannedCompletions };
+    case 'cut_back':
+      return { minimum: baseline.minimumPeriodsWithinLimit, total: baseline.totalPeriods };
+    case 'stop':
+      return null;
+  }
+}
+
+/**
+ * The sole constructor for a Success Means selection. `selectedThreshold`
+ * is the user's chosen overall minimum (never a percentage — see
+ * docs/PRODUCT_DECISIONS.md). `null` or a value equal to the baseline
+ * yields the baseline itself back (ruleVersion 1, byte-identical to
+ * today's behavior — no silent "V2 that happens to equal V1"). Any other
+ * value must be strictly within [baseline minimum, total] or this returns
+ * null — CALLERS MUST TREAT null AS REJECTION, never fall back to the
+ * baseline, since that would silently accept an out-of-range client value.
+ * Avoid/stop has no override and always returns the baseline unchanged.
+ */
+export function applySuccessThreshold(
+  baseline: SuccessRuleSnapshot,
+  selectedThreshold: number | null,
+): SuccessRuleSnapshot | null {
+  const bounds = successThresholdBounds(baseline);
+  if (!bounds) return baseline;
+  if (selectedThreshold === null || selectedThreshold === bounds.minimum) return baseline;
+  if (!Number.isInteger(selectedThreshold) || selectedThreshold < bounds.minimum || selectedThreshold > bounds.total) return null;
+  switch (baseline.direction) {
+    case 'build':
+      return { ...baseline, ruleVersion: 2, minimumRequiredCompletions: selectedThreshold };
+    case 'cut_back':
+      return { ...baseline, ruleVersion: 2, minimumPeriodsWithinLimit: selectedThreshold };
+    case 'stop':
+      // Unreachable: successThresholdBounds returns null for stop, so the
+      // `if (!bounds) return baseline;` guard above already exited.
+      return baseline;
+  }
+}
+
+/**
+ * The onboarding-state recalculation policy (see docs/PRODUCT_DECISIONS.md
+ * and CLAUDE.md's founder brief): when upstream inputs change and the
+ * baseline/total shift, preserve the user's stricter intent if it still
+ * fits the new range; otherwise clamp into range. NEVER below the new
+ * baseline, NEVER above the new total. This is deliberately a soft clamp
+ * (unlike applySuccessThreshold's hard reject) — it is the function that
+ * decides what the *next* selection should be, not a boundary that
+ * validates an already-made one.
+ */
+export function clampSuccessThreshold(previousThreshold: number | null, bounds: { readonly minimum: number; readonly total: number }): number {
+  if (previousThreshold === null) return bounds.minimum;
+  if (previousThreshold < bounds.minimum) return bounds.minimum;
+  if (previousThreshold > bounds.total) return bounds.total;
+  return previousThreshold;
+}
+
+/**
+ * deriveStructuredSuccessRule's own use of applySuccessThreshold: clamps
+ * (never rejects) a possibly-stale selectedThreshold into the freshly
+ * derived baseline's valid range first. This is what implements the
+ * founder's recalculation policy end to end — whenever upstream inputs
+ * (duration, Build frequency, selected weekdays, Limit period) change and
+ * this function is re-run, a previously-valid selection that no longer
+ * fits is clamped rather than silently producing an invalid or weakened
+ * rule. The independent server-trusted boundary (the SQL migration) still
+ * hard-rejects an out-of-bounds value it is directly given — this
+ * clamping is purely a client-side convenience layered in front of that,
+ * never a relaxation of it.
+ */
+function applyClampedSuccessThreshold(baseline: SuccessRuleSnapshot, selectedThreshold: number | null): SuccessRuleSnapshot | null {
+  const bounds = successThresholdBounds(baseline);
+  const clamped = selectedThreshold === null || !bounds ? selectedThreshold : clampSuccessThreshold(selectedThreshold, bounds);
+  return applySuccessThreshold(baseline, clamped);
+}
+
+export function deriveStructuredSuccessRule(source: SuccessRuleSource, selectedThreshold: number | null = null): StructuredRuleResult | null {
   const weeks = source.durationWeeks;
   if (!weeks || !Number.isInteger(weeks) || weeks < 2 || weeks > 12) return null;
 
   if (source.direction === 'build' && source.measurement === 'completion') {
     if (source.rhythm.type === 'daily') {
       const challengeRule = { direction: 'build', measurement: { type: 'completion', unit: 'completion' }, rhythm: { type: 'daily', periodUnit: 'day', target: 1 } } as const;
-      const successRule = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+      const baseline = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+      const successRule = baseline ? applyClampedSuccessThreshold(baseline, selectedThreshold) : null;
       return successRule ? { challengeRule, successRule } : null;
     }
     const target = source.rhythm.type === 'weekly_count' ? positiveNumber(source.rhythm.targetValue) : source.rhythm.type === 'specific_days' ? source.rhythm.selectedWeekdays.length : null;
@@ -84,7 +168,8 @@ export function deriveStructuredSuccessRule(source: SuccessRuleSource): Structur
       ? { type: 'specific_days', periodUnit: 'week', target, weekdays: [...source.rhythm.selectedWeekdays] }
       : { type: 'weekly_count', periodUnit: 'week', target };
     const challengeRule: Extract<ChallengeRule, { direction: 'build' }> = { direction: 'build', measurement: { type: 'completion', unit: 'completion' }, rhythm };
-    const successRule = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+    const baseline = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+    const successRule = baseline ? applyClampedSuccessThreshold(baseline, selectedThreshold) : null;
     return successRule ? { challengeRule, successRule } : null;
   }
 
@@ -93,7 +178,8 @@ export function deriveStructuredSuccessRule(source: SuccessRuleSource): Structur
     const unit = source.measurement === 'count' ? 'times' : source.measurement === 'time' ? source.rhythm.timeUnit : source.rhythm.amountUnit.trim();
     if (!maximum || !unit || (source.measurement === 'count' && !Number.isInteger(maximum))) return null;
     const challengeRule: Extract<ChallengeRule, { direction: 'cut_back' }> = { direction: 'cut_back', measurement: source.measurement === 'count' ? { type: 'count', unit } : source.measurement === 'time' ? { type: 'time', unit: source.rhythm.timeUnit! } : { type: 'amount', unit }, boundary: { periodUnit: source.rhythm.period, maximumValue: maximum } };
-    const successRule = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+    const baseline = deriveSuccessRuleForChallengeRule(challengeRule, weeks);
+    const successRule = baseline ? applyClampedSuccessThreshold(baseline, selectedThreshold) : null;
     return successRule ? { challengeRule, successRule } : null;
   }
 

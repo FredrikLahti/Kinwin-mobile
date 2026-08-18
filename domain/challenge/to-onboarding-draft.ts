@@ -18,6 +18,14 @@ export function restoreOnboardingDraftData(draft: ChallengeDraft): OnboardingDra
     measurementMode: draft.behavior.rule.measurement.type,
     rhythm: toSourceRhythm(draft.behavior.rule),
     durationWeeks: draft.duration.value,
+    // Always the actual persisted minimum — whether that equals the V1
+    // baseline (ruleVersion 1) or is a stricter V2 selection — never an
+    // invented weaker value. See from-onboarding-draft.ts's field doc.
+    successThresholdOverride: draft.successRule.direction === 'build'
+      ? draft.successRule.minimumRequiredCompletions
+      : draft.successRule.direction === 'cut_back'
+        ? draft.successRule.minimumPeriodsWithinLimit
+        : null,
     recipients: draft.recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })),
     rewardOrganizer: draft.rewardOrganizer,
     experienceCategory: draft.experienceCategory,

@@ -78,6 +78,7 @@ function emptyFields(): CreationSessionFields {
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
+    successThresholdOverride: null,
   };
 }
 
@@ -718,6 +719,7 @@ test('the complete ChallengeDraft boundary is not weakened: a genuinely partial 
     sitOutAcknowledged: fields.sitOutAcknowledged,
     invitationMessage: fields.invitationMessage,
     membershipChoice: fields.membershipChoice,
+    successThresholdOverride: fields.successThresholdOverride,
   };
   const result = mapOnboardingDraft(asDraftInput, {
     draftId: 'draft-1' as never,

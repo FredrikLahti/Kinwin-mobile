@@ -25,6 +25,7 @@ const baseFields = {
   sitOutAcknowledged: true,
   invitationMessage: 'Join me in this promise.',
   membershipChoice: 'monthly_trial' as const,
+  successThresholdOverride: null,
 };
 
 function roundTrip(data: OnboardingDraftData) {
@@ -118,6 +119,104 @@ test('Stop round-trips to a continuous, zero-lapse rule', () => {
   assert.deepEqual(second, first);
   assert.equal(restored.behaviorDirection, 'stop');
   assert.equal(first.successRule.direction === 'stop' && first.successRule.lapseRule.type, 'zero_lapses');
+});
+
+// Success Means: a stricter-than-baseline selection round-trips as
+// ruleVersion 2, and restoreOnboardingDraftData reads back the exact
+// persisted minimum (never re-deriving or weakening it) — see
+// docs/PRODUCT_DECISIONS.md.
+test('Build (daily) with a stricter Success Means selection round-trips as ruleVersion 2', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Strength train',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+    durationWeeks: 4,
+    successThresholdOverride: 27,
+  };
+  const { first, second, restored } = roundTrip(data);
+  assert.deepEqual(second, first);
+  assert.equal(first.successRule.direction === 'build' && first.successRule.ruleVersion, 2);
+  assert.equal(first.successRule.direction === 'build' && first.successRule.minimumRequiredCompletions, 27);
+  assert.equal(first.successRule.direction === 'build' && first.successRule.totalPlannedCompletions, 28);
+  assert.equal(restored.successThresholdOverride, 27, 'restore must read back the exact persisted minimum, not the baseline');
+});
+
+test('Cut back (day) with a stricter Success Means selection round-trips as ruleVersion 2', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Screen time',
+    behaviorDirection: 'cut',
+    measurementMode: 'time',
+    rhythm: { type: 'maximum_per_period', period: 'day', targetValue: '120', selectedWeekdays: [], timeUnit: 'minutes', amountUnit: '' },
+    durationWeeks: 4,
+    successThresholdOverride: 27,
+  };
+  const { first, second, restored } = roundTrip(data);
+  assert.deepEqual(second, first);
+  assert.equal(first.successRule.direction === 'cut_back' && first.successRule.ruleVersion, 2);
+  assert.equal(first.successRule.direction === 'cut_back' && first.successRule.minimumPeriodsWithinLimit, 27);
+  assert.equal(restored.successThresholdOverride, 27);
+});
+
+test('A Success Means selection equal to the baseline maps back to ruleVersion 1, not a redundant V2', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Strength train',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+    durationWeeks: 4,
+    successThresholdOverride: 25, // the true baseline for 4 weeks daily (28 total, allowed shortfall 3)
+  };
+  const mapped = mapOnboardingDraft(data, metadata);
+  assert.equal(mapped.ok, true);
+  if (!mapped.ok) throw new Error('unreachable');
+  assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.ruleVersion, 1);
+});
+
+// mapOnboardingDraft is a client-side convenience boundary, not the trusted
+// one — see supabase/migrations/20260906000000_success_means_v2.sql, which
+// independently re-derives and HARD-REJECTS an out-of-bounds value with no
+// clamping, for exactly the case where this layer is bypassed entirely
+// (a payload crafted directly against challenge_drafts). This layer's own
+// job (via deriveStructuredSuccessRule → clampSuccessThreshold) is to
+// never let ordinary, legitimately-stale onboarding state produce an
+// invalid draft — a below-baseline value is clamped UP to the baseline,
+// never rejected, and can therefore never end up weaker than V1.
+test('A below-baseline Success Means selection is clamped up to the baseline, never left weaker or rejected', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Strength train',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+    durationWeeks: 4,
+    successThresholdOverride: 10, // below the true baseline of 25
+  };
+  const mapped = mapOnboardingDraft(data, metadata);
+  assert.equal(mapped.ok, true);
+  if (!mapped.ok) throw new Error('unreachable');
+  assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.ruleVersion, 1);
+  assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.minimumRequiredCompletions, 25);
+});
+
+test('An above-total Success Means selection is clamped down to the total, never rejected', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Strength train',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+    durationWeeks: 4,
+    successThresholdOverride: 999, // above the total of 28
+  };
+  const mapped = mapOnboardingDraft(data, metadata);
+  assert.equal(mapped.ok, true);
+  if (!mapped.ok) throw new Error('unreachable');
+  assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.ruleVersion, 2);
+  assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.minimumRequiredCompletions, 28);
 });
 
 test('resolveRecipientIds reuses an already-production id and mints a new one for an ephemeral id', () => {

@@ -73,6 +73,7 @@ function buildOnboardingData(recipientLocalId: string): OnboardingDraftData {
     sitOutAcknowledged: true,
     invitationMessage: 'Join me in this promise.',
     membershipChoice: 'monthly_trial',
+    successThresholdOverride: null,
   };
 }
 

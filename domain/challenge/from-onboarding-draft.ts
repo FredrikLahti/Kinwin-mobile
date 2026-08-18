@@ -10,6 +10,17 @@ export type OnboardingDraftData = {
   readonly measurementMode: SuccessRuleSource['measurement'];
   readonly rhythm: SuccessRuleSource['rhythm'];
   readonly durationWeeks: number | null;
+  /**
+   * The Success Means step's selected overall minimum (never a
+   * percentage — see docs/PRODUCT_DECISIONS.md). null means "use Kinwin's
+   * baseline" (the default, and the only valid state for Avoid/stop,
+   * which has no adjustable threshold). Bounds-checked and applied by
+   * deriveStructuredSuccessRule → applySuccessThreshold; an out-of-range
+   * value here makes this whole draft invalid rather than silently
+   * clamping, since the server-trusted boundary must never guess at what
+   * a malformed value "meant".
+   */
+  readonly successThresholdOverride: number | null;
   readonly recipients: readonly { readonly id: string; readonly name: string }[];
   readonly rewardOrganizer: { readonly type: 'recipient'; readonly recipientId: string } | { readonly type: 'other'; readonly name: string } | null;
   readonly experienceCategory: ChallengeDraft['experienceCategory'];
@@ -48,8 +59,8 @@ export function mapOnboardingDraft(data: OnboardingDraftData, metadata: DraftMap
     (data.behaviorDirection === 'cut' && (data.measurementMode === 'count' || data.measurementMode === 'time' || data.measurementMode === 'amount')) ||
     (data.behaviorDirection === 'stop' && data.measurementMode === 'abstinence');
   if (!compatible) add('unsupported_direction_measurement', 'measurementMode', 'Direction and measurement are incompatible.');
-  const structured = compatible ? deriveStructuredSuccessRule({ direction: data.behaviorDirection, measurement: data.measurementMode, durationWeeks: data.durationWeeks, rhythm: data.rhythm }) : null;
-  if (compatible && !structured) add('invalid_success_rule', 'rhythm', 'The rhythm or boundary cannot produce an approved success rule.');
+  const structured = compatible ? deriveStructuredSuccessRule({ direction: data.behaviorDirection, measurement: data.measurementMode, durationWeeks: data.durationWeeks, rhythm: data.rhythm }, data.successThresholdOverride) : null;
+  if (compatible && !structured) add('invalid_success_rule', 'rhythm', 'The rhythm or boundary cannot produce an approved success rule, or the selected Success Means threshold is out of range.');
 
   if (data.recipients.length < 1 || data.recipients.length > 4) add('missing_recipient', 'recipients', 'Between one and four recipients are required.');
   const seenLocal = new Set<string>();

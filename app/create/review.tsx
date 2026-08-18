@@ -92,7 +92,7 @@ export default function CreateReviewScreen() {
     return () => { cancelled = true; };
   }, [router, user]));
 
-  const successRule = calculateSuccessRule(onboarding);
+  const successRule = calculateSuccessRule(onboarding, onboarding.successThresholdOverride);
   const ruleSummary = describeChallengeRule({ behaviorDirection, behaviorText, measurementMode, rhythm });
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
   const organizerName =
@@ -232,6 +232,7 @@ export default function CreateReviewScreen() {
     const data: OnboardingDraftData = {
       goal, behaviorText, definitionText: onboarding.definitionText, behaviorDirection: onboarding.behaviorDirection,
       measurementMode: onboarding.measurementMode, rhythm: onboarding.rhythm, durationWeeks,
+      successThresholdOverride: onboarding.successThresholdOverride,
       recipients: recipients.map((recipient) => ({ id: recipient.id, name: recipient.name })),
       rewardOrganizer, experienceCategory, stakeAmount, currency: onboarding.currency,
       sitOutAcknowledged, invitationMessage, membershipChoice: 'monthly_trial',
@@ -268,6 +269,7 @@ export default function CreateReviewScreen() {
   }, [
     authStatus, behaviorText, durationWeeks, experienceCategory, goal, invitationMessage, onboarding.currency,
     onboarding.behaviorDirection, onboarding.definitionText, onboarding.measurementMode, onboarding.rhythm,
+    onboarding.successThresholdOverride,
     recipients, router, rewardOrganizer, runPrepare, savedDraftId, setMembershipChoice, setRecipients, setRewardOrganizer,
     setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
   ]);
@@ -385,6 +387,7 @@ export default function CreateReviewScreen() {
         <Text style={styles.sectionLabel}>SUCCESS</Text>
         <View style={styles.plainCard}>
           <Text style={styles.plainCardText}>{successRule?.overall ?? 'Complete the earlier steps.'}</Text>
+          {successRule?.continuity && <Text style={styles.plainCardSubtext}>{successRule.continuity}</Text>}
         </View>
       </View>
 
@@ -451,6 +454,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface, paddingHorizontal: 16, paddingVertical: 14,
   },
   plainCardText: { color: theme.colors.ivory, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  plainCardSubtext: { marginTop: 6, color: theme.colors.ivoryMuted, fontSize: 12, lineHeight: 17 },
   stakeAmountText: { color: theme.colors.ivory, fontSize: 28, fontWeight: '700' },
   stakeSubtext: { marginTop: 2, color: theme.colors.ivoryMuted, fontSize: 12 },
   testModeNotice: { marginTop: 4, color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },

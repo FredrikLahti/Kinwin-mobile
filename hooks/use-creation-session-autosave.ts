@@ -72,6 +72,7 @@ export function useCreationSessionAutosave(): {
     sitOutAcknowledged: onboarding.sitOutAcknowledged,
     stakeAmount: onboarding.stakeAmount,
     stakeAmountInput: onboarding.stakeAmountInput,
+    successThresholdOverride: onboarding.successThresholdOverride,
   };
   const meaningfulProgress = hasMeaningfulCreationProgress(fields);
   const userId = status === 'signed_in' ? user?.id ?? null : null;

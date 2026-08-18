@@ -30,6 +30,7 @@ test('createInitialOnboardingFields carries no leftover data — every field is 
     sitOutAcknowledged: false,
     stakeAmount: null,
     stakeAmountInput: '',
+    successThresholdOverride: null,
   });
 });
 
@@ -94,4 +95,27 @@ test('computeRestoredCreationSessionState leaves an in-range persisted durationW
   const restored = computeRestoredCreationSessionState(fields, '/create/duration', '2026-01-01T00:00:00.000Z');
   assert.equal(restored.durationWeeks, 4);
   assert.equal(restored.checkpoint.fields.durationWeeks, 4);
+});
+
+// Same "null a structurally corrupt value rather than keep or coerce it"
+// guard as durationWeeks, for Success Means' successThresholdOverride.
+// This deliberately does NOT re-validate against the current baseline/total
+// (those depend on duration + rhythm, which app/create/success-means.tsx's
+// own clampSuccessThreshold call re-derives live) — only a value that could
+// never have come from any real control (non-integer, zero, negative) is
+// nulled here.
+for (const invalid of [0, -3, 1.5]) {
+  test(`computeRestoredCreationSessionState nulls a structurally invalid persisted successThresholdOverride (${invalid})`, () => {
+    const fields = { ...createInitialOnboardingFields(), goal: 'Sleep better', recipients: [createRecipientDraft('Mom')], successThresholdOverride: invalid };
+    const restored = computeRestoredCreationSessionState(fields, '/create/success-means', '2026-01-01T00:00:00.000Z');
+    assert.equal(restored.successThresholdOverride, null);
+    assert.equal(restored.checkpoint.fields.successThresholdOverride, null);
+  });
+}
+
+test('computeRestoredCreationSessionState leaves a valid persisted successThresholdOverride untouched', () => {
+  const fields = { ...createInitialOnboardingFields(), goal: 'Sleep better', recipients: [createRecipientDraft('Mom')], successThresholdOverride: 27 };
+  const restored = computeRestoredCreationSessionState(fields, '/create/success-means', '2026-01-01T00:00:00.000Z');
+  assert.equal(restored.successThresholdOverride, 27);
+  assert.equal(restored.checkpoint.fields.successThresholdOverride, 27);
 });
