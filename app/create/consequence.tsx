@@ -10,13 +10,17 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
+import { normalizeStakeDigits } from '@/lib/challenge-creation/stake-input';
 
 const MAX_STAKE_INPUT_LENGTH = 7;
 
+// Practical constraints on what the failed stake may fund, not a catalogue —
+// each stays to a single, concrete example rather than lifestyle-marketing
+// language.
 const EXPERIENCE_CATEGORIES: { description: string; label: string; value: ExperienceCategory }[] = [
   { description: 'A meal they can share.', label: 'Dinner', value: 'dinner' },
-  { description: 'Time to recharge together.', label: 'Wellness', value: 'wellness' },
-  { description: 'An active day or new experience.', label: 'Adventure', value: 'adventure' },
+  { description: 'A spa visit or massage.', label: 'Wellness', value: 'wellness' },
+  { description: 'A hike, activity, or outing.', label: 'Adventure', value: 'adventure' },
   { description: 'A show, exhibition, or event.', label: 'Culture', value: 'culture' },
   { description: 'A short trip or overnight stay.', label: 'Getaway', value: 'getaway' },
 ];
@@ -27,6 +31,7 @@ export default function CreateConsequenceScreen() {
   const inputRef = useRef<TextInput>(null);
   const {
     behaviorDirection,
+    currency,
     experienceCategory,
     recipients,
     setExperienceCategory,
@@ -40,11 +45,18 @@ export default function CreateConsequenceScreen() {
   const recipientNames = recipients.map((recipient) => recipient.name.trim()).filter(Boolean);
   const experienceSectionLabel =
     recipientNames.length === 1 ? `EXPERIENCE FOR ${recipientNames[0].toUpperCase()}` : 'THEIR EXPERIENCE';
+  // Derived from the same Intl currency formatting formatMoney uses
+  // (lib/home/challenge-summary.ts), rather than a literal "$", so this
+  // symbol can never silently disagree with the amount it decorates if
+  // onboarding.currency is ever anything other than USD.
+  const currencySymbol = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+    .formatToParts(0)
+    .find((part) => part.type === 'currency')?.value ?? '$';
 
   const canContinue = Boolean(experienceCategory && stakeAmount && stakeAmount > 0);
 
   const updateStakeAmount = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, MAX_STAKE_INPUT_LENGTH);
+    const digits = normalizeStakeDigits(value, MAX_STAKE_INPUT_LENGTH);
     const numericAmount = digits ? Number(digits) : null;
     setStakeAmountInput(digits);
     setStakeAmount(numericAmount && numericAmount > 0 ? numericAmount : null);
@@ -83,10 +95,10 @@ export default function CreateConsequenceScreen() {
       <View style={styles.stakeField}>
         <Text style={styles.stakeLabel}>Total stake</Text>
         <View style={styles.amountRow}>
-          <Text aria-hidden style={styles.currencySymbol}>$</Text>
+          <Text aria-hidden style={styles.currencySymbol}>{currencySymbol}</Text>
           <TextInputV2
             ref={inputRef}
-            accessibilityLabel="Total stake in dollars"
+            accessibilityLabel="Total stake amount"
             keyboardType="number-pad"
             maxLength={MAX_STAKE_INPUT_LENGTH}
             onChangeText={updateStakeAmount}
@@ -97,7 +109,7 @@ export default function CreateConsequenceScreen() {
             value={stakeAmountInput}
           />
         </View>
-        <Text style={styles.stakeHelper}>Choose an amount that would sting to lose, but never financially unsafe.</Text>
+        <Text style={styles.stakeHelper}>Choose an amount you’d rather keep, but could safely afford to lose.</Text>
       </View>
     </CreateFlowScreenV2>
   );

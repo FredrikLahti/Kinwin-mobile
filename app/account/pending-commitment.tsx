@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { formatMoney } from '@/lib/home/challenge-summary';
 import {
   cancelPendingChallenge,
   fetchPendingCommitment,
@@ -263,7 +264,7 @@ function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitm
     rhythm: { ...commitment.draftData.rhythm, selectedWeekdays: [...commitment.draftData.rhythm.selectedWeekdays] },
   });
   const recipientNames = commitment.recipients.map((recipient) => recipient.displayName);
-  const stakeLabel = `$${(commitment.stakeMinorUnits / 100).toLocaleString('en-US')}`;
+  const stakeLabel = formatMoney(commitment.stakeMinorUnits, commitment.currency);
 
   return (
     <View style={styles.summary}>

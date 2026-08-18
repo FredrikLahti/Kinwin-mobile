@@ -9,9 +9,9 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 
 const TYPES: { description: string; label: string; value: BehaviorDirection }[] = [
-  { description: 'Do something consistently.', label: 'Build', value: 'build' },
-  { description: 'Stay under a maximum.', label: 'Limit', value: 'cut' },
-  { description: 'Keep something at zero.', label: 'Avoid', value: 'stop' },
+  { description: 'Do something consistently, like training or reading.', label: 'Build', value: 'build' },
+  { description: 'Keep something under a limit, like takeaways or screen time.', label: 'Limit', value: 'cut' },
+  { description: 'Keep something at zero, like nicotine or gambling.', label: 'Avoid', value: 'stop' },
 ];
 
 const NEXT_SCREEN: Record<BehaviorDirection, string> = {

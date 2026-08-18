@@ -33,7 +33,7 @@ export default function HomeScreen() {
 
           <View style={styles.copy}>
             <Text style={styles.title}>Kinwin</Text>
-            <Text style={styles.tagline}>When you fail, your loved ones win.</Text>
+            <Text style={styles.tagline}>Promise something. Back it with a stake that matters.</Text>
             <Text style={styles.eyebrow}>A new beginning</Text>
           </View>
 

@@ -5,7 +5,7 @@
 ## Core
 
 * Product name: Kinwin
-* Tagline: “When you fail, your loved ones win.”
+* No tagline is currently adopted. The founder explicitly retired "When you fail, your loved ones win." for reading as cheesy; nothing has replaced it as declared product copy.
 * Kinwin is an iOS-first mobile app with Android supported from the same codebase.
 * The mobile app is being built from scratch.
 * The previous web application must not influence the new architecture, design, copy, or flows.

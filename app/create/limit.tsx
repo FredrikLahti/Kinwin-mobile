@@ -130,7 +130,7 @@ export default function CreateLimitScreen() {
           onBlur={() => setFocused(false)}
           onChangeText={setBehaviorText}
           onFocus={() => setFocused(true)}
-          placeholder="Social media"
+          placeholder="e.g. Social media"
           placeholderTextColor={theme.colors.warmGrey}
           selectionColor={theme.colors.oxblood}
           style={styles.input}
@@ -140,6 +140,13 @@ export default function CreateLimitScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>YOUR MAXIMUM</Text>
+        <Text style={styles.sectionHelper}>
+          {rhythm.period === 'day'
+            ? 'The most you allow yourself each day.'
+            : rhythm.period === 'week'
+              ? 'The most you allow yourself each week.'
+              : 'The most you allow yourself during each selected period.'}
+        </Text>
         <View style={styles.ruleRow}>
           <TextInputV2
             accessibilityLabel="Limit amount"
@@ -204,6 +211,7 @@ const styles = StyleSheet.create({
   input: { color: theme.colors.ivory, fontSize: 19, fontWeight: '600', paddingHorizontal: 0, paddingVertical: 0 },
   section: { gap: 12 },
   sectionLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  sectionHelper: { marginTop: -6, color: theme.colors.ivoryMuted, fontSize: 12, lineHeight: 17 },
   ruleRow: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, paddingHorizontal: 18, paddingVertical: 6,
