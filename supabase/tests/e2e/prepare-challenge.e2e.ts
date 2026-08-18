@@ -332,17 +332,32 @@ test('prepare_challenge_from_draft: trusted server boundary for pending commitme
     v2ChallengeId = prepared.challengeId;
   });
 
-  await t.test('a malicious V2 draft crafted directly against challenge_drafts (bypassing the client mapping entirely) is rejected by the independent server re-derivation', async () => {
+  // A separate, fresh owner (never used above, never prepares anything
+  // successfully) — deliberately NOT Owner C. prepare_challenge_from_draft
+  // checks for an already-pending commitment before it ever reaches V2
+  // Success Means validation (see the migration's own ordering), so
+  // reusing an owner that already has one pending would make this test
+  // pass for the wrong reason ("another pending commitment already
+  // exists") instead of proving the V2 bounds rejection it exists to
+  // prove. Owner D never successfully prepares anything, so that
+  // conflict can never arise here.
+  const ownerD = freshClient();
+  let userIdD = '';
+  await t.test('User D signs up through GoTrue', async () => {
+    userIdD = (await signUpAndSignIn(ownerD, testEmail('owner-d'))).userId;
+  });
+
+  await t.test('a malicious V2 draft crafted directly against challenge_drafts (bypassing the client mapping entirely) is rejected specifically for being below Kinwin\'s server-derived baseline, not for any unrelated business-state reason', async () => {
     const maliciousDraftId = randomUUID();
-    const { error: insertError } = await ownerC.from('challenge_drafts').insert({
+    const { error: insertError } = await ownerD.from('challenge_drafts').insert({
       id: maliciousDraftId,
-      owner_id: userIdC,
+      owner_id: userIdD,
       schema_version: 1,
       draft_status: 'ready_for_activation',
       draft_payload: {
         schemaVersion: 1,
         id: maliciousDraftId,
-        ownerId: userIdC,
+        ownerId: userIdD,
         goal: 'Sleep better',
         behavior: { description: 'Strength train', completionDefinition: 'Complete the planned session', rule: { direction: 'build', measurement: { type: 'completion', unit: 'completion' }, rhythm: { type: 'daily', periodUnit: 'day', target: 1 } } },
         duration: { unit: 'week', value: 4 },
@@ -362,19 +377,28 @@ test('prepare_challenge_from_draft: trusted server boundary for pending commitme
     });
     assert.equal(insertError, null, `malicious draft insert failed: ${insertError?.message}`);
 
-    const { data, error } = await ownerC.rpc('prepare_challenge_from_draft', { draft_id: maliciousDraftId });
+    const { data, error } = await ownerD.rpc('prepare_challenge_from_draft', { draft_id: maliciousDraftId });
     assert.ok(error, 'expected the below-baseline V2 draft to be rejected');
     assert.equal(data, null);
+    // Prove this is genuinely the V2 Success Means bounds rejection and
+    // not some other unrelated 22023/business-state error masking it —
+    // the exact message the migration raises for this case (see
+    // supabase/migrations/20260906000000_success_means_v2.sql).
+    assert.match(
+      error!.message,
+      /minimumRequiredCompletions must be between Kinwin's baseline and the total/,
+      `expected the V2 baseline-bounds rejection specifically; got: ${error?.message}`,
+    );
 
-    const { data: draft, error: readError } = await ownerC.from('challenge_drafts').select('draft_status').eq('id', maliciousDraftId).single();
+    const { data: draft, error: readError } = await ownerD.from('challenge_drafts').select('draft_status').eq('id', maliciousDraftId).single();
     assert.equal(readError, null, `malicious draft readback failed: ${readError?.message}`);
     assert.equal(draft!.draft_status, 'ready_for_activation', 'a rejected malicious V2 draft must not be archived');
 
-    const { data: challenges } = await ownerC.from('challenges').select('id').eq('source_draft_id', maliciousDraftId);
+    const { data: challenges } = await ownerD.from('challenges').select('id').eq('source_draft_id', maliciousDraftId);
     assert.equal(challenges?.length, 0, 'a rejected malicious V2 draft must not produce a challenge');
+  });
 
-    // Owner C's real, valid V2 commitment from the previous test must be
-    // completely unaffected by the rejected attempt.
+  await t.test('Owner C\'s real, valid V2 commitment is unaffected by an unrelated owner\'s rejected malicious attempt', async () => {
     const { data: stillThere } = await ownerC.from('challenges').select('id').eq('id', v2ChallengeId);
     assert.equal(stillThere?.length, 1);
   });
