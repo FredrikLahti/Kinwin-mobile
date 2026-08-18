@@ -50,7 +50,11 @@ module.exports = {
     orientation: 'portrait',
     icon: ICON_RELATIVE_PATH,
     scheme: 'kinwin',
-    userInterfaceStyle: 'light',
+    // Kept in lockstep with the splash/icon backgrounds below (#1a1212) and
+    // every real screen's kinwinThemeV2 dark surface — 'light' here was the
+    // one remaining light artifact, producing a white system-chrome flash
+    // between the dark native splash and the app's own dark UI.
+    userInterfaceStyle: 'dark',
     newArchEnabled: true,
     splash: { image: SPLASH_RELATIVE_PATH, resizeMode: 'contain', backgroundColor: '#1a1212' },
     ...(easProjectId ? { extra: { eas: { projectId: easProjectId } } } : {}),

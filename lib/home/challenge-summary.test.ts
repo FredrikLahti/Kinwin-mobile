@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  computeHeroProgressPercent,
   describeChallengeIdentity,
   describeConsequence,
   describeDurationPosition,
@@ -221,4 +222,20 @@ test('describeDurationPosition: week/day periods show a position, continuous and
   assert.equal(describeDurationPosition(period({ periodKind: 'day', periodNumber: 12 }), 28), 'Day 12 of 28');
   assert.equal(describeDurationPosition(period({ periodKind: 'continuous', periodNumber: 1, target: { type: 'maximum_lapses', maximum: 0 } }), 1), null);
   assert.equal(describeDurationPosition(null, 4), null);
+});
+
+test('computeHeroProgressPercent: fills proportionally to real closed/total periods', () => {
+  assert.equal(computeHeroProgressPercent(0, 4), 0);
+  assert.equal(computeHeroProgressPercent(2, 4), 50);
+  assert.equal(computeHeroProgressPercent(4, 4), 100);
+  assert.equal(computeHeroProgressPercent(3, 7), (3 / 7) * 100);
+});
+
+test('computeHeroProgressPercent: no periods generated yet hides the bar instead of dividing by zero', () => {
+  assert.equal(computeHeroProgressPercent(0, 0), null);
+});
+
+test('computeHeroProgressPercent: always clamped to [0, 100] even given inconsistent inputs', () => {
+  assert.equal(computeHeroProgressPercent(-1, 4), 0);
+  assert.equal(computeHeroProgressPercent(9, 4), 100);
 });

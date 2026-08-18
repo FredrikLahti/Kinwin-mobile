@@ -27,7 +27,7 @@ export type Profile = { readonly id: string; readonly displayName: string | null
 
 // See lib/auth/derive-auth-status.ts's own comment for why
 // 'password_recovery' must stay distinct from 'signed_in' here.
-type AuthStatus = 'loading' | DerivedAuthStatus;
+export type AuthStatus = 'loading' | DerivedAuthStatus;
 
 type AuthContextValue = {
   readonly isConfigured: boolean;

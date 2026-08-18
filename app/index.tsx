@@ -2,11 +2,14 @@ import { Href, Redirect, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { PrimaryButton } from '@/components/primary-button';
+import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const { status } = useAuth();
 
   if (status === 'signed_in') {
@@ -33,14 +36,14 @@ export default function HomeScreen() {
 
           <View style={styles.copy}>
             <Text style={styles.title}>Kinwin</Text>
-            <Text style={styles.eyebrow}>A new beginning</Text>
           </View>
 
           <View style={styles.action}>
-            <PrimaryButton
+            <PrimaryButtonV2
               accessibilityHint="Opens the first Kinwin onboarding step"
-              label="Start"
+              label="Start challenge"
               onPress={() => router.push('/create/intro' as Href)}
+              reducedMotion={reducedMotion}
             />
           </View>
         </View>
@@ -49,11 +52,10 @@ export default function HomeScreen() {
   );
 }
 
-// Temporary screen-specific styling; this is not Kinwin's final visual identity.
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F4F4F1',
+    backgroundColor: theme.colors.ink,
   },
   scrollContent: {
     flexGrow: 1,
@@ -64,7 +66,7 @@ const styles = StyleSheet.create({
     maxWidth: 560,
     alignSelf: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.medium,
     paddingVertical: 28,
   },
   topRow: {
@@ -75,25 +77,18 @@ const styles = StyleSheet.create({
   },
   authLink: {
     flexShrink: 1,
-    color: '#343432',
+    color: theme.colors.ivoryMuted,
     fontSize: 13,
     fontWeight: '700',
-    textDecorationLine: 'underline',
   },
   copy: {
-    gap: 16,
     paddingVertical: 40,
   },
   title: {
-    color: '#191918',
+    color: theme.colors.ivory,
     fontSize: 48,
     fontWeight: '700',
     letterSpacing: -1.5,
-  },
-  eyebrow: {
-    color: '#62625D',
-    fontSize: 16,
-    lineHeight: 24,
   },
   action: {
     gap: 8,
