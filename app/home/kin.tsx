@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { ReactionBarV2 } from '@/components/v2/reaction-bar-v2';
 import { SegmentedControlV2 } from '@/components/v2/segmented-control';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
@@ -17,23 +18,26 @@ import { playSelectionHaptic } from '@/lib/haptics';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import {
+  ActivityComment,
   ActivityItem,
   KinConnection,
   KinCurrentChallenge,
   KinSearchResult,
-  REACTION_KINDS,
   REPORT_REASONS,
   ReactionKind,
   ReportReason,
   acceptKinRequest,
+  addActivityComment,
   blockKin,
   cancelKinRequest,
   clearMyReaction,
   declineKinRequest,
+  deleteActivityComment,
   fetchKinActivity,
   fetchKinConnections,
   fetchKinCurrentChallenges,
   fetchMyKinCode,
+  fetchOwnActivityWithComments,
   redeemKinCode,
   removeKin,
   searchKin,
@@ -44,9 +48,7 @@ import {
 
 type Tab = 'activity' | 'people';
 
-const REACTION_LABELS: Record<ReactionKind, string> = {
-  respect: 'Respect', nice: 'Nice', worth_it: 'Worth it', ouch: 'Ouch', brutal: 'Brutal',
-};
+const COMMENT_PREVIEW_COUNT = 2;
 
 const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   harassment: 'Harassment or bullying',
@@ -56,7 +58,7 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'Other',
 };
 
-type ReportTarget = { readonly userId: string; readonly displayName: string; readonly activityId: string | null };
+type ReportTarget = { readonly userId: string; readonly displayName: string; readonly activityId: string | null; readonly commentId: string | null };
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -70,6 +72,146 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+type ActivityCardProps = {
+  readonly item: ActivityItem;
+  /**
+   * True only for the "ON YOUR UPDATES" section's own cards — never true in
+   * the Kin feed itself (fetchKinActivity already excludes the caller's own
+   * rows, so this can't happen there anyway). Controls the header: an own
+   * card never shows an avatar/name, so the caller is never rendered as if
+   * they were one of their own Kin — see this component's own call sites.
+   */
+  readonly isOwn: boolean;
+  readonly currentUserId: string | undefined;
+  readonly reacting: boolean;
+  readonly onToggleReaction: (item: ActivityItem, kind: ReactionKind) => void;
+  readonly onReportActivity: (item: ActivityItem) => void;
+  readonly commentDraft: string;
+  readonly onChangeCommentDraft: (activityId: string, text: string) => void;
+  readonly postingComment: boolean;
+  readonly onSubmitComment: (activityId: string) => void;
+  readonly expanded: boolean;
+  readonly onToggleExpand: (activityId: string) => void;
+  readonly onDeleteComment: (activityId: string, comment: ActivityComment) => void;
+  readonly onReportComment: (comment: ActivityComment) => void;
+};
+
+/**
+ * One Activity card — event content, then reactions, then a short comment
+ * preview/expansion, then Add a comment. Shared by the Kin feed and the
+ * owner-facing "ON YOUR UPDATES" section (app/home/kin.tsx's own KinV2) so
+ * the two never drift into two different comment/reaction implementations.
+ */
+function ActivityCard({
+  commentDraft, currentUserId, expanded, isOwn, item, onChangeCommentDraft, onDeleteComment, onReportActivity, onReportComment,
+  onSubmitComment, onToggleExpand, onToggleReaction, postingComment, reacting,
+}: ActivityCardProps) {
+  return (
+    <View style={styles.activityCard}>
+      <View style={styles.activityHeader}>
+        {isOwn ? (
+          <View style={styles.activityCopy}>
+            <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
+          </View>
+        ) : (
+          <>
+            <AvatarV2 size={40} />
+            <View style={styles.activityCopy}>
+              <Text style={styles.activityName}>{item.ownerDisplayName}</Text>
+              <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
+            </View>
+          </>
+        )}
+        <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
+        {!isOwn && (
+          <Pressable
+            accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onReportActivity(item)}
+            style={styles.reportButton}
+          >
+            <Feather color={theme.colors.warmGrey} name="flag" size={14} />
+          </Pressable>
+        )}
+      </View>
+      <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
+        {describeActivityEvent(item)}
+      </Text>
+      <ReactionBarV2
+        contextLabel={isOwn ? 'Reactions on your update' : `React to ${item.ownerDisplayName}'s update`}
+        disabled={reacting}
+        interactive={!isOwn}
+        myReaction={item.myReaction}
+        onToggle={(kind) => onToggleReaction(item, kind)}
+        reactionCounts={item.reactionCounts}
+      />
+
+      {item.comments.length > 0 && (
+        <View style={styles.commentsList}>
+          {(expanded ? item.comments : item.comments.slice(-COMMENT_PREVIEW_COUNT)).map((comment) => {
+            const canDelete = comment.authorId === currentUserId || item.ownerId === currentUserId;
+            return (
+              <View key={comment.id} style={styles.commentRow}>
+                <View style={styles.commentCopy}>
+                  <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
+                  <Text style={styles.commentBody}>{comment.body}</Text>
+                </View>
+                {canDelete ? (
+                  <Pressable
+                    accessibilityHint="Deletes this comment"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => onDeleteComment(item.id, comment)}
+                    style={styles.commentActionButton}
+                  >
+                    <Feather color={theme.colors.warmGrey} name="x" size={13} />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    accessibilityHint={`Reports ${comment.authorDisplayName}'s comment`}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => onReportComment(comment)}
+                    style={styles.commentActionButton}
+                  >
+                    <Feather color={theme.colors.warmGrey} name="flag" size={12} />
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
+          {item.comments.length > COMMENT_PREVIEW_COUNT && !expanded && (
+            <Pressable accessibilityRole="button" onPress={() => onToggleExpand(item.id)} style={styles.viewCommentsLink}>
+              <Text style={styles.viewCommentsLinkText}>View all {item.comments.length} comments</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      <View style={styles.addCommentRow}>
+        <TextInputV2
+          maxLength={200}
+          onChangeText={(text) => onChangeCommentDraft(item.id, text)}
+          placeholder="Add a comment"
+          placeholderTextColor={theme.colors.warmGrey}
+          style={styles.addCommentInput}
+          value={commentDraft}
+        />
+        <Pressable
+          accessibilityHint="Posts your comment"
+          accessibilityRole="button"
+          disabled={!commentDraft.trim() || postingComment}
+          onPress={() => onSubmitComment(item.id)}
+          style={({ pressed }) => [styles.postCommentButton, pressed && styles.postCommentButtonPressed]}
+        >
+          <Text style={styles.postCommentButtonText}>Post</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function KinV2() {
   const { user } = useAuth();
   const reducedMotion = useReducedMotion();
@@ -78,6 +220,7 @@ export default function KinV2() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<readonly KinConnection[]>([]);
   const [activity, setActivity] = useState<readonly ActivityItem[]>([]);
+  const [ownActivity, setOwnActivity] = useState<readonly ActivityItem[]>([]);
   const [currentChallenges, setCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
   const [addKinOpen, setAddKinOpen] = useState(false);
   const [manageTarget, setManageTarget] = useState<KinConnection | null>(null);
@@ -94,6 +237,9 @@ export default function KinV2() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
   const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [postingCommentIds, setPostingCommentIds] = useState<Set<string>>(new Set());
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const searchRequestId = useRef(0);
   // The actual concurrency mutex for toggleReaction — a ref, not the
   // reactingIds state above, because a ref is read/written synchronously,
@@ -102,6 +248,12 @@ export default function KinV2() {
   // fires before that render happens. reactingIds itself is kept only to
   // drive the disabled visual state on the reaction chips.
   const reactionInFlightRef = useRef<Set<string>>(new Set());
+  // Identical rationale and shape as reactionInFlightRef, for comment
+  // submission: two rapid taps on Post can both fire before React commits
+  // the postingCommentIds state update from the first tap, so state alone
+  // cannot prevent a duplicate insert. postingCommentIds itself is kept
+  // only to drive the disabled visual state on the Post button.
+  const postingCommentInFlightRef = useRef<Set<string>>(new Set());
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds((current) => {
@@ -123,16 +275,29 @@ export default function KinV2() {
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const [connectionsResult, activityResult, currentResult] = await Promise.all([
+    const [connectionsResult, activityResult, ownActivityResult, currentResult] = await Promise.all([
       fetchKinConnections(user.id),
       fetchKinActivity(user.id),
+      fetchOwnActivityWithComments(user.id),
       fetchKinCurrentChallenges(user.id),
     ]);
     if (connectionsResult.ok) setConnections(connectionsResult.connections);
     if (activityResult.ok) setActivity(activityResult.items);
+    if (ownActivityResult.ok) setOwnActivity(ownActivityResult.items);
     if (currentResult.ok) setCurrentChallenges(currentResult.challenges);
     setLoading(false);
   }, [user]);
+
+  // Applies an update to whichever of the two lists actually contains this
+  // activity id — activity (Kin feed) and ownActivity (ON YOUR UPDATES) are
+  // mutually exclusive by construction (fetchKinActivity excludes the
+  // caller's own rows; fetchOwnActivityWithComments requires them), so
+  // exactly one of these two setState calls ever matches. Shared by
+  // reaction and comment optimistic updates below.
+  const updateActivityItem = (activityId: string, updater: (entry: ActivityItem) => ActivityItem) => {
+    setActivity((current) => current.map((entry) => (entry.id === activityId ? updater(entry) : entry)));
+    setOwnActivity((current) => current.map((entry) => (entry.id === activityId ? updater(entry) : entry)));
+  };
 
   // The Kin tab stays mounted across visits (it lives inside the same Tabs
   // navigator as Home/Me — see app/home/_layout.tsx), so a plain
@@ -301,17 +466,18 @@ export default function KinV2() {
     void playSelectionHaptic();
     setSubmittingReport(true);
     const target = reportTarget;
-    const result = await submitSocialReport(target.userId, reason, target.activityId);
+    const result = await submitSocialReport(target.userId, reason, target.activityId, target.commentId);
     setSubmittingReport(false);
     setReportTarget(null);
     if (!result.ok) {
       Alert.alert('Could not send that report', 'Please try again.');
       return;
     }
-    // Only offered from an activity card (target.activityId set) — the
-    // People tab's manage sheet already has its own separate Block action
-    // right next to Report, so a second prompt there would be redundant.
-    if (target.activityId) {
+    // Only offered from an activity card or a comment on one (target.activityId
+    // or target.commentId set) — the People tab's manage sheet already has its
+    // own separate Block action right next to Report, so a second prompt there
+    // would be redundant.
+    if (target.activityId || target.commentId) {
       Alert.alert('Report sent', 'Thanks for letting us know. Our team will review this.', [
         { text: 'Done', style: 'cancel' },
         { text: `Also block ${target.displayName}`, style: 'destructive', onPress: () => void blockKin(target.userId).then(() => void refresh()) },
@@ -334,13 +500,12 @@ export default function KinV2() {
     setReacting(item.id, true);
     try {
       const isMine = item.myReaction === kind;
-      setActivity((current) => current.map((entry) => {
-        if (entry.id !== item.id) return entry;
+      updateActivityItem(item.id, (entry) => {
         const counts = { ...entry.reactionCounts };
         if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
         if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
         return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
-      }));
+      });
       const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, kind);
       // setMyReaction is a delete-then-insert on the server, not one atomic
       // write, so a failure can leave the server in neither the "before" nor
@@ -358,6 +523,64 @@ export default function KinV2() {
       reactionInFlightRef.current.delete(item.id);
       setReacting(item.id, false);
     }
+  };
+
+  const updateCommentDraft = (activityId: string, text: string) => {
+    setCommentDrafts((current) => ({ ...current, [activityId]: text }));
+  };
+
+  const submitComment = async (activityId: string) => {
+    // Same synchronous-ref-mutex requirement as toggleReaction above: two
+    // rapid taps on Post can both run this function against the same
+    // pre-update render before either postingCommentIds state write has
+    // committed, so state alone cannot stop the second call from also
+    // inserting. The ref is checked and claimed synchronously, before any
+    // await, so the second call always sees the first call's claim.
+    if (!user || postingCommentInFlightRef.current.has(activityId)) return;
+    const draft = (commentDrafts[activityId] ?? '').trim();
+    if (!draft) return;
+    postingCommentInFlightRef.current.add(activityId);
+    void playSelectionHaptic();
+    setPostingCommentIds((current) => new Set(current).add(activityId));
+    try {
+      const result = await addActivityComment(user.id, activityId, draft);
+      if (!result.ok) {
+        Alert.alert('Could not post that comment', 'Please try again.');
+        return;
+      }
+      setCommentDrafts((current) => ({ ...current, [activityId]: '' }));
+      updateActivityItem(activityId, (entry) => ({ ...entry, comments: [...entry.comments, result.comment] }));
+    } finally {
+      postingCommentInFlightRef.current.delete(activityId);
+      setPostingCommentIds((current) => { const next = new Set(current); next.delete(activityId); return next; });
+    }
+  };
+
+  const confirmDeleteComment = (activityId: string, comment: ActivityComment) => {
+    Alert.alert('Delete comment', 'Remove this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: () => {
+          void (async () => {
+            const result = await deleteActivityComment(comment.id);
+            if (!result.ok) {
+              Alert.alert('Could not delete that comment', 'Please try again.');
+              return;
+            }
+            updateActivityItem(activityId, (entry) => ({ ...entry, comments: entry.comments.filter((c) => c.id !== comment.id) }));
+          })();
+        },
+      },
+    ]);
+  };
+
+  const toggleExpandComments = (activityId: string) => {
+    void playSelectionHaptic();
+    setExpandedComments((current) => {
+      const next = new Set(current);
+      if (next.has(activityId)) next.delete(activityId); else next.add(activityId);
+      return next;
+    });
   };
 
   return (
@@ -463,51 +686,56 @@ export default function KinV2() {
                 )}
 
                 {activity.map((item) => (
-                  <View key={item.id} style={styles.activityCard}>
-                    <View style={styles.activityHeader}>
-                      <AvatarV2 size={40} />
-                      <View style={styles.activityCopy}>
-                        <Text style={styles.activityName}>{item.ownerDisplayName}</Text>
-                        <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
-                      </View>
-                      <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
-                      {item.ownerId !== user?.id && (
-                        <Pressable
-                          accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
-                          accessibilityRole="button"
-                          hitSlop={8}
-                          onPress={() => openReport({ userId: item.ownerId, displayName: item.ownerDisplayName, activityId: item.id })}
-                          style={styles.reportButton}
-                        >
-                          <Feather color={theme.colors.warmGrey} name="flag" size={14} />
-                        </Pressable>
-                      )}
-                    </View>
-                    <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
-                      {describeActivityEvent(item)}
-                    </Text>
-                    <View style={styles.reactionRow}>
-                      {REACTION_KINDS.map((kind) => {
-                        const mine = item.myReaction === kind;
-                        const count = item.reactionCounts[kind] ?? 0;
-                        return (
-                          <Pressable
-                            accessibilityHint={`Reacts with ${REACTION_LABELS[kind]}`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: mine }}
-                            disabled={reactingIds.has(item.id)}
-                            key={kind}
-                            onPress={() => void toggleReaction(item, kind)}
-                            style={({ pressed }) => [styles.reactionChip, mine && styles.reactionChipActive, pressed && styles.reactionChipPressed]}
-                          >
-                            <Text style={[styles.reactionLabel, mine && styles.reactionLabelActive]}>
-                              {REACTION_LABELS[kind]}{count > 0 ? ` ${count}` : ''}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                  <ActivityCard
+                    commentDraft={commentDrafts[item.id] ?? ''}
+                    currentUserId={user?.id}
+                    expanded={expandedComments.has(item.id)}
+                    isOwn={false}
+                    item={item}
+                    key={item.id}
+                    onChangeCommentDraft={updateCommentDraft}
+                    onDeleteComment={confirmDeleteComment}
+                    onReportActivity={(target) => openReport({ userId: target.ownerId, displayName: target.ownerDisplayName, activityId: target.id, commentId: null })}
+                    onReportComment={(comment) => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
+                    onSubmitComment={(activityId) => void submitComment(activityId)}
+                    onToggleExpand={toggleExpandComments}
+                    onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+                    postingComment={postingCommentIds.has(item.id)}
+                    reacting={reactingIds.has(item.id)}
+                  />
+                ))}
+
+                {/* Owner-facing counterpart to the Kin feed above: what Kin
+                    said about MY updates. Deliberately a separate,
+                    clearly-labeled section rather than folded into "RECENT
+                    ACTIVITY", so the caller never appears here as if they
+                    were one of their own Kin (ActivityCard's isOwn skips
+                    the avatar/name header entirely for these cards). Only
+                    shows items with at least one real comment, per
+                    fetchOwnActivityWithComments' own doc comment. */}
+                {ownActivity.length > 0 && (
+                  <View style={styles.currentlySection}>
+                    <Text style={styles.sectionLabel}>ON YOUR UPDATES</Text>
                   </View>
+                )}
+                {ownActivity.map((item) => (
+                  <ActivityCard
+                    commentDraft={commentDrafts[item.id] ?? ''}
+                    currentUserId={user?.id}
+                    expanded={expandedComments.has(item.id)}
+                    isOwn
+                    item={item}
+                    key={item.id}
+                    onChangeCommentDraft={updateCommentDraft}
+                    onDeleteComment={confirmDeleteComment}
+                    onReportActivity={() => {}}
+                    onReportComment={(comment) => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
+                    onSubmitComment={(activityId) => void submitComment(activityId)}
+                    onToggleExpand={toggleExpandComments}
+                    onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+                    postingComment={postingCommentIds.has(item.id)}
+                    reacting={reactingIds.has(item.id)}
+                  />
                 ))}
               </>
             ) : (
@@ -694,7 +922,7 @@ export default function KinV2() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => openReport({ userId: manageTarget.otherUserId, displayName: manageTarget.otherDisplayName, activityId: null })}
+              onPress={() => openReport({ userId: manageTarget.otherUserId, displayName: manageTarget.otherDisplayName, activityId: null, commentId: null })}
               style={styles.sheetAction}
             >
               <Text style={styles.sheetActionLabel}>Report</Text>
@@ -778,16 +1006,26 @@ const styles = StyleSheet.create({
   activityEvent: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   activityEventFailure: { color: theme.colors.crimsonBright },
   activityEventSuccess: { color: theme.colors.sage },
-  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  reactionChip: {
-    minHeight: 30, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center',
+  commentsList: { gap: 4 },
+  commentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  commentCopy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', columnGap: 5 },
+  commentAuthor: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
+  commentBody: { color: theme.colors.ivoryMuted, fontSize: 12, flexShrink: 1 },
+  commentActionButton: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  viewCommentsLink: { minHeight: 24, justifyContent: 'center' },
+  viewCommentsLinkText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
+  addCommentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  addCommentInput: {
+    flex: 1, color: theme.colors.ivory, fontSize: 13, minHeight: 36,
     borderRadius: theme.radius.precise, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: theme.colors.surfaceRaised, paddingHorizontal: 12,
   },
-  reactionChipActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
-  reactionChipPressed: { opacity: 0.75 },
-  reactionLabel: { color: theme.colors.ivoryMuted, fontSize: 11, fontWeight: '700' },
-  reactionLabelActive: { color: theme.colors.crimsonBright },
+  postCommentButton: {
+    minHeight: 36, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
+    borderRadius: theme.radius.precise, backgroundColor: theme.colors.rosewood,
+  },
+  postCommentButtonPressed: { opacity: 0.82 },
+  postCommentButtonText: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
   rowGroup: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, overflow: 'hidden',

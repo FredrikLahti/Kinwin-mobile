@@ -1,4 +1,5 @@
 import { ActivatedChallengeSnapshot } from '@/domain/challenge/types';
+import { validateCommentBody } from '@/lib/social/comment-validation';
 
 import { supabase } from './client';
 
@@ -202,6 +203,16 @@ export type ActivityItem = {
   readonly createdAt: string;
   readonly reactionCounts: Readonly<Record<string, number>>;
   readonly myReaction: string | null;
+  readonly comments: readonly ActivityComment[];
+};
+
+export type ActivityComment = {
+  readonly id: string;
+  readonly activityId: string;
+  readonly authorId: string;
+  readonly authorDisplayName: string;
+  readonly body: string;
+  readonly createdAt: string;
 };
 
 export type FetchActivityResult =
@@ -209,49 +220,54 @@ export type FetchActivityResult =
   | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' }
   | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
 
-/**
- * The Kin activity feed: real Kin activity only, never the caller's own —
- * every consumer of this feed (Home's "From your Kin" module, the Kin tab's
- * Activity list) is specifically about what a Kin did, not a combined
- * "me + Kin" timeline. RLS's own select policy (20260815000000) is
- * necessarily broader (own activity plus accepted Kin's, since a user must
- * also be able to see their own social_activity rows through other paths,
- * e.g. reactions on their own activity) — the `.neq('owner_id', userId)`
- * below is this feed's own, additional application-layer scoping on top of
- * that RLS floor, not a relaxation of it. Newest first, capped at a small,
- * restrained window — this is meant to feel like a short list of recent
- * moments, never an endless feed. Reactions are fetched separately (same
- * RLS shape) and folded in client-side into per-activity counts plus "did I
- * react" (which can legitimately be the caller reacting to a Kin's item).
- */
-export async function fetchKinActivity(userId: string, limit = 30): Promise<FetchActivityResult> {
-  if (!supabase) return { ok: false, kind: 'not_configured' };
-  if (!userId) return { ok: false, kind: 'not_authenticated' };
+type RawActivityRow = { id: string; owner_id: string; challenge_id: string | null; kind: string; payload: unknown; created_at: string };
 
-  const { data: rows, error } = await supabase
-    .from('social_activity')
-    .select('id, owner_id, challenge_id, kind, payload, created_at')
-    .neq('owner_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) return { ok: false, ...classifyError(error) };
-  if (!rows || rows.length === 0) return { ok: true, items: [] };
+/**
+ * Shared by fetchKinActivity and fetchOwnActivityWithComments — both start
+ * from a set of already-selected social_activity rows and need the exact
+ * same reaction/comment/owner-name hydration. Comment author identity comes
+ * straight off activity_comments.author_display_name (a server-written
+ * snapshot — see 20260907000000_activity_comments_and_emoji_reactions.sql)
+ * rather than a second profiles lookup: two Kin who share an activity owner
+ * but aren't Kin with each other can legitimately read one another's
+ * comments without either gaining generic public.profiles access to the
+ * other, which a profiles join here would have required.
+ */
+async function hydrateActivityItems(rows: readonly RawActivityRow[], userId: string): Promise<FetchActivityResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (rows.length === 0) return { ok: true, items: [] };
 
   const ownerIds = Array.from(new Set(rows.map((row) => row.owner_id)));
   const activityIds = rows.map((row) => row.id);
-  const [profilesResult, reactionsResult] = await Promise.all([
+  const [profilesResult, reactionsResult, commentsResult] = await Promise.all([
     supabase.from('profiles').select('id, display_name').in('id', ownerIds),
     supabase.from('activity_reactions').select('activity_id, user_id, kind').in('activity_id', activityIds),
+    supabase.from('activity_comments').select('id, activity_id, author_id, author_display_name, body, created_at').in('activity_id', activityIds).order('created_at', { ascending: true }),
   ]);
   if (profilesResult.error) return { ok: false, ...classifyError(profilesResult.error) };
   if (reactionsResult.error) return { ok: false, ...classifyError(reactionsResult.error) };
+  if (commentsResult.error) return { ok: false, ...classifyError(commentsResult.error) };
 
   const nameById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile.display_name as string | null]));
+
   const reactionsByActivity = new Map<string, { activity_id: string; user_id: string; kind: string }[]>();
   for (const reaction of reactionsResult.data ?? []) {
     const existing = reactionsByActivity.get(reaction.activity_id) ?? [];
     existing.push(reaction);
     reactionsByActivity.set(reaction.activity_id, existing);
+  }
+  const commentsByActivity = new Map<string, ActivityComment[]>();
+  for (const comment of commentsResult.data ?? []) {
+    const existing = commentsByActivity.get(comment.activity_id) ?? [];
+    existing.push({
+      id: comment.id,
+      activityId: comment.activity_id,
+      authorId: comment.author_id,
+      authorDisplayName: comment.author_display_name,
+      body: comment.body,
+      createdAt: comment.created_at,
+    });
+    commentsByActivity.set(comment.activity_id, existing);
   }
 
   const items: readonly ActivityItem[] = rows.map((row) => {
@@ -282,9 +298,66 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
       createdAt: row.created_at,
       reactionCounts,
       myReaction,
+      comments: commentsByActivity.get(row.id) ?? [],
     };
   });
   return { ok: true, items };
+}
+
+/**
+ * The Kin activity feed: real Kin activity only, never the caller's own —
+ * every consumer of this feed (Home's "From your Kin" module, the Kin tab's
+ * Activity list) is specifically about what a Kin did, not a combined
+ * "me + Kin" timeline. RLS's own select policy (20260815000000) is
+ * necessarily broader (own activity plus accepted Kin's, since a user must
+ * also be able to see their own social_activity rows through other paths,
+ * e.g. reactions on their own activity) — the `.neq('owner_id', userId)`
+ * below is this feed's own, additional application-layer scoping on top of
+ * that RLS floor, not a relaxation of it. Newest first, capped at a small,
+ * restrained window — this is meant to feel like a short list of recent
+ * moments, never an endless feed. See fetchOwnActivityWithComments below
+ * for the deliberately separate, owner-facing counterpart to this feed.
+ */
+export async function fetchKinActivity(userId: string, limit = 30): Promise<FetchActivityResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (!userId) return { ok: false, kind: 'not_authenticated' };
+
+  const { data: rows, error } = await supabase
+    .from('social_activity')
+    .select('id, owner_id, challenge_id, kind, payload, created_at')
+    .neq('owner_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return { ok: false, ...classifyError(error) };
+  return hydrateActivityItems(rows ?? [], userId);
+}
+
+/**
+ * The owner-facing counterpart to fetchKinActivity: the caller's OWN recent
+ * activity that at least one Kin has actually commented on — "what did my
+ * Kin say about my update," never a second copy of the Kin-focused feed and
+ * never the caller appearing as their own Kin (see app/home/kin.tsx's own
+ * "ON YOUR UPDATES" section, which renders this deliberately without the
+ * usual avatar+name header a Kin's card gets). Filtered to items with at
+ * least one comment client-side rather than via a second RPC — an item with
+ * only reactions and no comments has no owner-facing "reply" to surface
+ * here, and social_activity's own RLS already lets an owner read their own
+ * rows for free, so this needs no new grant or policy.
+ */
+export async function fetchOwnActivityWithComments(userId: string, limit = 20): Promise<FetchActivityResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (!userId) return { ok: false, kind: 'not_authenticated' };
+
+  const { data: rows, error } = await supabase
+    .from('social_activity')
+    .select('id, owner_id, challenge_id, kind, payload, created_at')
+    .eq('owner_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return { ok: false, ...classifyError(error) };
+  const result = await hydrateActivityItems(rows ?? [], userId);
+  if (!result.ok) return result;
+  return { ok: true, items: result.items.filter((item) => item.comments.length > 0) };
 }
 
 export type KinCurrentChallenge = {
@@ -345,7 +418,12 @@ export async function fetchKinCurrentChallenges(userId: string): Promise<FetchKi
   return { ok: true, challenges };
 }
 
-export const REACTION_KINDS = ['respect', 'nice', 'worth_it', 'ouch', 'brutal'] as const;
+// Standard Unicode emoji, not a branded semantic vocabulary — see
+// 20260907000000_activity_comments_and_emoji_reactions.sql's own comment for
+// why the old word-based set (respect/nice/worth_it/ouch/brutal) was
+// replaced rather than relabeled: it read as Kinwin prescribing how a
+// friend is allowed to respond, not real friends interacting.
+export const REACTION_KINDS = ['🔥', '❤️', '😂', '😬', '👑'] as const;
 export type ReactionKind = (typeof REACTION_KINDS)[number];
 
 export type ReactionActionResult =
@@ -397,6 +475,7 @@ export async function submitSocialReport(
   reportedUserId: string,
   reason: ReportReason,
   activityId: string | null = null,
+  commentId: string | null = null,
 ): Promise<SubmitReportResult> {
   if (!supabase) return { ok: false, kind: 'not_configured' };
 
@@ -404,6 +483,7 @@ export async function submitSocialReport(
     p_reported_user_id: reportedUserId,
     p_reported_activity_id: activityId,
     p_reason: reason,
+    p_reported_comment_id: commentId,
   });
   if (error) return { ok: false, kind: 'rejected', message: error.message };
 
@@ -412,4 +492,74 @@ export async function submitSocialReport(
     return { ok: true, status: result.status };
   }
   return { ok: false, kind: 'unknown', message: 'The server did not confirm the report.' };
+}
+
+export type AddCommentResult =
+  | { readonly ok: true; readonly comment: ActivityComment }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' | 'empty' | 'too_long' }
+  | { readonly ok: false; readonly kind: 'rejected'; readonly message: string }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * Posts a flat (no threading) comment on a Kin's activity item — the actual
+ * carrier of friendship-specific tone the fixed emoji reactions above
+ * cannot express. Trimmed and length-checked here as a fast client-side
+ * rejection; the real, authoritative boundary is server-side (the 200-char
+ * table check constraint and the content-filter trigger — see
+ * 20260907000000_activity_comments_and_emoji_reactions.sql), so a client
+ * bypass can never post something the server wouldn't have accepted anyway.
+ * authorId is always the caller's own id — RLS independently enforces this
+ * regardless of what's passed here, so this can never forge another
+ * person's authorship even if a caller were modified to try.
+ */
+export async function addActivityComment(authorId: string, activityId: string, body: string): Promise<AddCommentResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (!authorId) return { ok: false, kind: 'not_authenticated' };
+  const validation = validateCommentBody(body);
+  if (!validation.ok) return { ok: false, kind: validation.kind };
+
+  const { data, error } = await supabase
+    .from('activity_comments')
+    .insert({ activity_id: activityId, author_id: authorId, body: validation.trimmed })
+    .select('id, activity_id, author_id, author_display_name, body, created_at')
+    .single();
+  if (error) return { ok: false, kind: 'rejected', message: error.message };
+
+  return {
+    ok: true,
+    comment: {
+      id: data.id,
+      activityId: data.activity_id,
+      authorId: data.author_id,
+      // The real server-written snapshot (see the BEFORE INSERT trigger in
+      // 20260907000000_activity_comments_and_emoji_reactions.sql) rather
+      // than a hardcoded "You" — correct even if the caller's own
+      // display_name is blank, matching what every other viewer of this
+      // comment will actually see.
+      authorDisplayName: data.author_display_name,
+      body: data.body,
+      createdAt: data.created_at,
+    },
+  };
+}
+
+export type DeleteCommentResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly kind: 'not_configured' }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * Deletes a comment — permitted by RLS for either the comment's own author
+ * or the owner of the activity item it was posted on (removing an unwanted
+ * comment from their own moment without needing to block/report the
+ * commenter). Which of those two the caller actually is doesn't need to be
+ * passed here: the delete simply affects zero rows if RLS denies it, same
+ * pattern as clearMyReaction above.
+ */
+export async function deleteActivityComment(commentId: string): Promise<DeleteCommentResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { error } = await supabase.from('activity_comments').delete().eq('id', commentId);
+  if (error) return { ok: false, kind: 'unknown', message: error.message };
+  return { ok: true };
 }
