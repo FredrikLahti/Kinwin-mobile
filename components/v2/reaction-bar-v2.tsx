@@ -23,6 +23,15 @@ type ReactionBarV2Props = {
   readonly disabled?: boolean;
   /** Accessible label prefix, e.g. "React to Alex's update". */
   readonly contextLabel: string;
+  /**
+   * False on the owner's own "ON YOUR UPDATES" cards (app/home/kin.tsx):
+   * reactions are lightweight acknowledgment FROM Kin, not something an
+   * owner contributes to their own update. Still shows whatever counts Kin
+   * already left (e.g. "three people reacted 🔥") — only the "+" picker and
+   * the ability to tap/change/remove a reaction are removed, as plain,
+   * non-pressable chips. Defaults to true (the normal Kin-feed behavior).
+   */
+  readonly interactive?: boolean;
 };
 
 /**
@@ -36,7 +45,7 @@ type ReactionBarV2Props = {
  * own reaction vocabulary and local-only state were fixture-specific and
  * are not reused here.
  */
-export function ReactionBarV2({ contextLabel, disabled, myReaction, onToggle, reactionCounts }: ReactionBarV2Props) {
+export function ReactionBarV2({ contextLabel, disabled, interactive = true, myReaction, onToggle, reactionCounts }: ReactionBarV2Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const active = REACTION_KINDS.filter((kind) => (reactionCounts[kind] ?? 0) > 0 || myReaction === kind);
   const remaining = REACTION_KINDS.filter((kind) => !active.includes(kind));
@@ -46,6 +55,27 @@ export function ReactionBarV2({ contextLabel, disabled, myReaction, onToggle, re
     setPickerOpen(false);
     onToggle(kind);
   };
+
+  if (!interactive) {
+    if (active.length === 0) return null;
+    return (
+      <View style={styles.row}>
+        {active.map((kind) => {
+          const count = reactionCounts[kind] ?? 0;
+          return (
+            <View
+              accessibilityLabel={`${contextLabel}: ${REACTION_ACCESSIBILITY_NAMES[kind]}${count > 0 ? `, ${count}` : ''}`}
+              key={kind}
+              style={styles.chip}
+            >
+              <Text style={styles.emoji}>{kind}</Text>
+              {count > 0 && <Text style={styles.count}>{count}</Text>}
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.row}>

@@ -139,8 +139,9 @@ function ActivityCard({
         {describeActivityEvent(item)}
       </Text>
       <ReactionBarV2
-        contextLabel={isOwn ? 'React to your update' : `React to ${item.ownerDisplayName}'s update`}
+        contextLabel={isOwn ? 'Reactions on your update' : `React to ${item.ownerDisplayName}'s update`}
         disabled={reacting}
+        interactive={!isOwn}
         myReaction={item.myReaction}
         onToggle={(kind) => onToggleReaction(item, kind)}
         reactionCounts={item.reactionCounts}
