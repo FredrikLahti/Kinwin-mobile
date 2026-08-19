@@ -18,7 +18,7 @@ import {
   PendingCommitment,
 } from '@/lib/supabase/challenge-repository';
 import { activateChallenge } from '@/lib/supabase/active-challenge-repository';
-import { calculateSuccessRule } from '@/lib/success-rule';
+import { resolvePersistedSuccessRule } from '@/lib/success-rule';
 
 function formatNames(names: string[]) {
   if (names.length === 0) return 'your recipients';
@@ -259,10 +259,7 @@ export default function PendingCommitmentScreen() {
 }
 
 function CommitmentSummary({ commitment }: { readonly commitment: PendingCommitment }) {
-  const successRule = calculateSuccessRule({
-    ...commitment.draftData,
-    rhythm: { ...commitment.draftData.rhythm, selectedWeekdays: [...commitment.draftData.rhythm.selectedWeekdays] },
-  });
+  const successRule = resolvePersistedSuccessRule(commitment.draftData);
   const recipientNames = commitment.recipients.map((recipient) => recipient.displayName);
   const stakeLabel = formatMoney(commitment.stakeMinorUnits, commitment.currency);
 

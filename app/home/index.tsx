@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { ProgressBarV2 } from '@/components/v2/stat-bar';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
 import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
@@ -17,7 +18,15 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useRealActiveChallenge } from '@/hooks/use-real-active-challenge';
 import { useRecentCompletedChallenge } from '@/hooks/use-recent-completed-challenge';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
-import { describeChallengeIdentity, describeUpcomingStart, statusTone } from '@/lib/home/challenge-summary';
+import {
+  computeHeroProgressPercent,
+  describeChallengeIdentity,
+  describeConsequence,
+  describeDurationPosition,
+  describeProgress,
+  describeUpcomingStart,
+  statusTone,
+} from '@/lib/home/challenge-summary';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate, shouldRefreshCompletedAfterActiveTransition } from '@/lib/home/completed-challenge';
 import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
@@ -164,6 +173,20 @@ export default function HomeV2() {
   const isComplete =
     real.status === 'ready' && (real.view.finalResult !== null || real.data.challenge.status === 'awaiting_resolution');
   const identity = real.status === 'ready' ? describeChallengeIdentity(real.data.challenge) : null;
+  // Real, honestly-computable progress only — the same adapter the
+  // challenge detail screen already uses (lib/home/challenge-summary.ts),
+  // never a fabricated streak/score. periodsTotal is 0 for a just-activated
+  // challenge whose periods haven't generated yet, hence the guard.
+  const durationPosition = real.status === 'ready' ? describeDurationPosition(focusPeriod, real.view.progress.periodsTotal) : null;
+  const progressLine = real.status === 'ready'
+    ? describeProgress(real.data.challenge, real.view.currentPeriodStatus, real.view.progress, focusPeriod)
+    : null;
+  const progressPercent = real.status === 'ready'
+    ? computeHeroProgressPercent(real.view.direction, real.view.progress.periodsClosed, real.view.progress.periodsTotal)
+    : null;
+  // Restrained secondary reminder (Section 15) — real stake snapshot data,
+  // never phrased as a threat, never showing the owner as a beneficiary.
+  const consequence = real.status === 'ready' ? describeConsequence(real.data.challenge) : null;
   const completedIdentity = completed.status === 'ready' ? describeChallengeIdentity(completed.data.snapshot) : null;
   const completedPresentation = completed.status === 'ready' ? describeChallengeResult(completed.data.status) : null;
   const completedRewardPresentation = completed.status === 'ready' && completed.data.rewardProgress ? describeOwnerRewardStatus(completed.data.rewardProgress) : null;
@@ -237,9 +260,6 @@ export default function HomeV2() {
                     <Text style={[styles.heroStatus, HERO_STATUS_TONE_STYLE[isUpcoming ? 'neutral' : statusTone(real.view.currentPeriodStatus.kind)]]}>
                       {isUpcoming && focusPeriod ? describeUpcomingStart(focusPeriod.startsAt, new Date().toISOString(), real.data.challenge.timezone) : real.view.currentPeriodCopy}
                     </Text>
-                    {!isUpcoming && Boolean(real.view.timeRemaining) && (
-                      <Text style={styles.heroTimeRemaining}>{real.view.timeRemaining}</Text>
-                    )}
                     {real.view.nextAction.kind !== 'none' && (
                       <View style={styles.heroAction}>
                         <PrimaryButtonV2
@@ -253,7 +273,26 @@ export default function HomeV2() {
                     {Boolean(real.view.nextAction.detail) && (
                       <Text style={styles.heroDetail}>{real.view.nextAction.detail}</Text>
                     )}
+
+                    {!isUpcoming && progressPercent !== null && (
+                      <View style={styles.heroProgress}>
+                        <View style={styles.heroProgressHeader}>
+                          {durationPosition && <Text style={styles.heroProgressLabel}>{durationPosition}</Text>}
+                          {progressLine && <Text style={styles.heroProgressLabel}>{progressLine}</Text>}
+                        </View>
+                        <ProgressBarV2 percent={progressPercent} />
+                      </View>
+                    )}
+                    {!isUpcoming && Boolean(real.view.timeRemaining) && (
+                      <Text style={styles.heroTimeRemaining}>{real.view.timeRemaining}</Text>
+                    )}
                   </>
+                )}
+
+                {consequence && (
+                  <Text style={styles.heroConsequence}>
+                    {consequence.stakeLabel} at stake · {consequence.recipientsCompact} · {consequence.categoryLabel}
+                  </Text>
                 )}
 
                 <View style={styles.heroLinks}>
@@ -472,6 +511,10 @@ const styles = StyleSheet.create({
   heroTimeRemaining: { color: theme.colors.warmGrey, fontSize: 12 },
   heroDetail: { color: theme.colors.warmGrey, fontSize: 12, lineHeight: 17 },
   heroAction: { marginTop: 6 },
+  heroProgress: { marginTop: 10, gap: 6 },
+  heroProgressHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  heroProgressLabel: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700' },
+  heroConsequence: { marginTop: 10, color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
   heroLinks: { marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   heroLink: { minHeight: 32, justifyContent: 'center' },
   heroLinkText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },

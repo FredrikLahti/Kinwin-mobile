@@ -3,6 +3,7 @@ import type {
   MeasurementMode,
   RhythmState,
 } from '@/contexts/onboarding-context';
+import type { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 import { deriveStructuredSuccessRule } from '../domain/challenge/success-rule';
 
 type SuccessRuleInput = {
@@ -146,4 +147,26 @@ export function calculateSuccessRule(
   }
 
   return null;
+}
+
+/**
+ * Presents an already-defined, restored/persisted draft (a fetched
+ * PendingCommitment's draftData, or any other server-round-tripped
+ * OnboardingDraftData) exactly as it was actually defined — including a
+ * stricter V2 Success Means selection (successThresholdOverride). Calling
+ * calculateSuccessRule directly on this kind of data and forgetting its
+ * second argument silently renders Kinwin's V1 baseline instead of the real
+ * persisted threshold: the underlying commitment stays correct, but the
+ * user would see a weaker promise than the one they actually made. Callers
+ * presenting a restored/persisted draft should prefer this over calling
+ * calculateSuccessRule directly, so that omission can't happen again.
+ */
+export function resolvePersistedSuccessRule(draftData: OnboardingDraftData): SuccessRule | null {
+  return calculateSuccessRule(
+    {
+      ...draftData,
+      rhythm: { ...draftData.rhythm, selectedWeekdays: [...draftData.rhythm.selectedWeekdays] },
+    },
+    draftData.successThresholdOverride,
+  );
 }

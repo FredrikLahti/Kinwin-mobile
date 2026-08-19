@@ -92,3 +92,16 @@ test('no beta intent at all (ordinary local development) resolves exactly as bef
   assert.equal(config.expo.slug, 'kinwin-mobile');
   assert.equal(config.expo.ios.associatedDomains, undefined);
 });
+
+// Regression coverage for the launch/splash white-flash fix: the native
+// splash and Android adaptive icon already used the dark '#1a1212'
+// background — userInterfaceStyle was the one config value still forcing a
+// light system chrome between them, producing a visible white flash. This
+// pins all three to the same dark language so a future edit can't
+// reintroduce that mismatch silently.
+test('launch chrome stays dark end to end: userInterfaceStyle matches the dark splash and adaptive-icon backgrounds', () => {
+  const config = loadConfigWith({});
+  assert.equal(config.expo.userInterfaceStyle, 'dark');
+  assert.equal(config.expo.splash.backgroundColor, '#1a1212');
+  assert.equal(config.expo.android.adaptiveIcon.backgroundColor, '#1a1212');
+});

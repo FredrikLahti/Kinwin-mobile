@@ -1,7 +1,8 @@
-import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { CommitmentAuthModalV2 } from '@/components/v2/commitment-auth-modal';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
@@ -15,14 +16,14 @@ import { creationSessionStorage } from '@/lib/challenge-creation/creation-sessio
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
-import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { formatMoney } from '@/lib/home/challenge-summary';
+import { ConflictKind, resolveCommitmentGateAction, resolveConflictLeaveRoute } from '@/lib/challenge-creation/review-commitment-gate';
 import { calculateSuccessRule } from '@/lib/success-rule';
 import { saveChallengeDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment, prepareChallengeFromDraft } from '@/lib/supabase/challenge-repository';
 
-type SaveState = 'idle' | 'signed_out' | 'saving' | 'preparing' | 'error' | 'conflict';
-type ConflictKind = 'pending_conflict' | 'active_conflict';
+type SaveState = 'idle' | 'saving' | 'preparing' | 'error' | 'conflict';
 
 const CATEGORY_LABELS: Record<ExperienceCategory, string> = {
   adventure: 'Adventure',
@@ -37,7 +38,6 @@ export default function CreateReviewScreen() {
   const reducedMotion = useReducedMotion();
   const onboarding = useOnboarding();
   const { status: authStatus, user } = useAuth();
-  const { resumeSave } = useLocalSearchParams<{ resumeSave?: string }>();
   const {
     behaviorDirection,
     behaviorText,
@@ -65,7 +65,7 @@ export default function CreateReviewScreen() {
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [lastFailedStep, setLastFailedStep] = useState<'save' | 'prepare' | null>(null);
   const [conflictKind, setConflictKind] = useState<ConflictKind | null>(null);
-  const resumedRef = useRef(false);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'review');
 
   // A previously prepared commitment archives its source draft on the
@@ -143,7 +143,12 @@ export default function CreateReviewScreen() {
   );
 
   const advanceToShare = useCallback(() => {
-    void playImportantHaptic();
+    // This is the exact moment a real, server-owned pending commitment
+    // (money genuinely at stake) has just been created — playCommitmentHaptic
+    // is deliberately reserved for that kind of consequential boundary (see
+    // lib/haptics.ts), distinct from the lighter playImportantHaptic used
+    // for ordinary primary-button taps elsewhere in this flow.
+    void playCommitmentHaptic();
     // The draft this id pointed to is now archived server-side and can
     // never be reused — clearing it here is what makes it safe if the user
     // somehow lands back on this screen later (the focus guard above is the
@@ -222,8 +227,14 @@ export default function CreateReviewScreen() {
   }, [advanceToShare]);
 
   const saveDraft = useCallback(async () => {
-    if (authStatus !== 'signed_in' || !user) {
-      setSaveState('signed_out');
+    // The account gate sits here, at the last possible moment: signing in
+    // only unlocks this same explicit "Confirm commitment" action to run
+    // again (see confirmCommitment below) — it never runs saveDraft (and
+    // therefore prepareChallengeFromDraft) by itself. Closing the modal,
+    // for any reason including a successful sign-in, always returns here
+    // with the draft untouched.
+    if (resolveCommitmentGateAction(authStatus) === 'open_auth_modal' || !user) {
+      setAuthModalVisible(true);
       return;
     }
     setSaveState('saving');
@@ -274,13 +285,6 @@ export default function CreateReviewScreen() {
     setSavedDraftId, sitOutAcknowledged, stakeAmount, user,
   ]);
 
-  useEffect(() => {
-    if (resumeSave !== '1' || resumedRef.current) return;
-    resumedRef.current = true;
-    if (draftIsValid && authStatus === 'signed_in') void saveDraft();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus, resumeSave]);
-
   const toggleAcknowledgement = () => {
     void playSelectionHaptic();
     setSitOutAcknowledged((current) => !current);
@@ -308,13 +312,15 @@ export default function CreateReviewScreen() {
   // whatever the user's current challenge actually is.
   const leaveConflict = () => {
     void playImportantHaptic();
-    router.replace((conflictKind === 'pending_conflict' ? '/account/pending-commitment' : '/home') as Href);
+    if (!conflictKind) return;
+    router.replace(resolveConflictLeaveRoute(conflictKind) as Href);
   };
 
   const busy = saveState === 'saving' || saveState === 'preparing';
   const conflicted = saveState === 'conflict';
 
   return (
+    <>
     <CreateFlowScreenV2
       backHint="Returns to the consequence"
       currentStep={currentStep}
@@ -347,17 +353,6 @@ export default function CreateReviewScreen() {
                     <Text style={styles.retryText}>Retry</Text>
                   </Pressable>
                 </View>
-              )}
-              {saveState === 'signed_out' && (
-                <Pressable
-                  accessibilityHint="Opens sign in, then returns here to save your commitment"
-                  accessibilityRole="button"
-                  hitSlop={6}
-                  onPress={() => router.push('/auth?returnTo=/create/review&resumeSave=1' as Href)}
-                  style={styles.retryAction}
-                >
-                  <Text style={styles.retryText}>Sign in to save your commitment</Text>
-                </Pressable>
               )}
               <PrimaryButtonV2
                 accessibilityHint={draftIsValid ? 'Saves your commitment and continues to sharing' : 'Confirm you will not take part in the reward before continuing'}
@@ -437,6 +432,8 @@ export default function CreateReviewScreen() {
         <Text style={styles.membershipText}>Kinwin membership is free during the beta. No card is charged for membership.</Text>
       </View>
     </CreateFlowScreenV2>
+    <CommitmentAuthModalV2 onClose={() => setAuthModalVisible(false)} visible={authModalVisible} />
+    </>
   );
 }
 

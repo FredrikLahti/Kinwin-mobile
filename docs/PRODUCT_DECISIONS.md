@@ -216,7 +216,17 @@ TEST beta and a real-money production launch must remain clearly distinguishable
 * The goal supplies meaning; the controllable behavior is defined in the following step.
 * The brand concept experiment validated semantic haptics and restrained motion, but its UI layout was not approved as production design.
 * Interaction rule: a user should be able to predict what will happen from where they touch. If an entire row is tappable, the row must visually communicate that it is a control (a border, background, or pill). If only text looks interactive, only the text plus a reasonable touch margin should trigger it — no large invisible hitboxes.
-* Future Home direction (not yet built): Home may eventually contain a restrained social section below the user's own current challenge, showing only highly relevant recent activity from their Kin. It should make Home feel alive without turning it into a feed-first social network. The hierarchy stays: (1) my challenge / what I need to do now, (2) relevant Kin activity, (3) everything else lives elsewhere (Kin tab, Me).
+* Home already implements the hierarchy this bullet used to describe as future work: (1) the user's own current commitment — identity, current requirement/status, primary action, real progress, time remaining, then stake/recipients as a restrained secondary reminder — before (2) a small, capped "From your Kin" section, which is entirely absent when there is nothing relevant to show. Everything else (reactions, discovery, a feed) still lives elsewhere (Kin tab, Me) and remains out of scope for Home.
+
+## Commitment journey and account gate
+
+Locked from the commitment-home-ux package (launch/landing, account gate, Review/auth integration, and Home hierarchy):
+
+* A first-time user may complete the entire challenge definition — goal, type, rule/frequency, duration, Success Means, recipients, consequence/stake, and Review — while signed out. Review stays fully readable without an account; nothing earlier in the flow interrupts to demand sign-in.
+* Account creation is the last gate before commitment, not a separate detour: it is presented as a contextual modal from within Review itself (not a full-screen route), so the draft the user just built never has to survive being navigated away from and back.
+* Authentication succeeding is never, by itself, sufficient to save, prepare, or activate a challenge. Signing in or up only unlocks the same explicit "Confirm commitment" action to be tapped again; the actual server-side commitment (`prepare_challenge_from_draft`) only ever runs from that explicit tap, never from an auth-status effect. (This closed a real pre-existing gap: the old `resumeSave=1` mechanism auto-saved the moment a sign-in redirect returned, with no further explicit action — removed as part of this package.)
+* Home's hierarchy centers the user's one current commitment — see the updated "Future Home direction" bullet above, now implemented rather than planned.
+* Kin activity on Home stays a small, secondary, capped module, absent entirely when empty — never redesigned into a feed as part of this or any UX-polish package.
 
 ## Current scope
 
