@@ -37,6 +37,7 @@ import {
   fetchKinConnections,
   fetchKinCurrentChallenges,
   fetchMyKinCode,
+  fetchOwnActivityWithComments,
   redeemKinCode,
   removeKin,
   searchKin,
@@ -71,6 +72,145 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+type ActivityCardProps = {
+  readonly item: ActivityItem;
+  /**
+   * True only for the "ON YOUR UPDATES" section's own cards — never true in
+   * the Kin feed itself (fetchKinActivity already excludes the caller's own
+   * rows, so this can't happen there anyway). Controls the header: an own
+   * card never shows an avatar/name, so the caller is never rendered as if
+   * they were one of their own Kin — see this component's own call sites.
+   */
+  readonly isOwn: boolean;
+  readonly currentUserId: string | undefined;
+  readonly reacting: boolean;
+  readonly onToggleReaction: (item: ActivityItem, kind: ReactionKind) => void;
+  readonly onReportActivity: (item: ActivityItem) => void;
+  readonly commentDraft: string;
+  readonly onChangeCommentDraft: (activityId: string, text: string) => void;
+  readonly postingComment: boolean;
+  readonly onSubmitComment: (activityId: string) => void;
+  readonly expanded: boolean;
+  readonly onToggleExpand: (activityId: string) => void;
+  readonly onDeleteComment: (activityId: string, comment: ActivityComment) => void;
+  readonly onReportComment: (comment: ActivityComment) => void;
+};
+
+/**
+ * One Activity card — event content, then reactions, then a short comment
+ * preview/expansion, then Add a comment. Shared by the Kin feed and the
+ * owner-facing "ON YOUR UPDATES" section (app/home/kin.tsx's own KinV2) so
+ * the two never drift into two different comment/reaction implementations.
+ */
+function ActivityCard({
+  commentDraft, currentUserId, expanded, isOwn, item, onChangeCommentDraft, onDeleteComment, onReportActivity, onReportComment,
+  onSubmitComment, onToggleExpand, onToggleReaction, postingComment, reacting,
+}: ActivityCardProps) {
+  return (
+    <View style={styles.activityCard}>
+      <View style={styles.activityHeader}>
+        {isOwn ? (
+          <View style={styles.activityCopy}>
+            <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
+          </View>
+        ) : (
+          <>
+            <AvatarV2 size={40} />
+            <View style={styles.activityCopy}>
+              <Text style={styles.activityName}>{item.ownerDisplayName}</Text>
+              <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
+            </View>
+          </>
+        )}
+        <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
+        {!isOwn && (
+          <Pressable
+            accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onReportActivity(item)}
+            style={styles.reportButton}
+          >
+            <Feather color={theme.colors.warmGrey} name="flag" size={14} />
+          </Pressable>
+        )}
+      </View>
+      <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
+        {describeActivityEvent(item)}
+      </Text>
+      <ReactionBarV2
+        contextLabel={isOwn ? 'React to your update' : `React to ${item.ownerDisplayName}'s update`}
+        disabled={reacting}
+        myReaction={item.myReaction}
+        onToggle={(kind) => onToggleReaction(item, kind)}
+        reactionCounts={item.reactionCounts}
+      />
+
+      {item.comments.length > 0 && (
+        <View style={styles.commentsList}>
+          {(expanded ? item.comments : item.comments.slice(-COMMENT_PREVIEW_COUNT)).map((comment) => {
+            const canDelete = comment.authorId === currentUserId || item.ownerId === currentUserId;
+            return (
+              <View key={comment.id} style={styles.commentRow}>
+                <View style={styles.commentCopy}>
+                  <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
+                  <Text style={styles.commentBody}>{comment.body}</Text>
+                </View>
+                {canDelete ? (
+                  <Pressable
+                    accessibilityHint="Deletes this comment"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => onDeleteComment(item.id, comment)}
+                    style={styles.commentActionButton}
+                  >
+                    <Feather color={theme.colors.warmGrey} name="x" size={13} />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    accessibilityHint={`Reports ${comment.authorDisplayName}'s comment`}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => onReportComment(comment)}
+                    style={styles.commentActionButton}
+                  >
+                    <Feather color={theme.colors.warmGrey} name="flag" size={12} />
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
+          {item.comments.length > COMMENT_PREVIEW_COUNT && !expanded && (
+            <Pressable accessibilityRole="button" onPress={() => onToggleExpand(item.id)} style={styles.viewCommentsLink}>
+              <Text style={styles.viewCommentsLinkText}>View all {item.comments.length} comments</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      <View style={styles.addCommentRow}>
+        <TextInputV2
+          maxLength={200}
+          onChangeText={(text) => onChangeCommentDraft(item.id, text)}
+          placeholder="Add a comment"
+          placeholderTextColor={theme.colors.warmGrey}
+          style={styles.addCommentInput}
+          value={commentDraft}
+        />
+        <Pressable
+          accessibilityHint="Posts your comment"
+          accessibilityRole="button"
+          disabled={!commentDraft.trim() || postingComment}
+          onPress={() => onSubmitComment(item.id)}
+          style={({ pressed }) => [styles.postCommentButton, pressed && styles.postCommentButtonPressed]}
+        >
+          <Text style={styles.postCommentButtonText}>Post</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function KinV2() {
   const { user } = useAuth();
   const reducedMotion = useReducedMotion();
@@ -79,6 +219,7 @@ export default function KinV2() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<readonly KinConnection[]>([]);
   const [activity, setActivity] = useState<readonly ActivityItem[]>([]);
+  const [ownActivity, setOwnActivity] = useState<readonly ActivityItem[]>([]);
   const [currentChallenges, setCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
   const [addKinOpen, setAddKinOpen] = useState(false);
   const [manageTarget, setManageTarget] = useState<KinConnection | null>(null);
@@ -96,7 +237,7 @@ export default function KinV2() {
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
   const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [postingCommentId, setPostingCommentId] = useState<string | null>(null);
+  const [postingCommentIds, setPostingCommentIds] = useState<Set<string>>(new Set());
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const searchRequestId = useRef(0);
   // The actual concurrency mutex for toggleReaction — a ref, not the
@@ -106,6 +247,12 @@ export default function KinV2() {
   // fires before that render happens. reactingIds itself is kept only to
   // drive the disabled visual state on the reaction chips.
   const reactionInFlightRef = useRef<Set<string>>(new Set());
+  // Identical rationale and shape as reactionInFlightRef, for comment
+  // submission: two rapid taps on Post can both fire before React commits
+  // the postingCommentIds state update from the first tap, so state alone
+  // cannot prevent a duplicate insert. postingCommentIds itself is kept
+  // only to drive the disabled visual state on the Post button.
+  const postingCommentInFlightRef = useRef<Set<string>>(new Set());
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds((current) => {
@@ -127,16 +274,29 @@ export default function KinV2() {
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const [connectionsResult, activityResult, currentResult] = await Promise.all([
+    const [connectionsResult, activityResult, ownActivityResult, currentResult] = await Promise.all([
       fetchKinConnections(user.id),
       fetchKinActivity(user.id),
+      fetchOwnActivityWithComments(user.id),
       fetchKinCurrentChallenges(user.id),
     ]);
     if (connectionsResult.ok) setConnections(connectionsResult.connections);
     if (activityResult.ok) setActivity(activityResult.items);
+    if (ownActivityResult.ok) setOwnActivity(ownActivityResult.items);
     if (currentResult.ok) setCurrentChallenges(currentResult.challenges);
     setLoading(false);
   }, [user]);
+
+  // Applies an update to whichever of the two lists actually contains this
+  // activity id — activity (Kin feed) and ownActivity (ON YOUR UPDATES) are
+  // mutually exclusive by construction (fetchKinActivity excludes the
+  // caller's own rows; fetchOwnActivityWithComments requires them), so
+  // exactly one of these two setState calls ever matches. Shared by
+  // reaction and comment optimistic updates below.
+  const updateActivityItem = (activityId: string, updater: (entry: ActivityItem) => ActivityItem) => {
+    setActivity((current) => current.map((entry) => (entry.id === activityId ? updater(entry) : entry)));
+    setOwnActivity((current) => current.map((entry) => (entry.id === activityId ? updater(entry) : entry)));
+  };
 
   // The Kin tab stays mounted across visits (it lives inside the same Tabs
   // navigator as Home/Me — see app/home/_layout.tsx), so a plain
@@ -339,13 +499,12 @@ export default function KinV2() {
     setReacting(item.id, true);
     try {
       const isMine = item.myReaction === kind;
-      setActivity((current) => current.map((entry) => {
-        if (entry.id !== item.id) return entry;
+      updateActivityItem(item.id, (entry) => {
         const counts = { ...entry.reactionCounts };
         if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
         if (!isMine) counts[kind] = (counts[kind] ?? 0) + 1;
         return { ...entry, myReaction: isMine ? null : kind, reactionCounts: counts };
-      }));
+      });
       const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, kind);
       // setMyReaction is a delete-then-insert on the server, not one atomic
       // write, so a failure can leave the server in neither the "before" nor
@@ -370,21 +529,30 @@ export default function KinV2() {
   };
 
   const submitComment = async (activityId: string) => {
-    if (!user) return;
+    // Same synchronous-ref-mutex requirement as toggleReaction above: two
+    // rapid taps on Post can both run this function against the same
+    // pre-update render before either postingCommentIds state write has
+    // committed, so state alone cannot stop the second call from also
+    // inserting. The ref is checked and claimed synchronously, before any
+    // await, so the second call always sees the first call's claim.
+    if (!user || postingCommentInFlightRef.current.has(activityId)) return;
     const draft = (commentDrafts[activityId] ?? '').trim();
-    if (!draft || postingCommentId) return;
+    if (!draft) return;
+    postingCommentInFlightRef.current.add(activityId);
     void playSelectionHaptic();
-    setPostingCommentId(activityId);
-    const result = await addActivityComment(user.id, activityId, draft);
-    setPostingCommentId(null);
-    if (!result.ok) {
-      Alert.alert('Could not post that comment', 'Please try again.');
-      return;
+    setPostingCommentIds((current) => new Set(current).add(activityId));
+    try {
+      const result = await addActivityComment(user.id, activityId, draft);
+      if (!result.ok) {
+        Alert.alert('Could not post that comment', 'Please try again.');
+        return;
+      }
+      setCommentDrafts((current) => ({ ...current, [activityId]: '' }));
+      updateActivityItem(activityId, (entry) => ({ ...entry, comments: [...entry.comments, result.comment] }));
+    } finally {
+      postingCommentInFlightRef.current.delete(activityId);
+      setPostingCommentIds((current) => { const next = new Set(current); next.delete(activityId); return next; });
     }
-    setCommentDrafts((current) => ({ ...current, [activityId]: '' }));
-    setActivity((current) => current.map((entry) => (
-      entry.id === activityId ? { ...entry, comments: [...entry.comments, result.comment] } : entry
-    )));
   };
 
   const confirmDeleteComment = (activityId: string, comment: ActivityComment) => {
@@ -398,9 +566,7 @@ export default function KinV2() {
               Alert.alert('Could not delete that comment', 'Please try again.');
               return;
             }
-            setActivity((current) => current.map((entry) => (
-              entry.id === activityId ? { ...entry, comments: entry.comments.filter((c) => c.id !== comment.id) } : entry
-            )));
+            updateActivityItem(activityId, (entry) => ({ ...entry, comments: entry.comments.filter((c) => c.id !== comment.id) }));
           })();
         },
       },
@@ -519,99 +685,56 @@ export default function KinV2() {
                 )}
 
                 {activity.map((item) => (
-                  <View key={item.id} style={styles.activityCard}>
-                    <View style={styles.activityHeader}>
-                      <AvatarV2 size={40} />
-                      <View style={styles.activityCopy}>
-                        <Text style={styles.activityName}>{item.ownerDisplayName}</Text>
-                        <Text style={styles.activityBehavior}>{describeChallengeIdentity({ behavior: item.behavior }).headline}</Text>
-                      </View>
-                      <Text style={styles.activityTime}>{relativeTime(item.createdAt)}</Text>
-                      {item.ownerId !== user?.id && (
-                        <Pressable
-                          accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
-                          accessibilityRole="button"
-                          hitSlop={8}
-                          onPress={() => openReport({ userId: item.ownerId, displayName: item.ownerDisplayName, activityId: item.id, commentId: null })}
-                          style={styles.reportButton}
-                        >
-                          <Feather color={theme.colors.warmGrey} name="flag" size={14} />
-                        </Pressable>
-                      )}
-                    </View>
-                    <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
-                      {describeActivityEvent(item)}
-                    </Text>
-                    <ReactionBarV2
-                      contextLabel={`React to ${item.ownerDisplayName}'s update`}
-                      disabled={reactingIds.has(item.id)}
-                      myReaction={item.myReaction}
-                      onToggle={(kind) => void toggleReaction(item, kind)}
-                      reactionCounts={item.reactionCounts}
-                    />
+                  <ActivityCard
+                    commentDraft={commentDrafts[item.id] ?? ''}
+                    currentUserId={user?.id}
+                    expanded={expandedComments.has(item.id)}
+                    isOwn={false}
+                    item={item}
+                    key={item.id}
+                    onChangeCommentDraft={updateCommentDraft}
+                    onDeleteComment={confirmDeleteComment}
+                    onReportActivity={(target) => openReport({ userId: target.ownerId, displayName: target.ownerDisplayName, activityId: target.id, commentId: null })}
+                    onReportComment={(comment) => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
+                    onSubmitComment={(activityId) => void submitComment(activityId)}
+                    onToggleExpand={toggleExpandComments}
+                    onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+                    postingComment={postingCommentIds.has(item.id)}
+                    reacting={reactingIds.has(item.id)}
+                  />
+                ))}
 
-                    {item.comments.length > 0 && (
-                      <View style={styles.commentsList}>
-                        {(expandedComments.has(item.id) ? item.comments : item.comments.slice(-COMMENT_PREVIEW_COUNT)).map((comment) => {
-                          const canDelete = comment.authorId === user?.id || item.ownerId === user?.id;
-                          return (
-                            <View key={comment.id} style={styles.commentRow}>
-                              <View style={styles.commentCopy}>
-                                <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
-                                <Text style={styles.commentBody}>{comment.body}</Text>
-                              </View>
-                              {canDelete ? (
-                                <Pressable
-                                  accessibilityHint="Deletes this comment"
-                                  accessibilityRole="button"
-                                  hitSlop={8}
-                                  onPress={() => confirmDeleteComment(item.id, comment)}
-                                  style={styles.commentActionButton}
-                                >
-                                  <Feather color={theme.colors.warmGrey} name="x" size={13} />
-                                </Pressable>
-                              ) : (
-                                <Pressable
-                                  accessibilityHint={`Reports ${comment.authorDisplayName}'s comment`}
-                                  accessibilityRole="button"
-                                  hitSlop={8}
-                                  onPress={() => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
-                                  style={styles.commentActionButton}
-                                >
-                                  <Feather color={theme.colors.warmGrey} name="flag" size={12} />
-                                </Pressable>
-                              )}
-                            </View>
-                          );
-                        })}
-                        {item.comments.length > COMMENT_PREVIEW_COUNT && !expandedComments.has(item.id) && (
-                          <Pressable accessibilityRole="button" onPress={() => toggleExpandComments(item.id)} style={styles.viewCommentsLink}>
-                            <Text style={styles.viewCommentsLinkText}>View all {item.comments.length} comments</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    )}
-
-                    <View style={styles.addCommentRow}>
-                      <TextInputV2
-                        maxLength={200}
-                        onChangeText={(text) => updateCommentDraft(item.id, text)}
-                        placeholder="Add a comment"
-                        placeholderTextColor={theme.colors.warmGrey}
-                        style={styles.addCommentInput}
-                        value={commentDrafts[item.id] ?? ''}
-                      />
-                      <Pressable
-                        accessibilityHint="Posts your comment"
-                        accessibilityRole="button"
-                        disabled={!((commentDrafts[item.id] ?? '').trim()) || postingCommentId === item.id}
-                        onPress={() => void submitComment(item.id)}
-                        style={({ pressed }) => [styles.postCommentButton, pressed && styles.postCommentButtonPressed]}
-                      >
-                        <Text style={styles.postCommentButtonText}>Post</Text>
-                      </Pressable>
-                    </View>
+                {/* Owner-facing counterpart to the Kin feed above: what Kin
+                    said about MY updates. Deliberately a separate,
+                    clearly-labeled section rather than folded into "RECENT
+                    ACTIVITY", so the caller never appears here as if they
+                    were one of their own Kin (ActivityCard's isOwn skips
+                    the avatar/name header entirely for these cards). Only
+                    shows items with at least one real comment, per
+                    fetchOwnActivityWithComments' own doc comment. */}
+                {ownActivity.length > 0 && (
+                  <View style={styles.currentlySection}>
+                    <Text style={styles.sectionLabel}>ON YOUR UPDATES</Text>
                   </View>
+                )}
+                {ownActivity.map((item) => (
+                  <ActivityCard
+                    commentDraft={commentDrafts[item.id] ?? ''}
+                    currentUserId={user?.id}
+                    expanded={expandedComments.has(item.id)}
+                    isOwn
+                    item={item}
+                    key={item.id}
+                    onChangeCommentDraft={updateCommentDraft}
+                    onDeleteComment={confirmDeleteComment}
+                    onReportActivity={() => {}}
+                    onReportComment={(comment) => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
+                    onSubmitComment={(activityId) => void submitComment(activityId)}
+                    onToggleExpand={toggleExpandComments}
+                    onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+                    postingComment={postingCommentIds.has(item.id)}
+                    reacting={reactingIds.has(item.id)}
+                  />
                 ))}
               </>
             ) : (

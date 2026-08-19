@@ -56,6 +56,16 @@ create table public.activity_comments (
   -- other content boundary in this schema (e.g. social_reports.detail's
   -- own length check).
   body text not null check (length(btrim(body)) > 0 and length(body) <= 200),
+  -- A denormalized, server-written snapshot of the author's display name at
+  -- comment-creation time — the same pattern social_activity.payload
+  -- already uses for challenge facts. Exists because comment visibility is
+  -- audience-of-the-activity-owner, not audience-of-each-other: two Kin who
+  -- both know the activity's owner but are not Kin with each other (see
+  -- private.enforce_comment_content_policy below) can legitimately see one
+  -- another's comments without either gaining generic profiles access to
+  -- the other. Always overwritten server-side by the BEFORE INSERT trigger
+  -- below regardless of what a client sends — never client-trusted.
+  author_display_name text not null,
   created_at timestamptz not null default now()
 );
 
@@ -134,17 +144,41 @@ revoke all on public.activity_comments from public, anon, authenticated;
 grant select, insert, delete on public.activity_comments to authenticated;
 grant select, insert, update, delete on public.activity_comments to service_role;
 
--- Reuses the exact same trusted content-filter primitive already enforced
--- on profiles.display_name and challenge activation text — no second
--- profanity/content system for comments.
+-- Two independent jobs on the same BEFORE INSERT trigger, both requiring
+-- SECURITY DEFINER for the same reason: neither private.
+-- assert_social_content_allowed nor public.profiles' own row (when the
+-- author isn't visible to themselves via some other already-granted path)
+-- can be reached by an ordinary `authenticated` caller's own privileges.
+--
+-- 1. Reuses the exact same trusted content-filter primitive already
+--    enforced on profiles.display_name and challenge activation text — no
+--    second profanity/content system for comments.
+-- 2. Snapshots the author's current display name onto the comment row,
+--    always overwriting whatever (if anything) the client sent for
+--    author_display_name — a client can never forge another identity, and
+--    a client-omitted value still gets a real one. This is what lets a
+--    comment's audience (anyone who can see the activity it's on) learn who
+--    wrote it without ever being granted generic public.profiles access to
+--    that author — narrower than broadening profiles_select_kin to
+--    Kin-of-Kin, and consistent with social_activity's own existing
+--    denormalized-facts pattern. A null/blank display_name falls back to
+--    the same 'Your Kin' string the client already uses everywhere else a
+--    name is unknown (see lib/supabase/kin-repository.ts).
 create or replace function private.enforce_comment_content_policy()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_display_name text;
 begin
   perform private.assert_social_content_allowed(new.body, 'comment');
+
+  select coalesce(nullif(btrim(display_name), ''), 'Your Kin') into v_display_name
+    from public.profiles where id = new.author_id;
+  new.author_display_name := coalesce(v_display_name, 'Your Kin');
+
   return new;
 end;
 $$;
@@ -292,3 +326,113 @@ grant execute on function public.submit_social_report(uuid, uuid, text, text, uu
 -- rather than mutating the old one) — drop it explicitly so exactly one
 -- version of submit_social_report is ever callable.
 drop function if exists public.submit_social_report(uuid, uuid, text, text);
+
+-- ---------------------------------------------------------------------
+-- Part 4: account deletion must also remove comments this owner authored
+-- on someone ELSE's activity
+-- ---------------------------------------------------------------------
+
+-- Deleting public.social_activity where owner_id = p_owner_id (already
+-- present below, unchanged) already cascades away every comment ON that
+-- owner's own activity, authored by anyone — activity_comments.activity_id
+-- has ON DELETE CASCADE into social_activity. What that cascade does NOT
+-- reach is a comment this owner wrote on a *different* person's activity:
+-- that row's activity_id points at a social_activity row that still exists
+-- and isn't being deleted, so only an explicit `author_id = p_owner_id`
+-- delete removes it. Without this, such a comment would depend entirely on
+-- the later auth.admin.deleteUser(...) call's own FK cascade — but that
+-- call happens in a separate step, after this function's transaction has
+-- already committed (see 20260903000000_account_deletion.sql's own header
+-- on why owned-data deletion and the Auth Admin call are necessarily two
+-- separate steps). If the Admin API call then failed, the comment would
+-- keep showing on the other person's Activity — still attributed to a
+-- "deleted" account — even though every other trace of this owner's data
+-- was already gone. Full-body replace: everything below is identical to
+-- 20260904000000_account_deletion_service_role_rpc_and_locking.sql's own
+-- version of this function except the one new
+-- `delete from public.activity_comments where author_id = p_owner_id`
+-- line, placed alongside the other "this owner's own contributions
+-- elsewhere" cleanup (activity_reactions), before social_activity's own
+-- cascade-triggering delete.
+create or replace function private.delete_account_owned_data(p_owner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_reason text;
+  v_challenge_ids uuid[];
+begin
+  perform pg_advisory_xact_lock(hashtext('kinwin_account_mutation'), hashtext(p_owner_id::text));
+
+  v_reason := private.account_deletion_blocker(p_owner_id);
+  if v_reason is not null then
+    raise exception '%', v_reason using errcode = '22023';
+  end if;
+
+  select coalesce(array_agg(id), '{}') into v_challenge_ids
+    from public.challenges where owner_id = p_owner_id;
+
+  perform set_config('kinwin.allow_owned_data_deletion', 'on', true);
+
+  delete from private.reward_link_access_events e
+    using public.invitations i
+    where e.invitation_id = i.id and i.challenge_id = any(v_challenge_ids);
+
+  delete from private.reward_fulfillments f
+    using public.consequences co
+    where f.consequence_id = co.id and co.challenge_id = any(v_challenge_ids);
+
+  delete from private.consequence_setup_attempts a
+    using public.consequences co
+    where a.consequence_id = co.id and co.challenge_id = any(v_challenge_ids);
+
+  delete from private.consequence_charge_attempts a
+    using public.consequences co
+    where a.consequence_id = co.id and co.challenge_id = any(v_challenge_ids);
+
+  delete from private.consequence_provider_references r
+    using public.consequences co
+    where r.consequence_id = co.id and co.challenge_id = any(v_challenge_ids);
+
+  delete from public.invitations where challenge_id = any(v_challenge_ids);
+  delete from public.consequences where challenge_id = any(v_challenge_ids);
+  delete from public.challenge_reward_organizers where challenge_id = any(v_challenge_ids);
+
+  loop
+    delete from public.check_in_events e
+      where e.challenge_id = any(v_challenge_ids)
+        and not exists (select 1 from public.check_in_events child where child.correction_of_event_id = e.id);
+    exit when not found;
+  end loop;
+
+  delete from public.challenge_periods where challenge_id = any(v_challenge_ids);
+  delete from public.challenge_recipients where challenge_id = any(v_challenge_ids);
+  delete from private.challenge_period_generations where challenge_id = any(v_challenge_ids);
+
+  update private.challenge_completion_worker_failures
+    set challenge_id = null where challenge_id = any(v_challenge_ids);
+
+  delete from public.playbook_entries where source_challenge_id = any(v_challenge_ids);
+  delete from public.challenges where owner_id = p_owner_id;
+  delete from public.challenge_drafts where owner_id = p_owner_id;
+
+  perform set_config('kinwin.allow_owned_data_deletion', 'off', true);
+
+  delete from public.kin_connections where requester_id = p_owner_id or recipient_id = p_owner_id;
+  delete from public.activity_reactions where user_id = p_owner_id;
+  -- New: comments this owner wrote on someone else's activity. Comments on
+  -- this owner's OWN activity are handled by the social_activity cascade
+  -- two lines below, regardless of who wrote them.
+  delete from public.activity_comments where author_id = p_owner_id;
+  delete from public.social_activity where owner_id = p_owner_id;
+  delete from public.playbook_entries where owner_id = p_owner_id;
+  delete from private.stripe_customers where owner_id = p_owner_id;
+  delete from public.memberships where owner_id = p_owner_id;
+  delete from public.profiles where id = p_owner_id;
+end;
+$$;
+
+revoke all on function private.delete_account_owned_data(uuid) from public, anon, authenticated;
+grant execute on function private.delete_account_owned_data(uuid) to service_role;

@@ -301,3 +301,162 @@ select test.assert_fails('stranger_cannot_report_unseen_comment',
     current_setting('test.comment3_id')),
   'P0002');
 reset role;
+
+-- ---------------------------------------------------------------------
+-- Owner comment access: the activity owner can read comments on their own
+-- activity (the real path app/home/kin.tsx's "ON YOUR UPDATES" section
+-- depends on — see fetchOwnActivityWithComments in
+-- lib/supabase/kin-repository.ts).
+-- ---------------------------------------------------------------------
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '99111111-0000-0000-0000-000000000004', false);
+do $$
+declare
+  v_comment_id uuid;
+begin
+  insert into public.activity_comments (activity_id, author_id, body)
+    values ('99222222-0000-0000-0000-000000000001', '99111111-0000-0000-0000-000000000004', 'Owner-visible comment.')
+    returning id into v_comment_id;
+  perform set_config('test.owner_visible_comment_id', v_comment_id::text, false);
+end;
+$$;
+reset role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '99111111-0000-0000-0000-000000000001', false);
+select test.assert_equals('activity_owner_can_read_kin_comment_on_own_activity',
+  (select count(*) from public.activity_comments where id = current_setting('test.owner_visible_comment_id')::uuid), 1::bigint);
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Author identity: server-written snapshot, not a second profiles.
+-- Alex owns the activity. Maria and Jonas are both accepted Kin with Alex
+-- but NOT Kin with each other. Maria must be able to read Jonas's comment
+-- identity (via the activity's own audience) without gaining generic
+-- public.profiles access to Jonas.
+-- ---------------------------------------------------------------------
+
+set role service_role;
+do $$
+begin
+  insert into auth.users (id, email) values
+    ('99555555-0000-0000-0000-000000000001', 'social-alex@example.test'),
+    ('99555555-0000-0000-0000-000000000002', 'social-maria@example.test'),
+    ('99555555-0000-0000-0000-000000000003', 'social-jonas@example.test');
+  update public.profiles set display_name = 'Jonas' where id = '99555555-0000-0000-0000-000000000003';
+  insert into public.kin_connections (id, requester_id, recipient_id, status) values
+    (gen_random_uuid(), '99555555-0000-0000-0000-000000000001', '99555555-0000-0000-0000-000000000002', 'accepted'),
+    (gen_random_uuid(), '99555555-0000-0000-0000-000000000001', '99555555-0000-0000-0000-000000000003', 'accepted');
+  insert into public.social_activity (id, owner_id, kind, payload, dedupe_key) values
+    ('99666666-0000-0000-0000-000000000001', '99555555-0000-0000-0000-000000000001', 'challenge_started', jsonb_build_object('behavior', jsonb_build_object('description', 'x')), 'test-360-identity:1');
+end;
+$$;
+reset role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '99555555-0000-0000-0000-000000000003', false);
+do $$
+declare
+  v_comment_id uuid;
+begin
+  insert into public.activity_comments (activity_id, author_id, body)
+    values ('99666666-0000-0000-0000-000000000001', '99555555-0000-0000-0000-000000000003', 'Book the restaurant, you idiot.')
+    returning id into v_comment_id;
+  perform set_config('test.jonas_comment_id', v_comment_id::text, false);
+end;
+$$;
+reset role;
+
+-- Maria (not Kin with Jonas) sees the correct author identity on the
+-- comment itself, via the server-written snapshot — no profiles join needed.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '99555555-0000-0000-0000-000000000002', false);
+select test.assert_equals('co_kin_sees_correct_author_display_name_on_comment',
+  (select author_display_name from public.activity_comments where id = current_setting('test.jonas_comment_id')::uuid),
+  'Jonas');
+-- But Maria gains no generic profiles access to Jonas merely because they
+-- share Alex as a Kin — profiles_select_kin correctly still requires a
+-- DIRECT pending/accepted connection, which Maria and Jonas do not have.
+select test.assert_equals('co_kin_gains_no_generic_profile_access',
+  (select count(*) from public.profiles where id = '99555555-0000-0000-0000-000000000003'), 0::bigint);
+reset role;
+
+-- A client cannot forge author_display_name either — the trigger always
+-- overwrites whatever was sent, regardless of the caller's own claim.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '99555555-0000-0000-0000-000000000002', false);
+do $$
+declare
+  v_comment_id uuid;
+  v_stored_name text;
+begin
+  insert into public.activity_comments (activity_id, author_id, body, author_display_name)
+    values ('99666666-0000-0000-0000-000000000001', '99555555-0000-0000-0000-000000000002', 'Trying to forge my name.', 'Totally Not Maria')
+    returning id, author_display_name into v_comment_id, v_stored_name;
+  perform test.assert_true('client_supplied_author_display_name_is_ignored', v_stored_name <> 'Totally Not Maria');
+end;
+$$;
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Account deletion: activity_comments cleanup
+-- (private.delete_account_owned_data, redefined in this migration's own
+-- Part 4). V is the deleting owner. W is V's accepted Kin. X is a third
+-- party, unrelated to V, Kin with W only.
+-- ---------------------------------------------------------------------
+
+set role service_role;
+do $$
+begin
+  insert into auth.users (id, email) values
+    ('99444444-0000-0000-0000-000000000001', 'social-v@example.test'),
+    ('99444444-0000-0000-0000-000000000002', 'social-w@example.test'),
+    ('99444444-0000-0000-0000-000000000003', 'social-x@example.test');
+  insert into public.kin_connections (id, requester_id, recipient_id, status) values
+    (gen_random_uuid(), '99444444-0000-0000-0000-000000000001', '99444444-0000-0000-0000-000000000002', 'accepted'),
+    (gen_random_uuid(), '99444444-0000-0000-0000-000000000002', '99444444-0000-0000-0000-000000000003', 'accepted');
+  insert into public.social_activity (id, owner_id, kind, payload, dedupe_key) values
+    ('99777777-0000-0000-0000-000000000001', '99444444-0000-0000-0000-000000000001', 'challenge_started', jsonb_build_object('behavior', jsonb_build_object('description', 'v activity')), 'test-360-deletion:v'),
+    ('99777777-0000-0000-0000-000000000002', '99444444-0000-0000-0000-000000000002', 'challenge_started', jsonb_build_object('behavior', jsonb_build_object('description', 'w activity')), 'test-360-deletion:w');
+  -- A: V (the soon-to-be-deleted owner) commented on W's activity —
+  -- someone ELSE's activity. Not reachable by the social_activity cascade;
+  -- only the new explicit `author_id = p_owner_id` delete removes it.
+  insert into public.activity_comments (id, activity_id, author_id, body) values
+    ('99888888-0000-0000-0000-000000000001', '99777777-0000-0000-0000-000000000002', '99444444-0000-0000-0000-000000000001', 'V commenting on W''s activity.');
+  -- B: W commented on V's OWN activity — reached by the existing
+  -- social_activity-owned-by-V cascade once that row is deleted.
+  insert into public.activity_comments (id, activity_id, author_id, body) values
+    ('99888888-0000-0000-0000-000000000002', '99777777-0000-0000-0000-000000000001', '99444444-0000-0000-0000-000000000002', 'W commenting on V''s activity.');
+  -- C: X commented on W's activity — entirely unrelated to V's deletion,
+  -- must survive untouched.
+  insert into public.activity_comments (id, activity_id, author_id, body) values
+    ('99888888-0000-0000-0000-000000000003', '99777777-0000-0000-0000-000000000002', '99444444-0000-0000-0000-000000000003', 'X commenting on W''s activity.');
+end;
+$$;
+
+do $$
+begin
+  perform private.delete_account_owned_data('99444444-0000-0000-0000-000000000001'::uuid);
+end;
+$$;
+
+do $$
+declare
+  remaining bigint;
+begin
+  select count(*) into remaining from public.activity_comments where id = '99888888-0000-0000-0000-000000000001';
+  perform test.assert_equals('deletion_removes_comment_authored_on_someone_elses_activity', remaining, 0::bigint);
+  select count(*) into remaining from public.activity_comments where id = '99888888-0000-0000-0000-000000000002';
+  perform test.assert_equals('deletion_cascades_comments_on_own_activity', remaining, 0::bigint);
+  select count(*) into remaining from public.social_activity where id = '99777777-0000-0000-0000-000000000001';
+  perform test.assert_equals('deletion_removes_own_activity', remaining, 0::bigint);
+  select count(*) into remaining from public.activity_comments where id = '99888888-0000-0000-0000-000000000003';
+  perform test.assert_equals('unrelated_third_party_comment_survives_deletion', remaining, 1::bigint);
+  select count(*) into remaining from public.social_activity where id = '99777777-0000-0000-0000-000000000002';
+  perform test.assert_equals('unrelated_activity_survives_deletion', remaining, 1::bigint);
+  select count(*) into remaining from public.profiles where id = '99444444-0000-0000-0000-000000000002';
+  perform test.assert_equals('unrelated_owner_profile_survives_deletion', remaining, 1::bigint);
+end;
+$$;
+reset role;
