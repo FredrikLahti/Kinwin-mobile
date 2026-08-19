@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { isSupportedCurrency, SUPPORTED_CURRENCIES } from './currency';
 import { mapOnboardingDraft, OnboardingDraftData } from './from-onboarding-draft';
 import { validateActivationReadiness } from './validation';
 import type { ChallengeDraft, ChallengeDraftId, RecipientId, UserId } from './types';
@@ -145,6 +146,36 @@ test('Avoid remains strict zero-lapse: a V2 stop successRule is always rejected 
   } as unknown as ChallengeDraft;
   const issues = validateActivationReadiness(forcedV2);
   assert.ok(issues.some((issue) => issue.field === 'successRule'), 'stop must never accept ruleVersion 2, however it is constructed');
+});
+
+// True multi-currency V1 (domain/challenge/currency.ts): the ONE canonical
+// USD/SEK/EUR contract every layer imports — no duplicated currency sets.
+test('SUPPORTED_CURRENCIES is exactly USD/SEK/EUR', () => {
+  assert.deepEqual([...SUPPORTED_CURRENCIES].sort(), ['EUR', 'SEK', 'USD']);
+});
+
+test('isSupportedCurrency accepts exactly USD/SEK/EUR and rejects everything else', () => {
+  assert.equal(isSupportedCurrency('USD'), true);
+  assert.equal(isSupportedCurrency('SEK'), true);
+  assert.equal(isSupportedCurrency('EUR'), true);
+  assert.equal(isSupportedCurrency('GBP'), false);
+  assert.equal(isSupportedCurrency('usd'), false, 'not case-insensitive — the persisted value must already be an exact canonical code');
+  assert.equal(isSupportedCurrency(''), false);
+});
+
+for (const currency of ['USD', 'SEK', 'EUR']) {
+  test(`validateActivationReadiness raises no stake.currency issue for a ${currency}-denominated draft`, () => {
+    const draft = draftFor({ ...buildFixture, currency });
+    const issues = validateActivationReadiness(draft);
+    assert.equal(issues.some((issue) => issue.field === 'stake.currency'), false);
+  });
+}
+
+test('validateActivationReadiness rejects a draft whose stake currency is not in SUPPORTED_CURRENCIES', () => {
+  const draft = draftFor(buildFixture);
+  const tampered: ChallengeDraft = { ...draft, stake: { ...draft.stake, currency: 'GBP' as ChallengeDraft['stake']['currency'] } };
+  const issues = validateActivationReadiness(tampered);
+  assert.ok(issues.some((issue) => issue.field === 'stake.currency' && issue.code === 'unsupported'));
 });
 
 test('continuity safeguard is unchanged by a V2 selection: swapping its type alongside a valid threshold still fails validation', () => {

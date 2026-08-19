@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import type { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
+import type { SupportedCurrency } from '@/domain/challenge/currency';
 
 export type BehaviorDirection = 'build' | 'cut' | 'stop';
 export type MeasurementMode = 'completion' | 'count' | 'time' | 'amount' | 'abstinence';
@@ -92,6 +93,7 @@ type ResettableOnboardingFields = {
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
   checkpoint: OnboardingSessionCheckpoint | null;
+  currency: SupportedCurrency;
   definitionText: string;
   durationWeeks: number | null;
   experienceCategory: ExperienceCategory | null;
@@ -120,6 +122,7 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
     behaviorDirection: null,
     behaviorText: '',
     checkpoint: null,
+    currency: 'USD',
     definitionText: '',
     durationWeeks: null,
     experienceCategory: null,
@@ -150,7 +153,7 @@ type OnboardingContextValue = {
   behaviorText: string;
   /** The explicit resume checkpoint — null unless the current session was explicitly Saved & exited (or Continued from one). See OnboardingSessionCheckpoint. Reset to null by resetDraft() and loadDraftData(). */
   checkpoint: OnboardingSessionCheckpoint | null;
-  currency: 'USD';
+  currency: SupportedCurrency;
   definitionText: string;
   durationWeeks: number | null;
   experienceCategory: ExperienceCategory | null;
@@ -168,6 +171,7 @@ type OnboardingContextValue = {
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setCheckpoint: Dispatch<SetStateAction<OnboardingSessionCheckpoint | null>>;
+  setCurrency: Dispatch<SetStateAction<SupportedCurrency>>;
   setDefinitionText: (text: string) => void;
   setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setExperienceCategory: Dispatch<SetStateAction<ExperienceCategory | null>>;
@@ -292,6 +296,7 @@ type CreationSessionFieldsInput = {
   stakeAmount: number | null;
   stakeAmountInput: string;
   successThresholdOverride: number | null;
+  currency: SupportedCurrency;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -316,6 +321,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [rewardOrganizer, setRewardOrganizer] = useState<RewardOrganizer>(initialFields.rewardOrganizer);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(initialFields.savedDraftId);
   const [checkpoint, setCheckpoint] = useState<OnboardingSessionCheckpoint | null>(initialFields.checkpoint);
+  const [currency, setCurrency] = useState<SupportedCurrency>(initialFields.currency);
   const [sitOutAcknowledged, setSitOutAcknowledged] = useState(initialFields.sitOutAcknowledged);
   const [stakeAmount, setStakeAmount] = useState<number | null>(initialFields.stakeAmount);
   const [stakeAmountInput, setStakeAmountInput] = useState(initialFields.stakeAmountInput);
@@ -328,6 +334,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setDefinitionText(data.definitionText);
     setBehaviorDirection(data.behaviorDirection);
     setMeasurementMode(data.measurementMode);
+    setCurrency(data.currency as SupportedCurrency);
     setRhythm({ ...data.rhythm, selectedWeekdays: [...data.rhythm.selectedWeekdays] });
     // A resumed server draft's raw duration.value is never re-validated
     // between the database and here (domain/challenge/to-onboarding-draft.ts
@@ -360,6 +367,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setDefinitionText(fields.definitionText);
     setBehaviorDirection(fields.behaviorDirection);
     setMeasurementMode(fields.measurementMode);
+    setCurrency(fields.currency);
     setRhythm(fields.rhythm);
     setDurationWeeks(fields.durationWeeks);
     setSuccessThresholdOverride(fields.successThresholdOverride);
@@ -383,6 +391,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setDefinitionText(restored.definitionText);
     setBehaviorDirection(restored.behaviorDirection);
     setMeasurementMode(restored.measurementMode);
+    setCurrency(restored.currency);
     setRhythm({ ...restored.rhythm, selectedWeekdays: [...restored.rhythm.selectedWeekdays] });
     setDurationWeeks(restored.durationWeeks);
     setSuccessThresholdOverride(restored.successThresholdOverride);
@@ -409,7 +418,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       behaviorDirection,
       behaviorText,
       checkpoint,
-      currency: 'USD' as const,
+      currency,
       definitionText,
       durationWeeks,
       experienceCategory,
@@ -428,6 +437,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setBehaviorDirection,
       setBehaviorText,
       setCheckpoint,
+      setCurrency,
       setDefinitionText,
       setDurationWeeks,
       setExperienceCategory,
@@ -453,6 +463,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       behaviorDirection,
       behaviorText,
       checkpoint,
+      currency,
       definitionText,
       durationWeeks,
       experienceCategory,

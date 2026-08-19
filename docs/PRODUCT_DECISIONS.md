@@ -104,9 +104,10 @@
   remain separate concerns. Final challenge activation (still future work, phase 3b)
   will require both a valid membership and a verified consequence authorization — this
   package resolves only the second, and only its pre-activation setup half.
-* Currency support is unchanged by this package: `consequences.currency` remains
-  constrained to `USD` (`070_constraints.sql`), and nothing here introduces multi-currency
-  handling.
+* Currency support was unchanged by this package at the time it shipped (`consequences.currency`
+  was constrained to `USD` only). True multi-currency (USD/SEK/EUR) landed later — see
+  "True multi-currency V1" below, which is now the current source of truth for supported
+  commitment currencies.
 * Cards only in this first package; a future package may add other payment method types.
 * **Consent contract**, implemented by `app/account/payment-setup.tsx`'s consent screen:
   before opening Stripe's PaymentSheet, the client shows the owner, in plain language:
@@ -149,6 +150,37 @@ TEST beta and a real-money production launch must remain clearly distinguishable
   `docs/PAYMENT_SETUP.md` for the full flow and local testing instructions. Memberships,
   charging, final activation, check-ins, and Tremendous fulfillment remain deliberately
   out of scope for this package.
+
+## True multi-currency V1
+
+* Kinwin's V1 supported commitment currencies are exactly USD, SEK, and EUR
+  (`domain/challenge/currency.ts`'s `SUPPORTED_CURRENCIES` — the one canonical contract
+  every layer imports, client and server alike). There is no "any ISO 4217 currency"
+  system and no plan to add one without a fresh product decision.
+* `profiles.preferred_currency` is only ever the DEFAULT currency applied to a brand-new
+  challenge draft (device locale/region is the fallback when no preference is saved yet —
+  see `lib/challenge-creation/currency-default.ts`). It is never a live reference an
+  existing draft or challenge reads from: changing it in Settings has zero effect on any
+  draft already in progress, any prepared/active/completed challenge, or any pending
+  payment recovery.
+* A challenge's commitment currency may change freely while its draft is still editable.
+  The instant `prepare_challenge_from_draft` succeeds, that currency is permanently locked
+  for the life of that commitment — copied once into `challenges.activation_snapshot.stake.currency`
+  and `consequences.currency`, neither of which is ever updated afterward.
+  `prepare_challenge_from_draft` itself only accepts USD/SEK/EUR; every other value is
+  rejected server-side, regardless of what a client claims.
+* The Stripe charge and the Tremendous reward are always denominated in the same
+  commitment currency as the stake — `consequences.currency` flows unchanged into both the
+  Stripe `PaymentIntent` currency and the Tremendous reward's `currency_code`. A SEK
+  challenge means a SEK stake, a SEK Stripe charge, and a SEK Tremendous reward; no
+  currency conversion ever happens between them.
+* Kinwin performs no FX conversion anywhere in V1: no exchange-rate lookups, no converted
+  or approximate-local-currency display, no locked FX rate, and no USD-canonical
+  commitment amount. The persisted challenge currency IS the real commitment currency.
+* A payment provider's or reward provider's own team/settlement/funding currency (e.g.
+  Tremendous's own team currency, which Tremendous itself may convert into on its side of
+  a payout) is a provider-internal operational detail, never part of the user's
+  commitment and never surfaced in Kinwin's own data model or UI.
 
 ## Server-scheduled challenge completion
 

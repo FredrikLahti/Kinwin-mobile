@@ -23,6 +23,25 @@ test('creation uses external_id for idempotency, LINK delivery, and discards res
   assert.equal(JSON.stringify(body).includes('Anna'), false);
 });
 
+// True multi-currency V1: reward denomination must match the commitment
+// currency (consequences.currency -> reward_fulfillments.currency -> here)
+// with no Kinwin-side FX — Tremendous itself handles any provider-side
+// settlement conversion, entirely outside this adapter. amountMinorUnits is
+// always converted to a major-unit denomination the same way regardless of
+// currency (divide by 100), and currency_code is passed through verbatim,
+// never remapped or defaulted to the Tremendous team/funding currency.
+for (const currency of ['USD', 'SEK', 'EUR']) {
+  test(`reward denomination and currency_code for a ${currency} obligation reach Tremendous unchanged`, async () => {
+    let request: RequestInit | undefined;
+    const currencyItem = { ...item, amountMinorUnits: 50000, currency };
+    const adapter = createTremendousSandboxAdapter(config, async (_url, init) => { request = init; return new Response(JSON.stringify({ order: { id: 'order_1', rewards: [{ id: 'reward_1' }] } }), { status: 200 }); });
+    await adapter(currencyItem);
+    const body = JSON.parse(String(request?.body));
+    assert.equal(body.reward.value.denomination, 500);
+    assert.equal(body.reward.value.currency_code, currency);
+  });
+}
+
 test('creation retries reuse the same documented external_id', async () => {
   const ids:string[]=[];const adapter=createTremendousSandboxAdapter(config,async(_url,init)=>{ids.push(JSON.parse(String(init?.body)).external_id);return new Response(JSON.stringify({order:{id:'order_1',rewards:[{id:'reward_1'}]}}),{status:200});});
   await adapter(item);await adapter(item);assert.deepEqual(ids,[item.idempotencyKey,item.idempotencyKey]);

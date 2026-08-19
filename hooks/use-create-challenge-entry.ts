@@ -11,6 +11,7 @@ import {
   resolveResumeRoute,
 } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
+import { resolveDefaultCurrency } from '@/lib/challenge-creation/currency-default';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -45,7 +46,7 @@ export type CreateChallengeEntryController = {
 export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const router = useRouter();
   const onboarding = useOnboarding();
-  const { user } = useAuth();
+  const { profile, user } = useAuth();
   const resumableSession = useResumableCreationSession();
   const [resumeSheetOpen, setResumeSheetOpen] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -54,6 +55,11 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
 
   const startFreshCreation = () => {
     onboarding.resetDraft();
+    // Only the genuine "fresh start" boundary applies the default currency
+    // (saved preference, else device locale) — resuming a checkpoint or
+    // loading a server draft always carries its own already-set currency
+    // instead (see docs/PRODUCT_DECISIONS.md).
+    onboarding.setCurrency(resolveDefaultCurrency(profile?.preferredCurrency ?? null));
     router.push('/create/intro' as Href);
   };
 

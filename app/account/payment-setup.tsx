@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
 import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { formatMoney } from '@/lib/home/challenge-summary';
 import { readStripeConfig } from '@/lib/stripe/config';
 import { useStripe, usePaymentSheet } from '@/lib/stripe/native-stripe';
 import { classifyPaymentSheetPresentResult } from '@/lib/stripe/payment-sheet-outcome';
@@ -269,7 +270,7 @@ export default function PaymentSetupScreen() {
             <View style={styles.section}>
               <Text style={styles.stakeLine}>
                 {state.commitment.stakeMinorUnits > 0
-                  ? `$${(state.commitment.stakeMinorUnits / 100).toLocaleString('en-US')} may be charged to this card if the challenge fails.`
+                  ? `${formatMoney(state.commitment.stakeMinorUnits, state.commitment.currency)} may be charged to this card if the challenge fails.`
                   : 'This card may be charged if the challenge fails.'}
               </Text>
               <DisclosureList />

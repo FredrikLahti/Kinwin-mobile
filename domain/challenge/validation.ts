@@ -1,9 +1,8 @@
-import { ChallengeDraft, CurrencyCode } from './types';
+import { ChallengeDraft } from './types';
 import { deriveSuccessRuleForChallengeRule } from './success-rule';
+import { SUPPORTED_CURRENCIES } from './currency';
 
 export type ActivationIssue = { readonly field: string; readonly code: string; readonly message: string };
-
-export const SUPPORTED_CURRENCIES: readonly CurrencyCode[] = ['USD' as CurrencyCode];
 
 const issue = (field: string, code: string, message: string): ActivationIssue => ({ field, code, message });
 

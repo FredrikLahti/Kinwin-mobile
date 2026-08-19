@@ -25,6 +25,7 @@ function emptyFields(): CreationSessionFields {
     stakeAmount: null,
     stakeAmountInput: '',
     successThresholdOverride: null,
+    currency: 'USD',
   };
 }
 

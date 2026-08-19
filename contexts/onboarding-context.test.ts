@@ -9,6 +9,7 @@ test('createInitialOnboardingFields carries no leftover data — every field is 
     behaviorDirection: null,
     behaviorText: '',
     checkpoint: null,
+    currency: 'USD',
     definitionText: '',
     durationWeeks: null,
     experienceCategory: null,
@@ -118,4 +119,19 @@ test('computeRestoredCreationSessionState leaves a valid persisted successThresh
   const restored = computeRestoredCreationSessionState(fields, '/create/success-means', '2026-01-01T00:00:00.000Z');
   assert.equal(restored.successThresholdOverride, 27);
   assert.equal(restored.checkpoint.fields.successThresholdOverride, 27);
+});
+
+// True multi-currency V1: a draft's own currency is never re-derived or
+// overridden by anything external (a saved profiles.preferred_currency,
+// the device locale, etc.) when restoring a checkpoint — only
+// hooks/use-create-challenge-entry.ts's startFreshCreation() ever applies
+// a default, and only for a brand-new draft. computeRestoredCreationSessionState
+// has no access to (and must never consult) any such external preference —
+// it only ever carries through whatever currency the restored fields
+// already had, exactly like every other already-chosen field.
+test('computeRestoredCreationSessionState carries a restored draft\'s own currency through unchanged, never substituting a different default', () => {
+  const fields = { ...createInitialOnboardingFields(), goal: 'Sleep better', recipients: [createRecipientDraft('Mom')], currency: 'SEK' as const };
+  const restored = computeRestoredCreationSessionState(fields, '/create/consequence', '2026-01-01T00:00:00.000Z');
+  assert.equal(restored.currency, 'SEK');
+  assert.equal(restored.checkpoint.fields.currency, 'SEK');
 });

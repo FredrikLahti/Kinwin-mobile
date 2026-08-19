@@ -1,6 +1,7 @@
 import { deriveStructuredSuccessRule } from './success-rule';
 import type { SuccessRuleSource } from './success-rule';
 import type { ChallengeDraft, ChallengeDraftId, CurrencyCode, RecipientId, UserId } from './types';
+import { isSupportedCurrency } from './currency';
 
 export type OnboardingDraftData = {
   readonly goal: string;
@@ -89,7 +90,7 @@ export function mapOnboardingDraft(data: OnboardingDraftData, metadata: DraftMap
 
   const minorUnits = normalizeWholeDollarStake(data.stakeAmount);
   if (minorUnits === null) add('invalid_stake', 'stakeAmount', 'Stake must be a positive, safely representable whole-dollar amount.');
-  if (data.currency !== 'USD') add('unsupported_currency', 'currency', 'Only USD is currently supported.');
+  if (!isSupportedCurrency(data.currency)) add('unsupported_currency', 'currency', 'The selected currency is not supported.');
   if (!data.experienceCategory) add('missing_experience_category', 'experienceCategory', 'An experience category is required.');
   if (!data.sitOutAcknowledged) add('missing_sit_out_acknowledgement', 'sitOutAcknowledged', 'The sit-out promise must be acknowledged.');
   if (data.invitationMessage.trim().length < 3) add('invalid_invitation_message', 'invitationMessage', 'A valid invitation message is required.');

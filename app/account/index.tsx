@@ -7,23 +7,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LabeledFieldV2 } from '@/components/v2/labeled-field';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { ResumeCreationSheetV2 } from '@/components/v2/resume-creation-sheet';
+import { SegmentedControlV2 } from '@/components/v2/segmented-control';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
+import { SUPPORTED_CURRENCIES, SupportedCurrency } from '@/domain/challenge/currency';
 import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { resolveDefaultCurrency } from '@/lib/challenge-creation/currency-default';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { readSupportConfig } from '@/lib/support/config';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
+
+const CURRENCY_OPTIONS: readonly { label: string; value: SupportedCurrency }[] =
+  SUPPORTED_CURRENCIES.map((value) => ({ label: value, value: value as SupportedCurrency }));
 
 type DraftLookup = { status: 'loading' } | { status: 'none' } | { status: 'found' } | { status: 'error'; message: string };
 
 export default function AccountScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { profile, signOut, updateDisplayName, updateShowChallengeIntro, user } = useAuth();
+  const { profile, signOut, updateDisplayName, updatePreferredCurrency, updateShowChallengeIntro, user } = useAuth();
   const onboarding = useOnboarding();
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '');
   const [savingName, setSavingName] = useState(false);
@@ -108,6 +114,17 @@ export default function AccountScreen() {
   const toggleShowIntro = async () => {
     void playSelectionHaptic();
     await updateShowChallengeIntro(!(profile?.showChallengeIntro ?? true));
+  };
+
+  // Display-only default when no explicit preference has been saved yet —
+  // never persisted until the user actually taps an option. Never touches
+  // any existing draft's or challenge's own currency (see
+  // docs/PRODUCT_DECISIONS.md) — this only changes what future fresh
+  // drafts default to.
+  const preferredCurrency = profile?.preferredCurrency ?? resolveDefaultCurrency(null);
+  const selectPreferredCurrency = (currency: SupportedCurrency) => {
+    void playSelectionHaptic();
+    void updatePreferredCurrency(currency);
   };
 
   const handleSignOut = async () => {
@@ -232,11 +249,16 @@ export default function AccountScreen() {
               accessibilityRole="switch"
               accessibilityState={{ checked: profile?.showChallengeIntro ?? true }}
               onPress={() => void toggleShowIntro()}
-              style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             >
               <Text style={styles.rowLabel}>Show &quot;How Kinwin works&quot; before creating a challenge</Text>
               <Text style={styles.rowValue}>{(profile?.showChallengeIntro ?? true) ? 'On' : 'Off'}</Text>
             </Pressable>
+            <View style={styles.currencyRow}>
+              <Text style={styles.rowLabel}>Preferred currency</Text>
+              <SegmentedControlV2 onChange={selectPreferredCurrency} options={CURRENCY_OPTIONS} value={preferredCurrency} />
+              <Text style={styles.currencyHelper}>Used as the default for new challenges. Does not change any challenge you already have.</Text>
+            </View>
           </View>
 
           <View style={styles.card}>
@@ -342,6 +364,8 @@ const styles = StyleSheet.create({
   rowPressed: { opacity: 0.7 },
   rowLabel: { flex: 1, color: theme.colors.ivory, fontSize: 14, fontWeight: '600', lineHeight: 19 },
   rowValue: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '700' },
+  currencyRow: { gap: 8 },
+  currencyHelper: { color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
   signOutButton: {
     minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 4,
     borderWidth: 1, borderColor: theme.colors.structureLineStrong, borderRadius: theme.radius.controlled,

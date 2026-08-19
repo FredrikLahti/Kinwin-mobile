@@ -5,12 +5,17 @@ import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChoiceListV2 } from '@/components/v2/choice-list';
 import { CreateFlowScreenV2 } from '@/components/v2/create-flow-screen';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { SegmentedControlV2 } from '@/components/v2/segmented-control';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
+import { SUPPORTED_CURRENCIES, SupportedCurrency } from '@/domain/challenge/currency';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { normalizeStakeDigits } from '@/lib/challenge-creation/stake-input';
+
+const CURRENCY_OPTIONS: readonly { label: string; value: SupportedCurrency }[] =
+  SUPPORTED_CURRENCIES.map((value) => ({ label: value, value: value as SupportedCurrency }));
 
 const MAX_STAKE_INPUT_LENGTH = 7;
 
@@ -34,6 +39,7 @@ export default function CreateConsequenceScreen() {
     currency,
     experienceCategory,
     recipients,
+    setCurrency,
     setExperienceCategory,
     setStakeAmount,
     setStakeAmountInput,
@@ -93,7 +99,12 @@ export default function CreateConsequenceScreen() {
       </View>
 
       <View style={styles.stakeField}>
-        <Text style={styles.stakeLabel}>Total stake</Text>
+        <View style={styles.stakeHeaderRow}>
+          <Text style={styles.stakeLabel}>Total stake</Text>
+          <View style={styles.currencyPicker}>
+            <SegmentedControlV2 onChange={setCurrency} options={CURRENCY_OPTIONS} value={currency} />
+          </View>
+        </View>
         <View style={styles.amountRow}>
           <Text aria-hidden style={styles.currencySymbol}>{currencySymbol}</Text>
           <TextInputV2
@@ -123,6 +134,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12,
   },
   stakeLabel: { color: theme.colors.crimsonBright, fontSize: 13, fontWeight: '600' },
+  stakeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  currencyPicker: { width: 148 },
   amountRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center' },
   currencySymbol: { color: theme.colors.crimsonBright, fontSize: 26, fontWeight: '700' },
   amountInput: { flex: 1, minHeight: 50, color: theme.colors.ivory, fontSize: 34, fontWeight: '600', paddingHorizontal: 4, paddingVertical: 0 },

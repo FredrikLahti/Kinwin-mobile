@@ -17,6 +17,7 @@ import {
   decideCreateChallengeEntryAction,
   hasMeaningfulCreationProgress,
   isResumeEligibleSession,
+  migrateCreationSessionV4ToV5,
   planBackLeaveAttempt,
   planExitAttempt,
   readCreationSession,
@@ -79,6 +80,7 @@ function emptyFields(): CreationSessionFields {
     stakeAmount: null,
     stakeAmountInput: '',
     successThresholdOverride: null,
+    currency: 'USD',
   };
 }
 
@@ -274,7 +276,7 @@ for (const earlyRoute of ['/create/goal', '/create/type', '/create/build', '/cre
   });
 }
 
-test('v3->v4 migration: the migrated session is persisted under the v4 key and the v3 key is retired, so v3 is never re-read', async () => {
+test('v3->v4 migration: the migrated session is persisted under the current (v5) key and the v3 key is retired, so v3 is never re-read', async () => {
   const seed: Record<string, string> = { [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/duration')) };
   const storage = inMemoryStorage(seed);
   const first = await readCreationSession('user-1', storage);
@@ -283,12 +285,19 @@ test('v3->v4 migration: the migrated session is persisted under the v4 key and t
   const v3StillThere = await storage.getItem(v3Key('user-1'));
   assert.equal(v3StillThere, null, 'the legacy v3 entry must be removed once migrated');
 
-  const v4StillThere = await storage.getItem(creationSessionStorageKey('user-1'));
-  assert.ok(v4StillThere, 'the migrated session must be persisted under the canonical v4 key');
+  const currentStillThere = await storage.getItem(creationSessionStorageKey('user-1'));
+  assert.ok(currentStillThere, 'the migrated session must be persisted under the canonical current-version key');
 
   // A second read must not depend on the v3 key existing at all anymore.
   const second = await readCreationSession('user-1', storage);
   assert.deepEqual(second, first);
+});
+
+test('v3->v4 migration: a v3 session also crosses the v4->v5 currency bump in the same read, defaulting to USD', async () => {
+  const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/frequency')) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.working?.fields.currency, 'USD');
+  assert.equal(restored?.checkpoint?.fields.currency, 'USD');
 });
 
 test('v3->v4 migration: genuinely malformed v3 data is rejected and removed, exactly like malformed v4 data', async () => {
@@ -315,23 +324,130 @@ test('v3->v4 migration: a v3-only working session with no checkpoint migrates th
   assert.equal(restored.working.fields.successThresholdOverride, null);
 });
 
-test('native v4 sessions are read directly and never consult (or need) a v3 fallback', async () => {
+test('native current-version sessions are read directly and never consult (or need) a legacy fallback', async () => {
   const storage = inMemoryStorage();
-  const fields: CreationSessionFields = { ...emptyFields(), goal: 'Native v4 session', successThresholdOverride: 27 };
+  const fields: CreationSessionFields = { ...emptyFields(), goal: 'Native session', successThresholdOverride: 27, currency: 'SEK' };
   await writeWorking('user-1', fields, '/create/success-means', storage);
   const restored = await readCreationSession('user-1', storage);
   assert.ok(restored?.working);
   assert.deepEqual(restored.working.fields, fields);
   assert.equal(restored.working.lastRoute, '/create/success-means');
-  assert.equal(await storage.getItem(v3Key('user-1')), null, 'a native v4 write must never touch the legacy v3 key');
+  assert.equal(await storage.getItem(v3Key('user-1')), null, 'a native write must never touch the legacy v3 key');
 });
 
-test('v4 takes priority: if both a v4 session and a leftover v3 key exist for the same user, the v4 one wins and v3 is left untouched', async () => {
+test('current version takes priority: if both a current-version session and a leftover v3 key exist for the same user, the current one wins and v3 is left untouched', async () => {
   const storage = inMemoryStorage({ [v3Key('user-1')]: JSON.stringify(v3Snapshot('/create/recipients')) });
-  await writeWorking('user-1', { ...emptyFields(), goal: 'Real v4 progress' }, '/create/duration', storage);
+  await writeWorking('user-1', { ...emptyFields(), goal: 'Real progress' }, '/create/duration', storage);
   const restored = await readCreationSession('user-1', storage);
-  assert.equal(restored?.working?.fields.goal, 'Real v4 progress');
-  assert.equal(restored?.working?.lastRoute, '/create/duration', 'must not be route-migrated — this is a real v4 session, not a migrated v3 one');
+  assert.equal(restored?.working?.fields.goal, 'Real progress');
+  assert.equal(restored?.working?.lastRoute, '/create/duration', 'must not be route-migrated — this is a real current-version session, not a migrated v3 one');
+});
+
+// --- v4 -> v5 migration (true multi-currency V1 added currency) ----------
+//
+// v4 sessions predate the currency field entirely; they are stored under a
+// *different* key (kinwin:creation-session:v4:<userId>) than v5 sessions
+// (…v5:<userId>) — see creationSessionStorageKeyForVersion. A legitimate,
+// already-persisted v4 Save & exit / crash-recovery session must survive
+// the v4->v5 upgrade, defaulting to 'USD' — the only currency that could
+// ever have been persisted before this feature existed.
+
+const V4_FIELDS = { ...V3_FIELDS, successThresholdOverride: null as number | null };
+
+function v4Key(userId: string): string {
+  return `kinwin:creation-session:v4:${userId}`;
+}
+
+function v4Snapshot(lastRoute: string) {
+  return {
+    schemaVersion: 4,
+    working: { fields: V4_FIELDS, lastRoute, updatedAt: '2026-01-01T00:00:00.000Z' },
+    checkpoint: { fields: V4_FIELDS, lastRoute, savedAt: '2026-01-01T00:00:00.000Z' },
+  };
+}
+
+test('v4->v5 migration: a valid v4 checkpoint/working session survives and every existing field is retained', async () => {
+  const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(v4Snapshot('/create/consequence')) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored, 'a legitimate v4 session must not be silently discarded');
+  assert.equal(restored.schemaVersion, CREATION_SESSION_SCHEMA_VERSION);
+  assert.ok(restored.working);
+  assert.ok(restored.checkpoint);
+  for (const [key, value] of Object.entries(V4_FIELDS)) {
+    assert.deepEqual((restored.working!.fields as unknown as Record<string, unknown>)[key], value, `working.fields.${key} must be retained unchanged`);
+    assert.deepEqual((restored.checkpoint!.fields as unknown as Record<string, unknown>)[key], value, `checkpoint.fields.${key} must be retained unchanged`);
+  }
+});
+
+test('v4->v5 migration: currency becomes USD (the only historically-possible value), never invented', async () => {
+  const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(v4Snapshot('/create/consequence')) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.working?.fields.currency, 'USD');
+  assert.equal(restored?.checkpoint?.fields.currency, 'USD');
+});
+
+test('v4->v5 migration: lastRoute passes through unchanged — currency introduced no new step or route boundary', async () => {
+  for (const route of ['/create/goal', '/create/recipients', '/create/consequence', '/create/review']) {
+    const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(v4Snapshot(route)) });
+    const restored = await readCreationSession('user-1', storage);
+    assert.equal(restored?.working?.lastRoute, route);
+    assert.equal(restored?.checkpoint?.lastRoute, route);
+  }
+});
+
+test('v4->v5 migration: the migrated session is persisted under the current (v5) key and the v4 key is retired, so v4 is never re-read', async () => {
+  const seed: Record<string, string> = { [v4Key('user-1')]: JSON.stringify(v4Snapshot('/create/duration')) };
+  const storage = inMemoryStorage(seed);
+  const first = await readCreationSession('user-1', storage);
+  assert.ok(first);
+
+  const v4StillThere = await storage.getItem(v4Key('user-1'));
+  assert.equal(v4StillThere, null, 'the legacy v4 entry must be removed once migrated');
+
+  const currentStillThere = await storage.getItem(creationSessionStorageKey('user-1'));
+  assert.ok(currentStillThere, 'the migrated session must be persisted under the canonical current-version key');
+
+  const second = await readCreationSession('user-1', storage);
+  assert.deepEqual(second, first);
+});
+
+test('v4->v5 migration: genuinely malformed v4 data is rejected and removed, exactly like malformed current-version data', async () => {
+  const malformed = { schemaVersion: 4, working: { fields: {}, lastRoute: '/create/goal', updatedAt: '2026-01-01T00:00:00.000Z' }, checkpoint: null };
+  const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(malformed) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored, null);
+  assert.equal(await storage.getItem(v4Key('user-1')), null, 'malformed v4 data must be proactively removed, not left to fail again later');
+});
+
+test('v4->v5 migration: unparseable v4 JSON is rejected and removed', async () => {
+  const storage = inMemoryStorage({ [v4Key('user-1')]: 'not valid json{{{' });
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored, null);
+  assert.equal(await storage.getItem(v4Key('user-1')), null);
+});
+
+test('v4->v5 migration: a v4-only working session with no checkpoint migrates the working half alone', async () => {
+  const v4WorkingOnly = { schemaVersion: 4, working: { fields: V4_FIELDS, lastRoute: '/create/duration', updatedAt: '2026-01-01T00:00:00.000Z' }, checkpoint: null };
+  const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(v4WorkingOnly) });
+  const restored = await readCreationSession('user-1', storage);
+  assert.ok(restored?.working);
+  assert.equal(restored.checkpoint, null);
+  assert.equal(restored.working.fields.currency, 'USD');
+});
+
+test('current version takes priority over a leftover v4 key too: a native v5 session wins and the v4 key is left untouched', async () => {
+  const storage = inMemoryStorage({ [v4Key('user-1')]: JSON.stringify(v4Snapshot('/create/recipients')) });
+  await writeWorking('user-1', { ...emptyFields(), goal: 'Real v5 progress' }, '/create/duration', storage);
+  const restored = await readCreationSession('user-1', storage);
+  assert.equal(restored?.working?.fields.goal, 'Real v5 progress');
+  assert.equal(restored?.working?.lastRoute, '/create/duration');
+  assert.ok(await storage.getItem(v4Key('user-1')), 'a native v5 write must never touch (or need to clear) an unrelated leftover v4 key — it must stay exactly as it was, not be removed');
+});
+
+test('migrateCreationSessionV4ToV5 exported directly: null for a structurally invalid v4 snapshot', () => {
+  assert.equal(migrateCreationSessionV4ToV5({ schemaVersion: 4, working: null, checkpoint: 'not an object' }), null);
+  assert.equal(migrateCreationSessionV4ToV5(null), null);
+  assert.equal(migrateCreationSessionV4ToV5({ schemaVersion: 3, working: null, checkpoint: null }), null, 'wrong schemaVersion must not be accepted as v4');
 });
 
 test('write/clear ordering: a clear requested while an earlier write is still in flight always wins, even once that write is allowed to finish', async () => {

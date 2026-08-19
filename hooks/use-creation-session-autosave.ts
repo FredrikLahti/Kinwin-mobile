@@ -58,6 +58,7 @@ export function useCreationSessionAutosave(): {
   const fields: CreationSessionFields = {
     behaviorDirection: onboarding.behaviorDirection,
     behaviorText: onboarding.behaviorText,
+    currency: onboarding.currency,
     definitionText: onboarding.definitionText,
     durationWeeks: onboarding.durationWeeks,
     experienceCategory: onboarding.experienceCategory,
