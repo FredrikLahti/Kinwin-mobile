@@ -10,6 +10,11 @@ jobs:
   checks:
     name: Typecheck, lint, unit tests, Postgres assertion suite
     runs-on: ubuntu-latest
+    # Backstop against any future step hanging silently — the default
+    # 360-minute GitHub Actions job timeout is long enough to burn hours of
+    # CI time before anyone notices. Every step here normally finishes in
+    # well under a minute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -33,12 +38,29 @@ jobs:
       - name: Validate hosted beta verifier syntax
         run: node --check scripts/verify-hosted-beta.mjs
 
-      - name: Install PostgreSQL
+      # ubuntu-latest already ships PostgreSQL (currently 16.x) with its own
+      # `postgres` OS role, matching exactly what run.sh and the concurrency
+      # proof require — it's just not started by default. The previous
+      # version of this step ran `apt-get install -y postgresql` on top of
+      # that preinstalled package, which reinstalls/upgrades a unit that
+      # manages a systemd service; on ubuntu-latest that can trigger
+      # `needrestart`'s interactive "restart services?" prompt, which has no
+      # TTY to answer in CI and hangs the job indefinitely. Starting the
+      # already-installed service avoids the install (and the prompt)
+      # entirely. `timeout-minutes` bounds the wait so a genuine startup
+      # failure fails fast instead of hanging again.
+      - name: Start PostgreSQL
+        timeout-minutes: 2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql
-          sudo systemctl start postgresql || sudo service postgresql start
-          pg_isready
+          sudo systemctl start postgresql.service
+          for _ in $(seq 1 30); do
+            if pg_isready -q; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready in time." >&2
+          exit 1
 
       # Native Postgres only — proves schema/RLS/triggers/constraints, not
       # the GoTrue/PostgREST layer. See supabase-e2e below for that half,

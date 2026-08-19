@@ -6,17 +6,13 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
+import { PLAYBOOK_CATEGORY_LABELS } from '@/lib/playbook/category-copy';
 import {
   deletePlaybookEntry,
   fetchArchivedPlaybookEntries,
-  PlaybookCategory,
   PlaybookEntry,
   unarchivePlaybookEntry,
 } from '@/lib/supabase/playbook-repository';
-
-const LABELS: Record<PlaybookCategory, string> = {
-  trigger: 'Trigger', obstacle: 'Obstacle', replacement: 'Replacement', environment: 'Environment', support: 'Support', lesson: 'Lesson',
-};
 
 type State =
   | { readonly kind: 'loading' }
@@ -78,7 +74,7 @@ export default function ArchivedPlaybookScreen() {
         )}
         {state.kind === 'ready' && state.entries.map((entry) => (
           <View key={entry.id} style={styles.entry}>
-            <Text style={styles.category}>{LABELS[entry.category].toUpperCase()}</Text>
+            <Text style={styles.category}>{PLAYBOOK_CATEGORY_LABELS[entry.category].toUpperCase()}</Text>
             <Text style={styles.entryText}>{entry.content}</Text>
             <View style={styles.entryActions}>
               <Pressable accessibilityHint="Returns this entry to your active Playbook" accessibilityRole="button" hitSlop={6} onPress={() => restore(entry.id)} style={styles.actionButton}>

@@ -794,15 +794,15 @@ const styles = StyleSheet.create({
   },
   personRow: {
     minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
+    paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.structureLine,
   },
   personRowPressed: { backgroundColor: theme.colors.surfaceRaised },
   personName: { flex: 1, color: theme.colors.ivory, fontSize: 15, fontWeight: '600' },
   pendingTag: { color: theme.colors.warmGrey, fontSize: 11, fontWeight: '700' },
   cancelRequestButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   addKinButton: {
-    minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.crimson,
+    minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 16, borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.crimson,
     backgroundColor: theme.colors.crimsonSurface,
   },
   addKinButtonPressed: { opacity: 0.85 },
