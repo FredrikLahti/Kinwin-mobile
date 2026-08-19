@@ -124,7 +124,7 @@ declare
   v_affected bigint;
 begin
   select id into v_activity_id from public.social_activity where owner_id = '94111111-0000-0000-0000-000000000001' and kind = 'challenge_started';
-  insert into public.activity_reactions (activity_id, user_id, kind) values (v_activity_id, '94111111-0000-0000-0000-000000000002', 'respect');
+  insert into public.activity_reactions (activity_id, user_id, kind) values (v_activity_id, '94111111-0000-0000-0000-000000000002', '🔥');
   get diagnostics v_affected = row_count;
   perform test.assert_equals('accepted_kin_can_react', v_affected, 1::bigint);
 end;
@@ -135,13 +135,13 @@ $$;
 -- separately below.
 select test.assert_fails('one_reaction_per_user_per_activity',
   $stmt$insert into public.activity_reactions (activity_id, user_id, kind)
-    select id, '94111111-0000-0000-0000-000000000002', 'brutal' from public.social_activity
+    select id, '94111111-0000-0000-0000-000000000002', '❤️' from public.social_activity
     where owner_id = '94111111-0000-0000-0000-000000000001' and kind = 'challenge_started'$stmt$,
   '23505');
 -- Cannot react as someone else.
 select test.assert_fails('cannot_react_as_another_user',
   $stmt$insert into public.activity_reactions (activity_id, user_id, kind)
-    select id, '94111111-0000-0000-0000-000000000001', 'nice' from public.social_activity
+    select id, '94111111-0000-0000-0000-000000000001', '😂' from public.social_activity
     where owner_id = '94111111-0000-0000-0000-000000000001' and kind = 'challenge_started'$stmt$,
   '42501');
 reset role;
@@ -157,7 +157,7 @@ begin
 end;
 $$;
 select test.assert_fails('stranger_cannot_react_to_unrelated_activity',
-  format($stmt$insert into public.activity_reactions (activity_id, user_id, kind) values (%L::uuid, '94111111-0000-0000-0000-000000000003', 'ouch')$stmt$,
+  format($stmt$insert into public.activity_reactions (activity_id, user_id, kind) values (%L::uuid, '94111111-0000-0000-0000-000000000003', '😬')$stmt$,
     (select id from public.social_activity where owner_id = '94111111-0000-0000-0000-000000000001' and kind = 'challenge_started')),
   '42501');
 select test.assert_equals('stranger_reads_zero_reactions',

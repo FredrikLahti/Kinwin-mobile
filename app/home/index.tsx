@@ -32,7 +32,14 @@ import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { cancelPendingChallenge, fetchPendingCommitment, PendingCommitment } from '@/lib/supabase/challenge-repository';
-import { ActivityItem, fetchKinActivity, fetchKinCurrentChallenges, KinCurrentChallenge } from '@/lib/supabase/kin-repository';
+import { ActivityItem, clearMyReaction, fetchKinActivity, fetchKinCurrentChallenges, KinCurrentChallenge, ReactionKind, setMyReaction } from '@/lib/supabase/kin-repository';
+
+// The single default reaction Home's one-tap control applies when the item
+// has no reaction yet — the lightest possible acknowledgment gesture. The
+// Kin tab's full ReactionBarV2 (any of the five emoji, via its "+" picker)
+// remains the only place to pick a different one; Home stays a one-tap
+// affordance, never a second reaction picker.
+const HOME_DEFAULT_REACTION: ReactionKind = '❤️';
 
 type KinHomeItem =
   | { readonly kind: 'event'; readonly key: string; readonly item: ActivityItem }
@@ -65,6 +72,10 @@ export default function HomeV2() {
   const [startingOver, setStartingOver] = useState(false);
   const [kinActivity, setKinActivity] = useState<readonly ActivityItem[]>([]);
   const [kinCurrentChallenges, setKinCurrentChallenges] = useState<readonly KinCurrentChallenge[]>([]);
+  const [reactingActivityIds, setReactingActivityIds] = useState<Set<string>>(new Set());
+  // Synchronous mutex for rapid double-taps — see the identical pattern and
+  // rationale on app/home/kin.tsx's own reactionInFlightRef.
+  const homeReactionInFlightRef = useRef<Set<string>>(new Set());
   const createChallengeEntry = useCreateChallengeEntry();
   const { refreshResumableSession } = createChallengeEntry;
 
@@ -208,6 +219,37 @@ export default function HomeV2() {
       .filter((c) => !eventChallengeIds.has(c.challengeId))
       .map((item): KinHomeItem => ({ kind: 'current', key: item.challengeId, item })),
   ].slice(0, 3);
+
+  // The lightest interaction available directly on Home — one tap. Shows
+  // and toggles whatever reaction is already there (from any surface), or
+  // applies HOME_DEFAULT_REACTION when there is none yet. Never opens a
+  // picker: choosing a different specific emoji stays a Kin-tab action, and
+  // comments are never composable from Home at all — see this package's own
+  // "From your Kin" scope note.
+  const toggleHomeReaction = async (item: ActivityItem) => {
+    if (!user || homeReactionInFlightRef.current.has(item.id)) return;
+    homeReactionInFlightRef.current.add(item.id);
+    void playSelectionHaptic();
+    setReactingActivityIds((current) => new Set(current).add(item.id));
+    try {
+      const targetKind = (item.myReaction as ReactionKind | null) ?? HOME_DEFAULT_REACTION;
+      const isMine = item.myReaction !== null;
+      setKinActivity((current) => current.map((entry) => {
+        if (entry.id !== item.id) return entry;
+        const counts = { ...entry.reactionCounts };
+        if (entry.myReaction) counts[entry.myReaction] = Math.max(0, (counts[entry.myReaction] ?? 1) - 1);
+        if (!isMine) counts[targetKind] = (counts[targetKind] ?? 0) + 1;
+        return { ...entry, myReaction: isMine ? null : targetKind, reactionCounts: counts };
+      }));
+      const result = isMine ? await clearMyReaction(user.id, item.id) : await setMyReaction(user.id, item.id, targetKind);
+      if (!result.ok) void loadKinActivity();
+    } catch {
+      void loadKinActivity();
+    } finally {
+      homeReactionInFlightRef.current.delete(item.id);
+      setReactingActivityIds((current) => { const next = new Set(current); next.delete(item.id); return next; });
+    }
+  };
 
   const openCheckIn = () => {
     void playSelectionHaptic();
@@ -394,6 +436,18 @@ export default function HomeV2() {
                           : `Currently doing ${describeChallengeIdentity({ behavior: entry.item.behavior }).headline}`}
                       </Text>
                     </View>
+                    {entry.kind === 'event' && (
+                      <Pressable
+                        accessibilityHint={entry.item.myReaction ? 'Removes your reaction' : 'Adds a quick reaction'}
+                        accessibilityRole="button"
+                        disabled={reactingActivityIds.has(entry.item.id)}
+                        hitSlop={8}
+                        onPress={() => void toggleHomeReaction(entry.item)}
+                        style={({ pressed }) => [styles.kinRowReaction, Boolean(entry.item.myReaction) && styles.kinRowReactionActive, pressed && styles.kinRowReactionPressed]}
+                      >
+                        <Text style={styles.kinRowReactionEmoji}>{entry.item.myReaction ?? HOME_DEFAULT_REACTION}</Text>
+                      </Pressable>
+                    )}
                   </View>
                 ))}
               </View>
@@ -501,6 +555,14 @@ const styles = StyleSheet.create({
   kinRowCopy: { flex: 1 },
   kinRowName: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700' },
   kinRowEvent: { color: theme.colors.ivoryMuted, fontSize: 12 },
+  kinRowReaction: {
+    width: 30, height: 30, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 15, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
+    backgroundColor: theme.colors.surfaceRaised, opacity: 0.55,
+  },
+  kinRowReactionActive: { opacity: 1, borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
+  kinRowReactionPressed: { opacity: 0.8 },
+  kinRowReactionEmoji: { fontSize: 14 },
   heroCard: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.oxblood,
     backgroundColor: theme.colors.surfaceRaised, padding: theme.spacing.medium, gap: 6,

@@ -228,7 +228,15 @@ Locked from the commitment-home-ux package (launch/landing, account gate, Review
 * Home's hierarchy centers the user's one current commitment — see the updated "Future Home direction" bullet above, now implemented rather than planned.
 * Kin activity on Home stays a small, secondary, capped module, absent entirely when empty — never redesigned into a feed as part of this or any UX-polish package.
 
-## Current scope
+## Kin social interaction
+
+Locked from the Activity/reactions V1 package (emoji reactions + lightweight comments), replacing the earlier five-word reaction vocabulary (Respect/Nice/Worth it/Ouch/Brutal):
+
+* Kin social interaction (reactions, comments) is Kin-only by default — no public visibility, no strangers, ever. This is not a per-post choice; it is the one and only audience model.
+* Emoji reactions are a lightweight, one-tap acknowledgment — standard Unicode emoji, not a Kinwin-branded emotional vocabulary the app prescribes to friends.
+* Friendship-specific tone (the actual "You've got the next one" vs "Book the restaurant, you idiot" range) lives primarily in user-authored comments, not in reactions. Reactions cannot and should not try to carry that range.
+* Activity comments are intentionally short (200 characters) and flat — no threading, no nested replies, no comment reactions, no edit history. The smallest system that still lets a real sentence exist.
+* Near-failure Activity events and any notification system are explicitly deferred, not part of this package.
 
 * The clean mobile foundation exists, and the full prototype onboarding flow (goal, behavior
   direction, definition, rhythm, timeframe, success rule) is implemented end to end.

@@ -1,4 +1,5 @@
 import { ActivatedChallengeSnapshot } from '@/domain/challenge/types';
+import { validateCommentBody } from '@/lib/social/comment-validation';
 
 import { supabase } from './client';
 
@@ -202,6 +203,16 @@ export type ActivityItem = {
   readonly createdAt: string;
   readonly reactionCounts: Readonly<Record<string, number>>;
   readonly myReaction: string | null;
+  readonly comments: readonly ActivityComment[];
+};
+
+export type ActivityComment = {
+  readonly id: string;
+  readonly activityId: string;
+  readonly authorId: string;
+  readonly authorDisplayName: string;
+  readonly body: string;
+  readonly createdAt: string;
 };
 
 export type FetchActivityResult =
@@ -239,19 +250,49 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
 
   const ownerIds = Array.from(new Set(rows.map((row) => row.owner_id)));
   const activityIds = rows.map((row) => row.id);
-  const [profilesResult, reactionsResult] = await Promise.all([
+  const [profilesResult, reactionsResult, commentsResult] = await Promise.all([
     supabase.from('profiles').select('id, display_name').in('id', ownerIds),
     supabase.from('activity_reactions').select('activity_id, user_id, kind').in('activity_id', activityIds),
+    supabase.from('activity_comments').select('id, activity_id, author_id, body, created_at').in('activity_id', activityIds).order('created_at', { ascending: true }),
   ]);
   if (profilesResult.error) return { ok: false, ...classifyError(profilesResult.error) };
   if (reactionsResult.error) return { ok: false, ...classifyError(reactionsResult.error) };
+  if (commentsResult.error) return { ok: false, ...classifyError(commentsResult.error) };
 
-  const nameById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile.display_name as string | null]));
+  // Comment authors are frequently the caller themselves (replying to a
+  // Kin's activity) as well as activity owners already covered by ownerIds
+  // above — a second, deliberately separate id set rather than assuming
+  // overlap, so a Kin who comments on another Kin's item (neither the
+  // caller nor that item's owner) still resolves to a real name.
+  const commentAuthorIds = Array.from(new Set((commentsResult.data ?? []).map((comment) => comment.author_id)));
+  const unresolvedAuthorIds = commentAuthorIds.filter((id) => !ownerIds.includes(id));
+  const authorProfilesResult = unresolvedAuthorIds.length > 0
+    ? await supabase.from('profiles').select('id, display_name').in('id', unresolvedAuthorIds)
+    : { data: [], error: null };
+  if (authorProfilesResult.error) return { ok: false, ...classifyError(authorProfilesResult.error) };
+
+  const nameById = new Map<string, string | null>();
+  for (const profile of profilesResult.data ?? []) nameById.set(profile.id, profile.display_name as string | null);
+  for (const profile of authorProfilesResult.data ?? []) nameById.set(profile.id, profile.display_name as string | null);
+
   const reactionsByActivity = new Map<string, { activity_id: string; user_id: string; kind: string }[]>();
   for (const reaction of reactionsResult.data ?? []) {
     const existing = reactionsByActivity.get(reaction.activity_id) ?? [];
     existing.push(reaction);
     reactionsByActivity.set(reaction.activity_id, existing);
+  }
+  const commentsByActivity = new Map<string, ActivityComment[]>();
+  for (const comment of commentsResult.data ?? []) {
+    const existing = commentsByActivity.get(comment.activity_id) ?? [];
+    existing.push({
+      id: comment.id,
+      activityId: comment.activity_id,
+      authorId: comment.author_id,
+      authorDisplayName: nameById.get(comment.author_id) ?? 'Your Kin',
+      body: comment.body,
+      createdAt: comment.created_at,
+    });
+    commentsByActivity.set(comment.activity_id, existing);
   }
 
   const items: readonly ActivityItem[] = rows.map((row) => {
@@ -282,6 +323,7 @@ export async function fetchKinActivity(userId: string, limit = 30): Promise<Fetc
       createdAt: row.created_at,
       reactionCounts,
       myReaction,
+      comments: commentsByActivity.get(row.id) ?? [],
     };
   });
   return { ok: true, items };
@@ -345,7 +387,12 @@ export async function fetchKinCurrentChallenges(userId: string): Promise<FetchKi
   return { ok: true, challenges };
 }
 
-export const REACTION_KINDS = ['respect', 'nice', 'worth_it', 'ouch', 'brutal'] as const;
+// Standard Unicode emoji, not a branded semantic vocabulary — see
+// 20260907000000_activity_comments_and_emoji_reactions.sql's own comment for
+// why the old word-based set (respect/nice/worth_it/ouch/brutal) was
+// replaced rather than relabeled: it read as Kinwin prescribing how a
+// friend is allowed to respond, not real friends interacting.
+export const REACTION_KINDS = ['🔥', '❤️', '😂', '😬', '👑'] as const;
 export type ReactionKind = (typeof REACTION_KINDS)[number];
 
 export type ReactionActionResult =
@@ -397,6 +444,7 @@ export async function submitSocialReport(
   reportedUserId: string,
   reason: ReportReason,
   activityId: string | null = null,
+  commentId: string | null = null,
 ): Promise<SubmitReportResult> {
   if (!supabase) return { ok: false, kind: 'not_configured' };
 
@@ -404,6 +452,7 @@ export async function submitSocialReport(
     p_reported_user_id: reportedUserId,
     p_reported_activity_id: activityId,
     p_reason: reason,
+    p_reported_comment_id: commentId,
   });
   if (error) return { ok: false, kind: 'rejected', message: error.message };
 
@@ -412,4 +461,69 @@ export async function submitSocialReport(
     return { ok: true, status: result.status };
   }
   return { ok: false, kind: 'unknown', message: 'The server did not confirm the report.' };
+}
+
+export type AddCommentResult =
+  | { readonly ok: true; readonly comment: ActivityComment }
+  | { readonly ok: false; readonly kind: 'not_configured' | 'not_authenticated' | 'empty' | 'too_long' }
+  | { readonly ok: false; readonly kind: 'rejected'; readonly message: string }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * Posts a flat (no threading) comment on a Kin's activity item — the actual
+ * carrier of friendship-specific tone the fixed emoji reactions above
+ * cannot express. Trimmed and length-checked here as a fast client-side
+ * rejection; the real, authoritative boundary is server-side (the 200-char
+ * table check constraint and the content-filter trigger — see
+ * 20260907000000_activity_comments_and_emoji_reactions.sql), so a client
+ * bypass can never post something the server wouldn't have accepted anyway.
+ * authorId is always the caller's own id — RLS independently enforces this
+ * regardless of what's passed here, so this can never forge another
+ * person's authorship even if a caller were modified to try.
+ */
+export async function addActivityComment(authorId: string, activityId: string, body: string): Promise<AddCommentResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+  if (!authorId) return { ok: false, kind: 'not_authenticated' };
+  const validation = validateCommentBody(body);
+  if (!validation.ok) return { ok: false, kind: validation.kind };
+
+  const { data, error } = await supabase
+    .from('activity_comments')
+    .insert({ activity_id: activityId, author_id: authorId, body: validation.trimmed })
+    .select('id, activity_id, author_id, body, created_at')
+    .single();
+  if (error) return { ok: false, kind: 'rejected', message: error.message };
+
+  return {
+    ok: true,
+    comment: {
+      id: data.id,
+      activityId: data.activity_id,
+      authorId: data.author_id,
+      authorDisplayName: 'You',
+      body: data.body,
+      createdAt: data.created_at,
+    },
+  };
+}
+
+export type DeleteCommentResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly kind: 'not_configured' }
+  | { readonly ok: false; readonly kind: 'network' | 'unknown'; readonly message: string };
+
+/**
+ * Deletes a comment — permitted by RLS for either the comment's own author
+ * or the owner of the activity item it was posted on (removing an unwanted
+ * comment from their own moment without needing to block/report the
+ * commenter). Which of those two the caller actually is doesn't need to be
+ * passed here: the delete simply affects zero rows if RLS denies it, same
+ * pattern as clearMyReaction above.
+ */
+export async function deleteActivityComment(commentId: string): Promise<DeleteCommentResult> {
+  if (!supabase) return { ok: false, kind: 'not_configured' };
+
+  const { error } = await supabase.from('activity_comments').delete().eq('id', commentId);
+  if (error) return { ok: false, kind: 'unknown', message: error.message };
+  return { ok: true };
 }

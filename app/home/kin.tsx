@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
+import { ReactionBarV2 } from '@/components/v2/reaction-bar-v2';
 import { SegmentedControlV2 } from '@/components/v2/segmented-control';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
@@ -17,19 +18,21 @@ import { playSelectionHaptic } from '@/lib/haptics';
 import { describeActivityEvent } from '@/lib/home/activity-summary';
 import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import {
+  ActivityComment,
   ActivityItem,
   KinConnection,
   KinCurrentChallenge,
   KinSearchResult,
-  REACTION_KINDS,
   REPORT_REASONS,
   ReactionKind,
   ReportReason,
   acceptKinRequest,
+  addActivityComment,
   blockKin,
   cancelKinRequest,
   clearMyReaction,
   declineKinRequest,
+  deleteActivityComment,
   fetchKinActivity,
   fetchKinConnections,
   fetchKinCurrentChallenges,
@@ -44,9 +47,7 @@ import {
 
 type Tab = 'activity' | 'people';
 
-const REACTION_LABELS: Record<ReactionKind, string> = {
-  respect: 'Respect', nice: 'Nice', worth_it: 'Worth it', ouch: 'Ouch', brutal: 'Brutal',
-};
+const COMMENT_PREVIEW_COUNT = 2;
 
 const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   harassment: 'Harassment or bullying',
@@ -56,7 +57,7 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'Other',
 };
 
-type ReportTarget = { readonly userId: string; readonly displayName: string; readonly activityId: string | null };
+type ReportTarget = { readonly userId: string; readonly displayName: string; readonly activityId: string | null; readonly commentId: string | null };
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -94,6 +95,9 @@ export default function KinV2() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
   const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [postingCommentId, setPostingCommentId] = useState<string | null>(null);
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const searchRequestId = useRef(0);
   // The actual concurrency mutex for toggleReaction — a ref, not the
   // reactingIds state above, because a ref is read/written synchronously,
@@ -301,17 +305,18 @@ export default function KinV2() {
     void playSelectionHaptic();
     setSubmittingReport(true);
     const target = reportTarget;
-    const result = await submitSocialReport(target.userId, reason, target.activityId);
+    const result = await submitSocialReport(target.userId, reason, target.activityId, target.commentId);
     setSubmittingReport(false);
     setReportTarget(null);
     if (!result.ok) {
       Alert.alert('Could not send that report', 'Please try again.');
       return;
     }
-    // Only offered from an activity card (target.activityId set) — the
-    // People tab's manage sheet already has its own separate Block action
-    // right next to Report, so a second prompt there would be redundant.
-    if (target.activityId) {
+    // Only offered from an activity card or a comment on one (target.activityId
+    // or target.commentId set) — the People tab's manage sheet already has its
+    // own separate Block action right next to Report, so a second prompt there
+    // would be redundant.
+    if (target.activityId || target.commentId) {
       Alert.alert('Report sent', 'Thanks for letting us know. Our team will review this.', [
         { text: 'Done', style: 'cancel' },
         { text: `Also block ${target.displayName}`, style: 'destructive', onPress: () => void blockKin(target.userId).then(() => void refresh()) },
@@ -358,6 +363,57 @@ export default function KinV2() {
       reactionInFlightRef.current.delete(item.id);
       setReacting(item.id, false);
     }
+  };
+
+  const updateCommentDraft = (activityId: string, text: string) => {
+    setCommentDrafts((current) => ({ ...current, [activityId]: text }));
+  };
+
+  const submitComment = async (activityId: string) => {
+    if (!user) return;
+    const draft = (commentDrafts[activityId] ?? '').trim();
+    if (!draft || postingCommentId) return;
+    void playSelectionHaptic();
+    setPostingCommentId(activityId);
+    const result = await addActivityComment(user.id, activityId, draft);
+    setPostingCommentId(null);
+    if (!result.ok) {
+      Alert.alert('Could not post that comment', 'Please try again.');
+      return;
+    }
+    setCommentDrafts((current) => ({ ...current, [activityId]: '' }));
+    setActivity((current) => current.map((entry) => (
+      entry.id === activityId ? { ...entry, comments: [...entry.comments, result.comment] } : entry
+    )));
+  };
+
+  const confirmDeleteComment = (activityId: string, comment: ActivityComment) => {
+    Alert.alert('Delete comment', 'Remove this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: () => {
+          void (async () => {
+            const result = await deleteActivityComment(comment.id);
+            if (!result.ok) {
+              Alert.alert('Could not delete that comment', 'Please try again.');
+              return;
+            }
+            setActivity((current) => current.map((entry) => (
+              entry.id === activityId ? { ...entry, comments: entry.comments.filter((c) => c.id !== comment.id) } : entry
+            )));
+          })();
+        },
+      },
+    ]);
+  };
+
+  const toggleExpandComments = (activityId: string) => {
+    void playSelectionHaptic();
+    setExpandedComments((current) => {
+      const next = new Set(current);
+      if (next.has(activityId)) next.delete(activityId); else next.add(activityId);
+      return next;
+    });
   };
 
   return (
@@ -476,7 +532,7 @@ export default function KinV2() {
                           accessibilityHint={`Reports ${item.ownerDisplayName}'s activity`}
                           accessibilityRole="button"
                           hitSlop={8}
-                          onPress={() => openReport({ userId: item.ownerId, displayName: item.ownerDisplayName, activityId: item.id })}
+                          onPress={() => openReport({ userId: item.ownerId, displayName: item.ownerDisplayName, activityId: item.id, commentId: null })}
                           style={styles.reportButton}
                         >
                           <Feather color={theme.colors.warmGrey} name="flag" size={14} />
@@ -486,26 +542,74 @@ export default function KinV2() {
                     <Text style={[styles.activityEvent, item.kind === 'challenge_failed' && styles.activityEventFailure, item.kind === 'challenge_succeeded' && styles.activityEventSuccess]}>
                       {describeActivityEvent(item)}
                     </Text>
-                    <View style={styles.reactionRow}>
-                      {REACTION_KINDS.map((kind) => {
-                        const mine = item.myReaction === kind;
-                        const count = item.reactionCounts[kind] ?? 0;
-                        return (
-                          <Pressable
-                            accessibilityHint={`Reacts with ${REACTION_LABELS[kind]}`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: mine }}
-                            disabled={reactingIds.has(item.id)}
-                            key={kind}
-                            onPress={() => void toggleReaction(item, kind)}
-                            style={({ pressed }) => [styles.reactionChip, mine && styles.reactionChipActive, pressed && styles.reactionChipPressed]}
-                          >
-                            <Text style={[styles.reactionLabel, mine && styles.reactionLabelActive]}>
-                              {REACTION_LABELS[kind]}{count > 0 ? ` ${count}` : ''}
-                            </Text>
+                    <ReactionBarV2
+                      contextLabel={`React to ${item.ownerDisplayName}'s update`}
+                      disabled={reactingIds.has(item.id)}
+                      myReaction={item.myReaction}
+                      onToggle={(kind) => void toggleReaction(item, kind)}
+                      reactionCounts={item.reactionCounts}
+                    />
+
+                    {item.comments.length > 0 && (
+                      <View style={styles.commentsList}>
+                        {(expandedComments.has(item.id) ? item.comments : item.comments.slice(-COMMENT_PREVIEW_COUNT)).map((comment) => {
+                          const canDelete = comment.authorId === user?.id || item.ownerId === user?.id;
+                          return (
+                            <View key={comment.id} style={styles.commentRow}>
+                              <View style={styles.commentCopy}>
+                                <Text style={styles.commentAuthor}>{comment.authorDisplayName}</Text>
+                                <Text style={styles.commentBody}>{comment.body}</Text>
+                              </View>
+                              {canDelete ? (
+                                <Pressable
+                                  accessibilityHint="Deletes this comment"
+                                  accessibilityRole="button"
+                                  hitSlop={8}
+                                  onPress={() => confirmDeleteComment(item.id, comment)}
+                                  style={styles.commentActionButton}
+                                >
+                                  <Feather color={theme.colors.warmGrey} name="x" size={13} />
+                                </Pressable>
+                              ) : (
+                                <Pressable
+                                  accessibilityHint={`Reports ${comment.authorDisplayName}'s comment`}
+                                  accessibilityRole="button"
+                                  hitSlop={8}
+                                  onPress={() => openReport({ userId: comment.authorId, displayName: comment.authorDisplayName, activityId: null, commentId: comment.id })}
+                                  style={styles.commentActionButton}
+                                >
+                                  <Feather color={theme.colors.warmGrey} name="flag" size={12} />
+                                </Pressable>
+                              )}
+                            </View>
+                          );
+                        })}
+                        {item.comments.length > COMMENT_PREVIEW_COUNT && !expandedComments.has(item.id) && (
+                          <Pressable accessibilityRole="button" onPress={() => toggleExpandComments(item.id)} style={styles.viewCommentsLink}>
+                            <Text style={styles.viewCommentsLinkText}>View all {item.comments.length} comments</Text>
                           </Pressable>
-                        );
-                      })}
+                        )}
+                      </View>
+                    )}
+
+                    <View style={styles.addCommentRow}>
+                      <TextInputV2
+                        maxLength={200}
+                        onChangeText={(text) => updateCommentDraft(item.id, text)}
+                        placeholder="Add a comment"
+                        placeholderTextColor={theme.colors.warmGrey}
+                        style={styles.addCommentInput}
+                        value={commentDrafts[item.id] ?? ''}
+                      />
+                      <Pressable
+                        accessibilityHint="Posts your comment"
+                        accessibilityRole="button"
+                        disabled={!((commentDrafts[item.id] ?? '').trim()) || postingCommentId === item.id}
+                        onPress={() => void submitComment(item.id)}
+                        style={({ pressed }) => [styles.postCommentButton, pressed && styles.postCommentButtonPressed]}
+                      >
+                        <Text style={styles.postCommentButtonText}>Post</Text>
+                      </Pressable>
                     </View>
                   </View>
                 ))}
@@ -694,7 +798,7 @@ export default function KinV2() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => openReport({ userId: manageTarget.otherUserId, displayName: manageTarget.otherDisplayName, activityId: null })}
+              onPress={() => openReport({ userId: manageTarget.otherUserId, displayName: manageTarget.otherDisplayName, activityId: null, commentId: null })}
               style={styles.sheetAction}
             >
               <Text style={styles.sheetActionLabel}>Report</Text>
@@ -778,16 +882,26 @@ const styles = StyleSheet.create({
   activityEvent: { color: theme.colors.ivoryMuted, fontSize: 13, fontWeight: '600' },
   activityEventFailure: { color: theme.colors.crimsonBright },
   activityEventSuccess: { color: theme.colors.sage },
-  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  reactionChip: {
-    minHeight: 30, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center',
+  commentsList: { gap: 4 },
+  commentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  commentCopy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', columnGap: 5 },
+  commentAuthor: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
+  commentBody: { color: theme.colors.ivoryMuted, fontSize: 12, flexShrink: 1 },
+  commentActionButton: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  viewCommentsLink: { minHeight: 24, justifyContent: 'center' },
+  viewCommentsLinkText: { color: theme.colors.ivoryMuted, fontSize: 12, fontWeight: '600' },
+  addCommentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  addCommentInput: {
+    flex: 1, color: theme.colors.ivory, fontSize: 13, minHeight: 36,
     borderRadius: theme.radius.precise, borderWidth: 1, borderColor: theme.colors.structureLineStrong,
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: theme.colors.surfaceRaised, paddingHorizontal: 12,
   },
-  reactionChipActive: { borderColor: theme.colors.crimson, backgroundColor: theme.colors.crimsonSurface },
-  reactionChipPressed: { opacity: 0.75 },
-  reactionLabel: { color: theme.colors.ivoryMuted, fontSize: 11, fontWeight: '700' },
-  reactionLabelActive: { color: theme.colors.crimsonBright },
+  postCommentButton: {
+    minHeight: 36, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
+    borderRadius: theme.radius.precise, backgroundColor: theme.colors.rosewood,
+  },
+  postCommentButtonPressed: { opacity: 0.82 },
+  postCommentButtonText: { color: theme.colors.ivory, fontSize: 12, fontWeight: '700' },
   rowGroup: {
     borderRadius: theme.radius.controlled, borderWidth: 1, borderColor: theme.colors.structureLine,
     backgroundColor: theme.colors.surface, overflow: 'hidden',
