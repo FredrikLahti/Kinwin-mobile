@@ -39,8 +39,8 @@ export default function MeV2() {
         <View style={styles.identity}>
           <AvatarV2 size={58} />
           <View style={styles.identityCopy}>
-            <Text style={styles.name}>{name}</Text>
-            {user?.email && <Text style={styles.email}>{user.email}</Text>}
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.name}>{name}</Text>
+            {user?.email && <Text ellipsizeMode="tail" numberOfLines={1} style={styles.email}>{user.email}</Text>}
           </View>
         </View>
 
@@ -87,7 +87,11 @@ const styles = StyleSheet.create({
   },
   wordmark: { color: theme.colors.ivory, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6, marginBottom: 2 },
-  identityCopy: { gap: 3 },
+  // flex:1 lets this take the row's remaining width instead of sizing to
+  // its own content; minWidth:0 is required alongside it — a flex item's
+  // default minimum width is its content size, which would let a long name
+  // or email push the row wider than the screen regardless of flex:1.
+  identityCopy: { flex: 1, minWidth: 0, gap: 3 },
   name: { color: theme.colors.ivory, fontSize: 27, fontWeight: '700' },
   email: { color: theme.colors.ivoryMuted, fontSize: 13 },
   history: { color: theme.colors.ivoryMuted, fontSize: 14, lineHeight: 20, paddingBottom: 10 },
