@@ -6,11 +6,27 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import type { OnboardingDraftData } from '@/domain/challenge/from-onboarding-draft';
 import type { SupportedCurrency } from '@/domain/challenge/currency';
+// Relative, not '@/...': this file is required at plain-`node --test` time
+// by several *.test.ts files (creation-session.test.ts, navigation-
+// action.test.ts, onboarding-context.test.ts itself), which have no
+// path-alias resolution — only Metro (the real app bundler) understands
+// '@/...'. A '@/...' import of any real VALUE (not a type, which tsc
+// elides entirely) here breaks every one of those tests at runtime. This
+// module deliberately does NOT import contexts/auth-context.tsx for the
+// same reason, one level worse: auth-context.tsx itself pulls in the real
+// Supabase client and several more '@/lib/...' modules never otherwise
+// exercised by this test harness — see AuthGate in app/_layout.tsx, the
+// one place that legitimately already has both useAuth() and
+// useOnboarding() in scope, for where the actual profile-currency lookup
+// belongs; this file only exposes applyDefaultCurrencyIfUntouched() below
+// for it to call.
+import { resolveDefaultCurrency } from '../lib/challenge-creation/currency-default';
 
 export type BehaviorDirection = 'build' | 'cut' | 'stop';
 export type MeasurementMode = 'completion' | 'count' | 'time' | 'amount' | 'abstinence';
@@ -149,6 +165,8 @@ export function createInitialOnboardingFields(): ResettableOnboardingFields {
 }
 
 type OnboardingContextValue = {
+  /** Applies the resolved default currency (saved preference, else device locale) to the current draft, but ONLY if it hasn't been explicitly touched yet — see the fresh-draft-default boundary comment above OnboardingProvider's currencyTouchedRef. Called from AuthGate (app/_layout.tsx), which has the profile this context deliberately does not import. */
+  applyDefaultCurrencyIfUntouched: (preferredCurrency: SupportedCurrency | null, locale?: string) => void;
   behaviorDirection: BehaviorDirection | null;
   behaviorText: string;
   /** The explicit resume checkpoint — null unless the current session was explicitly Saved & exited (or Continued from one). See OnboardingSessionCheckpoint. Reset to null by resetDraft() and loadDraftData(). */
@@ -157,6 +175,8 @@ type OnboardingContextValue = {
   definitionText: string;
   durationWeeks: number | null;
   experienceCategory: ExperienceCategory | null;
+  /** Bumped by every resetDraft() call — exists only so AuthGate's fresh-draft-default effect has something to depend on that changes even when the saved preference itself hasn't. Not meaningful for anything else. */
+  freshDraftToken: number;
   goal: string;
   invitationMessage: string;
   invitationMessageCustomized: boolean;
@@ -171,7 +191,8 @@ type OnboardingContextValue = {
   setBehaviorDirection: (direction: BehaviorDirection | null) => void;
   setBehaviorText: (text: string) => void;
   setCheckpoint: Dispatch<SetStateAction<OnboardingSessionCheckpoint | null>>;
-  setCurrency: Dispatch<SetStateAction<SupportedCurrency>>;
+  /** Marks the draft's currency as explicitly chosen — see applyDefaultCurrencyIfUntouched above — so it is never afterward overwritten by a saved-preference/locale default. */
+  setCurrency: (value: SupportedCurrency) => void;
   setDefinitionText: (text: string) => void;
   setDurationWeeks: Dispatch<SetStateAction<number | null>>;
   setExperienceCategory: Dispatch<SetStateAction<ExperienceCategory | null>>;
@@ -299,6 +320,27 @@ type CreationSessionFieldsInput = {
   currency: SupportedCurrency;
 };
 
+/**
+ * The pure decision at the heart of OnboardingProvider's fresh-draft-
+ * default effect — extracted so it is directly unit-testable without
+ * rendering React (this repo's test harness is plain `node --test` over
+ * pure functions, with no React renderer — see contexts/onboarding-
+ * context.test.ts). Returns the currency to apply, or null to mean
+ * "leave it alone" (the draft has already been explicitly touched — by
+ * the user picking one, or by loading/restoring a real persisted draft's
+ * own currency — see OnboardingProvider's currencyTouchedRef). Never
+ * derives from anything except the two inputs: no live FX, no other
+ * onboarding state.
+ */
+export function resolveFreshDraftCurrencyUpdate(
+  touched: boolean,
+  preferredCurrency: SupportedCurrency | null,
+  locale?: string,
+): SupportedCurrency | null {
+  if (touched) return null;
+  return resolveDefaultCurrency(preferredCurrency, locale);
+}
+
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
@@ -328,12 +370,52 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [rhythm, setRhythm] = useState<RhythmState>(initialFields.rhythm);
   const [successThresholdOverride, setSuccessThresholdOverride] = useState<number | null>(initialFields.successThresholdOverride);
 
+  // True multi-currency V1's ONE fresh-draft-default boundary: every place
+  // in the app that starts, resets, loads, or restores a draft funnels
+  // through the state setters below — this ref plus applyDefaultCurrency
+  // IfUntouched (called from AuthGate in app/_layout.tsx, the one place
+  // that already legitimately has both useAuth() and useOnboarding() in
+  // scope — this module deliberately does not import auth-context.tsx
+  // itself, see the import comment above) is what applies the default
+  // currency (saved preference, else device locale — see
+  // resolveDefaultCurrency) to a genuinely blank draft, regardless of
+  // which of those several call sites (or a fresh cold app launch that
+  // calls none of them, e.g. app/index.tsx's signed-out "Start challenge")
+  // got there. Never a per-screen resolveDefaultCurrency() call, so no
+  // fresh-start path can be missed by forgetting to call it. `false`
+  // (untouched) means "this blank draft is still eligible for the
+  // default"; ANY explicit currency set — from the user picking one on
+  // the stake screen, or from loading/restoring a real persisted draft's
+  // own already-chosen currency — permanently disqualifies it until the
+  // next resetDraft(), so a saved preference change can never silently
+  // rewrite an in-progress or resumed draft's currency. freshDraftToken
+  // exists only so AuthGate's effect has something to depend on that
+  // changes on every resetDraft() call even when the saved preference
+  // itself hasn't (resetDraft() alone doesn't otherwise change anything
+  // AuthGate's effect could depend on).
+  const currencyTouchedRef = useRef(false);
+  const [freshDraftToken, setFreshDraftToken] = useState(0);
+
+  const setCurrencyExplicit = useCallback((value: SupportedCurrency) => {
+    currencyTouchedRef.current = true;
+    setCurrency(value);
+  }, []);
+
+  const applyDefaultCurrencyIfUntouched = useCallback((preferredCurrency: SupportedCurrency | null, locale?: string) => {
+    const next = resolveFreshDraftCurrencyUpdate(currencyTouchedRef.current, preferredCurrency, locale);
+    if (next !== null) setCurrency(next);
+  }, []);
+
   const loadDraftData = useCallback((data: OnboardingDraftData, draftId: string) => {
     setGoal(data.goal);
     setBehaviorText(data.behaviorText);
     setDefinitionText(data.definitionText);
     setBehaviorDirection(data.behaviorDirection);
     setMeasurementMode(data.measurementMode);
+    // A loaded server draft's currency is already the real, immutable-once-
+    // prepared commitment currency — never eligible for the fresh-draft
+    // default effect above to overwrite.
+    currencyTouchedRef.current = true;
     setCurrency(data.currency as SupportedCurrency);
     setRhythm({ ...data.rhythm, selectedWeekdays: [...data.rhythm.selectedWeekdays] });
     // A resumed server draft's raw duration.value is never re-validated
@@ -367,7 +449,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setDefinitionText(fields.definitionText);
     setBehaviorDirection(fields.behaviorDirection);
     setMeasurementMode(fields.measurementMode);
+    // The single reset baseline currency ('USD') is only ever a transient
+    // starting point here — clearing `touched` (and bumping the token to
+    // re-trigger the fresh-draft-default effect above, since resetDraft()
+    // alone doesn't otherwise change that effect's own dependencies) is
+    // what lets the next real default (saved preference, else locale)
+    // actually apply, for every resetDraft() call site alike.
+    currencyTouchedRef.current = false;
     setCurrency(fields.currency);
+    setFreshDraftToken((token) => token + 1);
     setRhythm(fields.rhythm);
     setDurationWeeks(fields.durationWeeks);
     setSuccessThresholdOverride(fields.successThresholdOverride);
@@ -391,6 +481,10 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setDefinitionText(restored.definitionText);
     setBehaviorDirection(restored.behaviorDirection);
     setMeasurementMode(restored.measurementMode);
+    // A restored local checkpoint's currency is the user's own already-made
+    // choice — never eligible for the fresh-draft default effect to
+    // overwrite (see loadDraftData's identical reasoning above).
+    currencyTouchedRef.current = true;
     setCurrency(restored.currency);
     setRhythm({ ...restored.rhythm, selectedWeekdays: [...restored.rhythm.selectedWeekdays] });
     setDurationWeeks(restored.durationWeeks);
@@ -415,6 +509,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
+      applyDefaultCurrencyIfUntouched,
       behaviorDirection,
       behaviorText,
       checkpoint,
@@ -422,6 +517,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       definitionText,
       durationWeeks,
       experienceCategory,
+      freshDraftToken,
       goal,
       invitationMessage,
       invitationMessageCustomized,
@@ -437,7 +533,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       setBehaviorDirection,
       setBehaviorText,
       setCheckpoint,
-      setCurrency,
+      setCurrency: setCurrencyExplicit,
       setDefinitionText,
       setDurationWeeks,
       setExperienceCategory,
@@ -460,6 +556,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       successThresholdOverride,
     }),
     [
+      applyDefaultCurrencyIfUntouched,
       behaviorDirection,
       behaviorText,
       checkpoint,
@@ -467,6 +564,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       definitionText,
       durationWeeks,
       experienceCategory,
+      freshDraftToken,
       goal,
       invitationMessage,
       invitationMessageCustomized,
@@ -479,6 +577,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       rewardOrganizer,
       rhythm,
       savedDraftId,
+      setCurrencyExplicit,
       sitOutAcknowledged,
       stakeAmount,
       stakeAmountInput,

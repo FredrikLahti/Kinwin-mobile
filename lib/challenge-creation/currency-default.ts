@@ -1,11 +1,14 @@
 import { SupportedCurrency } from '@/domain/challenge/currency';
 
 // Deliberately small and deterministic — not a generic locale/region
-// framework. True multi-currency V1 only supports USD/SEK/EUR (see
-// domain/challenge/currency.ts), so this only needs to decide between
-// those three when a user has no saved preference yet.
+// framework, and not a live external lookup: kept in sync by hand against
+// actual euro-area membership as of the product's current date (see
+// docs/PRODUCT_DECISIONS.md). True multi-currency V1 only supports
+// USD/SEK/EUR (see domain/challenge/currency.ts), so this only needs to
+// decide between those three when a user has no saved preference yet.
+// Includes Bulgaria (BG), which adopted the euro on 2026-01-01.
 const EURO_AREA_REGIONS = new Set([
-  'AT', 'BE', 'CY', 'EE', 'FI', 'FR', 'DE', 'GR', 'IE', 'IT',
+  'AT', 'BE', 'BG', 'CY', 'EE', 'FI', 'FR', 'DE', 'GR', 'IE', 'IT',
   'LV', 'LT', 'LU', 'MT', 'NL', 'PT', 'SK', 'SI', 'ES', 'HR',
 ]);
 
@@ -31,9 +34,10 @@ export function currencyForRegion(region: string | null): SupportedCurrency {
  * reference from an existing draft/challenge (see
  * docs/PRODUCT_DECISIONS.md). A saved profiles.preferred_currency always
  * wins; only in its absence does this fall back to the device's own
- * locale/region. Called once, at the "start fresh" boundary
- * (hooks/use-create-challenge-entry.ts) — never inside the pure onboarding
- * reset functions, which must stay synchronous and side-effect free.
+ * locale/region. Called from contexts/onboarding-context.tsx's
+ * resolveFreshDraftCurrencyUpdate/fresh-draft-default effect — the one
+ * shared boundary every genuinely new draft resolves through, regardless
+ * of which screen/action started it (see that file's own comment).
  */
 export function resolveDefaultCurrency(
   savedPreference: SupportedCurrency | null,

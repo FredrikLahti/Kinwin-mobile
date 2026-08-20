@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { computeRestoredCreationSessionState, createInitialOnboardingFields, createRecipientDraft } from './onboarding-context';
+import { computeRestoredCreationSessionState, createInitialOnboardingFields, createRecipientDraft, resolveFreshDraftCurrencyUpdate } from './onboarding-context';
 
 test('createInitialOnboardingFields carries no leftover data — every field is a blank default', () => {
   const fields = createInitialOnboardingFields();
@@ -119,6 +119,31 @@ test('computeRestoredCreationSessionState leaves a valid persisted successThresh
   const restored = computeRestoredCreationSessionState(fields, '/create/success-means', '2026-01-01T00:00:00.000Z');
   assert.equal(restored.successThresholdOverride, 27);
   assert.equal(restored.checkpoint.fields.successThresholdOverride, 27);
+});
+
+// True multi-currency V1's ONE fresh-draft-default boundary (see
+// OnboardingProvider's currencyTouchedRef/fresh-draft-default effect,
+// which calls this exact function): every genuinely new draft — signed
+// out (locale only), signed in with no saved preference yet (locale
+// only), signed in with a saved preference (preference wins) — resolves
+// through this one rule, and a touched draft (explicit pick, or a
+// loaded/restored draft's own already-chosen currency) is never
+// overwritten, regardless of which resetDraft()/load/restore call site
+// got there.
+test('resolveFreshDraftCurrencyUpdate: a touched draft is never updated, regardless of the saved preference or locale', () => {
+  assert.equal(resolveFreshDraftCurrencyUpdate(true, 'EUR', 'sv-SE'), null);
+  assert.equal(resolveFreshDraftCurrencyUpdate(true, null, 'sv-SE'), null);
+});
+
+test('resolveFreshDraftCurrencyUpdate: an untouched draft with a saved preference resolves to that preference, regardless of locale — the saved preference always beats the locale default', () => {
+  assert.equal(resolveFreshDraftCurrencyUpdate(false, 'EUR', 'en-US'), 'EUR');
+  assert.equal(resolveFreshDraftCurrencyUpdate(false, 'USD', 'sv-SE'), 'USD');
+});
+
+test('resolveFreshDraftCurrencyUpdate: an untouched draft with no saved preference (signed out, or signed in with none set yet) falls back to the locale default', () => {
+  assert.equal(resolveFreshDraftCurrencyUpdate(false, null, 'sv-SE'), 'SEK');
+  assert.equal(resolveFreshDraftCurrencyUpdate(false, null, 'de-DE'), 'EUR');
+  assert.equal(resolveFreshDraftCurrencyUpdate(false, null, 'en-US'), 'USD');
 });
 
 // True multi-currency V1: a draft's own currency is never re-derived or

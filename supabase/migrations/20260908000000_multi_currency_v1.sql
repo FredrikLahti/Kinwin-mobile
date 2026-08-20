@@ -20,12 +20,21 @@
 --   3. public.prepare_challenge_from_draft is redefined (via `create or
 --      replace function`, the same in-place body-swap pattern used by every
 --      prior redefinition of it) with its full current body from
---      20260906000000_success_means_v2.sql, unchanged except for the single
---      currency validation line, which now accepts USD/SEK/EUR instead of
---      USD only. Every other rule (V2 Success Means, the owner-level
---      advisory lock, pending/active challenge conflicts, organizer/
---      duration/rhythm validation, server-authoritative preparation, and
---      the consequence/challenge_recipients inserts) is preserved exactly.
+--      20260906000000_success_means_v2.sql, changed only in the currency
+--      validation, which now accepts USD/SEK/EUR instead of USD only, plus
+--      one new check immediately after it: a per-currency minimum stake
+--      (in minor units — USD/EUR 500, SEK 5000; see
+--      domain/challenge/currency.ts's MINIMUM_STAKE_MINOR_UNITS, the same
+--      contract this must stay in sync with), so a malicious or buggy
+--      client can never prepare a stake below Kinwin's product floor
+--      regardless of what client-side validation claims. Every other rule
+--      (V2 Success Means, the owner-level advisory lock, pending/active
+--      challenge conflicts, organizer/duration/rhythm validation,
+--      server-authoritative preparation, and the consequence/
+--      challenge_recipients inserts) is preserved exactly. This migration
+--      is still unmerged as of this revision — the minimum-stake check was
+--      added directly here rather than in a follow-up migration, since
+--      20260908 itself has not shipped yet.
 --
 -- Once a draft is prepared into a real challenge (prepare_challenge_from_draft
 -- succeeds), its currency is permanently locked into
@@ -452,6 +461,15 @@ begin
   end if;
   if stake_currency not in ('USD', 'SEK', 'EUR') then
     raise exception 'the selected currency is not supported' using errcode = '22023';
+  end if;
+  -- Kinwin's own product minimum, not merely Stripe's technical minimum
+  -- charge (USD/EUR 0.50, SEK 3.00) — see domain/challenge/currency.ts's
+  -- MINIMUM_STAKE_MINOR_UNITS, which this must stay in sync with. Never
+  -- trusts the client's own stake-screen check alone.
+  if (stake_currency = 'USD' and stake_minor_units < 500)
+    or (stake_currency = 'EUR' and stake_minor_units < 500)
+    or (stake_currency = 'SEK' and stake_minor_units < 5000) then
+    raise exception 'the stake is below the minimum for the selected currency' using errcode = '22023';
   end if;
 
   if (draft.draft_payload -> 'sitOutAcknowledged') is distinct from 'true'::jsonb then

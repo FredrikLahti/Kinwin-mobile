@@ -17,6 +17,7 @@ import { useCreateChallengeEntry } from '@/hooks/use-create-challenge-entry';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { resolveDefaultCurrency } from '@/lib/challenge-creation/currency-default';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { planPreferredCurrencySave } from '@/lib/preferred-currency-save';
 import { readSupportConfig } from '@/lib/support/config';
 import { fetchLatestEditableDraft } from '@/lib/supabase/challenge-draft-repository';
 import { fetchPendingCommitment } from '@/lib/supabase/challenge-repository';
@@ -122,9 +123,25 @@ export default function AccountScreen() {
   // docs/PRODUCT_DECISIONS.md) — this only changes what future fresh
   // drafts default to.
   const preferredCurrency = profile?.preferredCurrency ?? resolveDefaultCurrency(null);
-  const selectPreferredCurrency = (currency: SupportedCurrency) => {
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const [currencySaveFailed, setCurrencySaveFailed] = useState(false);
+  // Serializes writes rather than merely tracking "latest response wins" in
+  // the UI: while a write is in flight the control is disabled (see
+  // SegmentedControlV2's `disabled`), so a second tap physically cannot
+  // start a second concurrent database UPDATE — two rapid taps (e.g. SEK
+  // then immediately EUR) queue instead of racing, and whichever finishes
+  // last is always genuinely the last one requested, never an
+  // out-of-order response silently winning. A failed write is surfaced
+  // honestly (currencySaveFailed) rather than left showing a value that
+  // was never actually persisted.
+  const selectPreferredCurrency = async (currency: SupportedCurrency) => {
+    if (planPreferredCurrencySave(savingCurrency) === 'ignored_in_flight') return;
     void playSelectionHaptic();
-    void updatePreferredCurrency(currency);
+    setSavingCurrency(true);
+    setCurrencySaveFailed(false);
+    const result = await updatePreferredCurrency(currency);
+    setSavingCurrency(false);
+    if (!result.ok) setCurrencySaveFailed(true);
   };
 
   const handleSignOut = async () => {
@@ -256,8 +273,12 @@ export default function AccountScreen() {
             </Pressable>
             <View style={styles.currencyRow}>
               <Text style={styles.rowLabel}>Preferred currency</Text>
-              <SegmentedControlV2 onChange={selectPreferredCurrency} options={CURRENCY_OPTIONS} value={preferredCurrency} />
-              <Text style={styles.currencyHelper}>Used as the default for new challenges. Does not change any challenge you already have.</Text>
+              <SegmentedControlV2 disabled={savingCurrency} onChange={(currency) => void selectPreferredCurrency(currency)} options={CURRENCY_OPTIONS} value={preferredCurrency} />
+              {currencySaveFailed ? (
+                <Text style={styles.error}>Couldn&apos;t save your preferred currency. Try again.</Text>
+              ) : (
+                <Text style={styles.currencyHelper}>Used as the default for new challenges. Does not change any challenge you already have.</Text>
+              )}
             </View>
           </View>
 

@@ -11,7 +11,6 @@ import {
   resolveResumeRoute,
 } from '@/lib/challenge-creation/creation-session';
 import { creationSessionStorage } from '@/lib/challenge-creation/creation-session-storage';
-import { resolveDefaultCurrency } from '@/lib/challenge-creation/currency-default';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 
@@ -46,7 +45,7 @@ export type CreateChallengeEntryController = {
 export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const router = useRouter();
   const onboarding = useOnboarding();
-  const { profile, user } = useAuth();
+  const { user } = useAuth();
   const resumableSession = useResumableCreationSession();
   const [resumeSheetOpen, setResumeSheetOpen] = useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -54,12 +53,12 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const [discardFailed, setDiscardFailed] = useState(false);
 
   const startFreshCreation = () => {
+    // resetDraft() itself applies the default currency (saved preference,
+    // else device locale) via OnboardingProvider's own fresh-draft-default
+    // effect — the one shared boundary every resetDraft() call site relies
+    // on, so this hook no longer needs its own resolveDefaultCurrency call
+    // (see contexts/onboarding-context.tsx and docs/PRODUCT_DECISIONS.md).
     onboarding.resetDraft();
-    // Only the genuine "fresh start" boundary applies the default currency
-    // (saved preference, else device locale) — resuming a checkpoint or
-    // loading a server draft always carries its own already-set currency
-    // instead (see docs/PRODUCT_DECISIONS.md).
-    onboarding.setCurrency(resolveDefaultCurrency(profile?.preferredCurrency ?? null));
     router.push('/create/intro' as Href);
   };
 

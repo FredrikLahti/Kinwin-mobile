@@ -1,6 +1,6 @@
 import { ChallengeDraft } from './types';
 import { deriveSuccessRuleForChallengeRule } from './success-rule';
-import { SUPPORTED_CURRENCIES } from './currency';
+import { isStakeAtOrAboveMinimum, isSupportedCurrency } from './currency';
 
 export type ActivationIssue = { readonly field: string; readonly code: string; readonly message: string };
 
@@ -33,7 +33,11 @@ export function validateActivationReadiness(draft: ChallengeDraft): ActivationIs
   }
   if (!draft.experienceCategory) issues.push(issue('experienceCategory', 'missing', 'An experience category is required.'));
   if (!Number.isSafeInteger(draft.stake.minorUnits) || draft.stake.minorUnits <= 0) issues.push(issue('stake.minorUnits', 'invalid', 'The stake must be a positive amount in minor units.'));
-  if (!SUPPORTED_CURRENCIES.includes(draft.stake.currency)) issues.push(issue('stake.currency', 'unsupported', 'The selected currency is not supported.'));
+  if (!isSupportedCurrency(draft.stake.currency)) {
+    issues.push(issue('stake.currency', 'unsupported', 'The selected currency is not supported.'));
+  } else if (Number.isSafeInteger(draft.stake.minorUnits) && draft.stake.minorUnits > 0 && !isStakeAtOrAboveMinimum(draft.stake.minorUnits, draft.stake.currency)) {
+    issues.push(issue('stake.minorUnits', 'below_minimum', 'The stake is below Kinwin\'s minimum for the selected currency.'));
+  }
   if (!draft.sitOutAcknowledged) issues.push(issue('sitOutAcknowledged', 'missing', 'The sit-out promise must be acknowledged.'));
   if (draft.invitationMessage.trim().length < 3) issues.push(issue('invitationMessage', 'invalid', 'A valid invitation message is required.'));
   if (!draft.membershipSelection) issues.push(issue('membershipSelection', 'missing', 'A membership selection is required.'));

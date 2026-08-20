@@ -9,9 +9,10 @@ import { SegmentedControlV2 } from '@/components/v2/segmented-control';
 import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { ExperienceCategory, useOnboarding } from '@/contexts/onboarding-context';
-import { SUPPORTED_CURRENCIES, SupportedCurrency } from '@/domain/challenge/currency';
+import { isStakeAtOrAboveMinimum, MINIMUM_STAKE_MINOR_UNITS, SUPPORTED_CURRENCIES, SupportedCurrency } from '@/domain/challenge/currency';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
+import { formatMoney } from '@/lib/home/challenge-summary';
 import { normalizeStakeDigits } from '@/lib/challenge-creation/stake-input';
 
 const CURRENCY_OPTIONS: readonly { label: string; value: SupportedCurrency }[] =
@@ -59,7 +60,15 @@ export default function CreateConsequenceScreen() {
     .formatToParts(0)
     .find((part) => part.type === 'currency')?.value ?? '$';
 
-  const canContinue = Boolean(experienceCategory && stakeAmount && stakeAmount > 0);
+  // Re-evaluated fresh on every render (no memoized/stale dependency list),
+  // so switching currency immediately re-checks the just-entered amount
+  // against the new currency's minimum — a USD amount that cleared the
+  // USD floor must not stay "valid" the instant the user switches to SEK.
+  const stakeMinorUnits = stakeAmount !== null ? stakeAmount * 100 : null;
+  const meetsMinimumStake = stakeMinorUnits !== null && isStakeAtOrAboveMinimum(stakeMinorUnits, currency);
+  const belowMinimumStake = stakeAmount !== null && stakeAmount > 0 && !meetsMinimumStake;
+  const minimumStakeLabel = formatMoney(MINIMUM_STAKE_MINOR_UNITS[currency], currency);
+  const canContinue = Boolean(experienceCategory && stakeAmount && stakeAmount > 0 && meetsMinimumStake);
 
   const updateStakeAmount = (value: string) => {
     const digits = normalizeStakeDigits(value, MAX_STAKE_INPUT_LENGTH);
@@ -81,7 +90,7 @@ export default function CreateConsequenceScreen() {
       currentStep={currentStep}
       footer={
         <PrimaryButtonV2
-          accessibilityHint={canContinue ? 'Continues to review' : 'Choose an experience and enter a stake greater than zero'}
+          accessibilityHint={canContinue ? 'Continues to review' : `Choose an experience and enter a stake of at least ${minimumStakeLabel}`}
           disabled={!canContinue}
           label="Continue"
           onPress={continueToReview}
@@ -120,7 +129,11 @@ export default function CreateConsequenceScreen() {
             value={stakeAmountInput}
           />
         </View>
-        <Text style={styles.stakeHelper}>Choose an amount you’d rather keep, but could safely afford to lose.</Text>
+        <Text style={[styles.stakeHelper, belowMinimumStake && styles.stakeHelperWarning]}>
+          {belowMinimumStake
+            ? `Kinwin's minimum stake is ${minimumStakeLabel}, a real accountability commitment, not a token amount.`
+            : 'Choose an amount you’d rather keep, but could safely afford to lose.'}
+        </Text>
       </View>
     </CreateFlowScreenV2>
   );
@@ -140,4 +153,5 @@ const styles = StyleSheet.create({
   currencySymbol: { color: theme.colors.crimsonBright, fontSize: 26, fontWeight: '700' },
   amountInput: { flex: 1, minHeight: 50, color: theme.colors.ivory, fontSize: 34, fontWeight: '600', paddingHorizontal: 4, paddingVertical: 0 },
   stakeHelper: { marginTop: 8, color: theme.colors.warmGrey, fontSize: 11, lineHeight: 16 },
+  stakeHelperWarning: { color: theme.colors.crimsonBright },
 });

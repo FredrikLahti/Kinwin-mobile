@@ -19,5 +19,34 @@ for (const [currency, expectedStripeCurrency] of [['USD', 'usd'], ['SEK', 'sek']
     assert.equal(capturedParams?.amount, obligation.amountMinorUnits);
   });
 }
+// Deterministic provider validation errors (e.g. a stake below Stripe's own
+// minimum-charge amount slipping past Kinwin's own validation somehow) can
+// never succeed on retry — must go straight to permanently_failed, never
+// sit in the temporary_failure retry queue forever.
+for (const code of ['amount_too_small', 'amount_too_large', 'parameter_invalid_integer', 'parameter_missing']) {
+  test(`a deterministic ${code} provider error is classified permanently_failed, not retried`, async () => {
+    const adapter = new FakeStripeAdapter();
+    const providerError = Object.assign(new Error(`Stripe rejected the request: ${code}`), { type: 'StripeInvalidRequestError', code });
+    adapter.createPaymentIntent = async () => { throw providerError; };
+    const result = await attemptObligation(obligation, adapter);
+    assert.equal(result.status, 'permanently_failed');
+    assert.equal(result.category, code);
+    assert.equal(result.intentId, null);
+  });
+}
+
+test('a genuinely transient provider error (no recognized deterministic code) is rethrown, not silently swallowed', async () => {
+  const adapter = new FakeStripeAdapter();
+  adapter.createPaymentIntent = async () => { throw new Error('ECONNRESET'); };
+  await assert.rejects(() => attemptObligation(obligation, adapter), /ECONNRESET/);
+});
+
+test('an error carrying an unrecognized .code is also rethrown, not treated as terminal — only the specific documented codes are ever reclassified', async () => {
+  const adapter = new FakeStripeAdapter();
+  const unrecognized = Object.assign(new Error('some other Stripe error'), { type: 'StripeInvalidRequestError', code: 'card_declined' });
+  adapter.createPaymentIntent = async () => { throw unrecognized; };
+  await assert.rejects(() => attemptObligation(obligation, adapter));
+});
+
 test('classifies paid, authentication, replacement and processing states',()=>{const b={id:'pi',customerId:'cus',paymentMethodId:'pm',lastErrorType:null,lastErrorCode:null};assert.equal(classifyPaymentIntent({...b,status:'succeeded'}).status,'succeeded');assert.equal(classifyPaymentIntent({...b,status:'requires_payment_method',lastErrorCode:'authentication_required'}).status,'requires_action');assert.equal(classifyPaymentIntent({...b,status:'requires_payment_method',lastErrorCode:'card_declined'}).status,'requires_payment_method');assert.equal(classifyPaymentIntent({...b,status:'processing'}).status,'processing');});
 test('maps only required PaymentIntent webhook events',()=>{const i={id:'pi',status:'succeeded',customerId:'cus',paymentMethodId:'pm',lastErrorType:null,lastErrorCode:null};assert.equal(planPaymentWebhook({id:'evt',type:'payment_intent.succeeded'},i)?.status,'succeeded');assert.equal(planPaymentWebhook({id:'evt2',type:'charge.succeeded'},i),null);});

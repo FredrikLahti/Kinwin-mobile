@@ -13,6 +13,16 @@ test('currencyForRegion maps euro-area regions to EUR', () => {
   }
 });
 
+// Bulgaria adopted the euro on 2026-01-01 — a Bulgarian locale must resolve
+// to EUR, not the pre-adoption fallback of USD.
+test('currencyForRegion maps Bulgaria to EUR', () => {
+  assert.equal(currencyForRegion('BG'), 'EUR');
+});
+
+test('resolveDefaultCurrency: a Bulgarian locale with no saved preference falls back to EUR', () => {
+  assert.equal(resolveDefaultCurrency(null, 'bg-BG'), 'EUR');
+});
+
 test('currencyForRegion falls back to USD for anywhere else, including null', () => {
   assert.equal(currencyForRegion('US'), 'USD');
   assert.equal(currencyForRegion('GB'), 'USD');
