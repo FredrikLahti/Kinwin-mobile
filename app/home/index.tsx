@@ -1,4 +1,4 @@
-import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { EntranceTransitionV2 } from '@/components/v2/entrance-transition';
 import { ProgressBarV2 } from '@/components/v2/stat-bar';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
@@ -65,6 +66,13 @@ export default function HomeV2() {
   const onboarding = useOnboarding();
   const { state: real, refresh } = useRealActiveChallenge();
   const { state: completed, refresh: refreshCompleted } = useRecentCompletedChallenge();
+  const params = useLocalSearchParams<{ justActivated?: string | string[] }>();
+  const [showActivationEntrance, setShowActivationEntrance] = useState(false);
+  // Guards against replaying the entrance on a re-render before the
+  // immediate router.setParams clear below has actually landed, and against
+  // a remount (e.g. returning from a child route on a stack that tore this
+  // screen down) ever seeing the param again after it's been consumed once.
+  const activationEntranceHandledRef = useRef(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
   const [pendingLoading, setPendingLoading] = useState(true);
@@ -80,6 +88,22 @@ export default function HomeV2() {
   const { refreshResumableSession } = createChallengeEntry;
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
+
+  // '?justActivated=1' (set by app/account/pending-commitment.tsx's
+  // activate(), right after the server confirms) is a transient signal for
+  // exactly one thing: whether THIS particular arrival on Home should play
+  // the restrained first-active entrance below. Consumed immediately —
+  // both the local ref (covers this mount) and clearing the param itself
+  // via setParams (covers a remount landing here again later) — so an
+  // ordinary later visit, even one reached by backing out of a child
+  // screen, never replays it. Never persisted anywhere.
+  const justActivatedParam = Array.isArray(params.justActivated) ? params.justActivated[0] : params.justActivated;
+  useEffect(() => {
+    if (justActivatedParam !== '1' || activationEntranceHandledRef.current) return;
+    activationEntranceHandledRef.current = true;
+    setShowActivationEntrance(true);
+    router.setParams({ justActivated: undefined });
+  }, [justActivatedParam, router]);
 
   const loadPendingCommitment = useCallback(async () => {
     if (!user) {
@@ -273,6 +297,7 @@ export default function HomeV2() {
 
           {!isLoading && real.status === 'ready' && identity && (
             <View style={styles.section}>
+              <EntranceTransitionV2 play={showActivationEntrance} reducedMotion={reducedMotion}>
               <View style={styles.heroCard}>
                 <Text numberOfLines={2} style={styles.heroHeadline}>{identity.headline}</Text>
                 {identity.ruleDetail && <Text style={styles.heroRule}>{identity.ruleDetail}</Text>}
@@ -322,7 +347,7 @@ export default function HomeV2() {
                           {durationPosition && <Text style={styles.heroProgressLabel}>{durationPosition}</Text>}
                           {progressLine && <Text style={styles.heroProgressLabel}>{progressLine}</Text>}
                         </View>
-                        <ProgressBarV2 percent={progressPercent} />
+                        <ProgressBarV2 percent={progressPercent} reducedMotion={reducedMotion} />
                       </View>
                     )}
                     {!isUpcoming && Boolean(real.view.timeRemaining) && (
@@ -346,6 +371,7 @@ export default function HomeV2() {
                   </Pressable>
                 </View>
               </View>
+              </EntranceTransitionV2>
             </View>
           )}
 

@@ -10,7 +10,7 @@ import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
-import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { formatMoney } from '@/lib/home/challenge-summary';
 import { readStripeConfig } from '@/lib/stripe/config';
 import { useStripe, usePaymentSheet } from '@/lib/stripe/native-stripe';
@@ -173,7 +173,10 @@ export default function PaymentSetupScreen() {
       return;
     }
 
-    void playCommitmentHaptic();
+    // Saving a card is an infrastructure step, not the point of no return —
+    // playCommitmentHaptic is reserved for activation, the one moment that
+    // is actually irreversible (see app/account/pending-commitment.tsx).
+    void playImportantHaptic();
     setState({ kind: 'verifying', commitment, timedOut: false, checking: false });
     void runVerificationPoll();
   }, [initPaymentSheet, presentPaymentSheet, returnURL, runVerificationPoll, user]);
