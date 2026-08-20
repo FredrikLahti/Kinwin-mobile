@@ -3,21 +3,24 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 
 type SegmentedControlV2Props<T extends string> = {
+  disabled?: boolean;
   onChange: (value: T) => void;
   options: readonly { label: string; value: T }[];
   value: T;
 };
 
-export function SegmentedControlV2<T extends string>({ onChange, options, value }: SegmentedControlV2Props<T>) {
+/** `disabled` is for a control whose selection is being persisted elsewhere (e.g. a server write in flight) — it blocks every segment and dims the whole track, so a second tap can never race the first write. */
+export function SegmentedControlV2<T extends string>({ disabled = false, onChange, options, value }: SegmentedControlV2Props<T>) {
   return (
-    <View accessibilityRole="tablist" style={styles.track}>
+    <View accessibilityRole="tablist" style={[styles.track, disabled && styles.trackDisabled]}>
       {options.map((option) => {
         const selected = option.value === value;
         return (
           <Pressable
             accessibilityLabel={option.label}
             accessibilityRole="tab"
-            accessibilityState={{ selected }}
+            accessibilityState={{ disabled, selected }}
+            disabled={disabled}
             key={option.value}
             onPress={() => onChange(option.value)}
             style={[styles.segment, selected && styles.segmentSelected]}
@@ -38,6 +41,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.structureLine,
     padding: 3,
+  },
+  trackDisabled: {
+    opacity: 0.5,
   },
   segment: {
     flex: 1,

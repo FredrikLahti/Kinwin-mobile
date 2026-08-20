@@ -1,6 +1,7 @@
 import { deriveStructuredSuccessRule } from './success-rule';
 import type { SuccessRuleSource } from './success-rule';
 import type { ChallengeDraft, ChallengeDraftId, CurrencyCode, RecipientId, UserId } from './types';
+import { isStakeAtOrAboveMinimum, isSupportedCurrency } from './currency';
 
 export type OnboardingDraftData = {
   readonly goal: string;
@@ -41,7 +42,7 @@ export type DraftMappingMetadata = {
 export type DraftMappingIssueCode =
   | 'missing_goal' | 'missing_behavior' | 'missing_definition' | 'unsupported_direction_measurement'
   | 'invalid_duration' | 'invalid_success_rule' | 'missing_recipient' | 'duplicate_recipient'
-  | 'invalid_organizer' | 'invalid_stake' | 'unsupported_currency'
+  | 'invalid_organizer' | 'invalid_stake' | 'stake_below_minimum' | 'unsupported_currency'
   | 'missing_experience_category'
   | 'missing_sit_out_acknowledgement' | 'invalid_invitation_message' | 'missing_membership_selection';
 export type DraftMappingIssue = { readonly code: DraftMappingIssueCode; readonly field: string; readonly message: string };
@@ -89,12 +90,15 @@ export function mapOnboardingDraft(data: OnboardingDraftData, metadata: DraftMap
 
   const minorUnits = normalizeWholeDollarStake(data.stakeAmount);
   if (minorUnits === null) add('invalid_stake', 'stakeAmount', 'Stake must be a positive, safely representable whole-dollar amount.');
-  if (data.currency !== 'USD') add('unsupported_currency', 'currency', 'Only USD is currently supported.');
+  const currencySupported = isSupportedCurrency(data.currency);
+  if (!currencySupported) add('unsupported_currency', 'currency', 'The selected currency is not supported.');
+  const belowMinimum = minorUnits !== null && currencySupported && !isStakeAtOrAboveMinimum(minorUnits, data.currency);
+  if (belowMinimum) add('stake_below_minimum', 'stakeAmount', 'The stake is below Kinwin\'s minimum for the selected currency.');
   if (!data.experienceCategory) add('missing_experience_category', 'experienceCategory', 'An experience category is required.');
   if (!data.sitOutAcknowledged) add('missing_sit_out_acknowledgement', 'sitOutAcknowledged', 'The sit-out promise must be acknowledged.');
   if (data.invitationMessage.trim().length < 3) add('invalid_invitation_message', 'invitationMessage', 'A valid invitation message is required.');
   if (!data.membershipChoice) add('missing_membership_selection', 'membershipChoice', 'A membership selection is required.');
-  if (issues.length || !structured || !organizer || minorUnits === null || !data.experienceCategory) return { ok: false, issues };
+  if (issues.length || !structured || !organizer || minorUnits === null || belowMinimum || !data.experienceCategory) return { ok: false, issues };
 
   return { ok: true, value: {
     schemaVersion: 1, id: metadata.draftId, ownerId: metadata.ownerId,

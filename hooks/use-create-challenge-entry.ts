@@ -53,6 +53,11 @@ export function useCreateChallengeEntry(): CreateChallengeEntryController {
   const [discardFailed, setDiscardFailed] = useState(false);
 
   const startFreshCreation = () => {
+    // resetDraft() itself applies the default currency (saved preference,
+    // else device locale) via OnboardingProvider's own fresh-draft-default
+    // effect — the one shared boundary every resetDraft() call site relies
+    // on, so this hook no longer needs its own resolveDefaultCurrency call
+    // (see contexts/onboarding-context.tsx and docs/PRODUCT_DECISIONS.md).
     onboarding.resetDraft();
     router.push('/create/intro' as Href);
   };

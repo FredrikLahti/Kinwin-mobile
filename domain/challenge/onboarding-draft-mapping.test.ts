@@ -219,6 +219,43 @@ test('An above-total Success Means selection is clamped down to the total, never
   assert.equal(mapped.value.successRule.direction === 'build' && mapped.value.successRule.minimumRequiredCompletions, 28);
 });
 
+// True multi-currency V1 (domain/challenge/currency.ts): USD/SEK/EUR are
+// all genuinely supported commitment currencies; anything else is rejected
+// with 'unsupported_currency', never silently coerced to USD.
+for (const currency of ['USD', 'SEK', 'EUR']) {
+  test(`Build (daily) round-trips unchanged with ${currency} as the stake currency`, () => {
+    const data: OnboardingDraftData = {
+      ...baseFields,
+      behaviorText: 'Strength train',
+      behaviorDirection: 'build',
+      measurementMode: 'completion',
+      rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+      durationWeeks: 4,
+      currency,
+    };
+    const { first, second, restored } = roundTrip(data);
+    assert.deepEqual(second, first);
+    assert.equal(first.stake.currency, currency);
+    assert.equal(restored.currency, currency);
+  });
+}
+
+test('an unsupported currency is rejected with unsupported_currency, not silently coerced to USD', () => {
+  const data: OnboardingDraftData = {
+    ...baseFields,
+    behaviorText: 'Strength train',
+    behaviorDirection: 'build',
+    measurementMode: 'completion',
+    rhythm: { type: 'daily', period: null, targetValue: '', selectedWeekdays: [], timeUnit: null, amountUnit: '' },
+    durationWeeks: 4,
+    currency: 'GBP',
+  };
+  const mapped = mapOnboardingDraft(data, metadata);
+  assert.equal(mapped.ok, false);
+  if (mapped.ok) throw new Error('unreachable');
+  assert.ok(mapped.issues.some((issue) => issue.code === 'unsupported_currency'));
+});
+
 test('resolveRecipientIds reuses an already-production id and mints a new one for an ephemeral id', () => {
   const alreadyStable = '11111111-1111-4111-8111-111111111111';
   const ephemeral = 'recipient-1730000000-a1';

@@ -15,6 +15,7 @@ import { AuthStatus as DerivedAuthStatus, deriveAuthStatus } from '@/lib/auth/de
 import { deriveStatusDuringRecovery } from '@/lib/auth/recovery-mode-status';
 import { buildPasswordResetRedirectUrl } from '@/lib/auth/reset-password-url';
 import { supabase } from '@/lib/supabase/client';
+import { isSupportedCurrency, SupportedCurrency } from '@/domain/challenge/currency';
 
 export type { AuthErrorKind };
 export type AuthResult = { readonly ok: true } | { readonly ok: false; readonly kind: AuthErrorKind; readonly message: string };
@@ -23,7 +24,8 @@ export type AuthResult = { readonly ok: true } | { readonly ok: false; readonly 
 // real outcomes apart instead of assuming the account is immediately usable.
 export type SignUpResult = { readonly ok: true; readonly needsConfirmation: boolean } | { readonly ok: false; readonly kind: AuthErrorKind; readonly message: string };
 
-export type Profile = { readonly id: string; readonly displayName: string | null; readonly showChallengeIntro: boolean };
+/** preferredCurrency is null until the user explicitly chooses one — it is only ever the default for NEW challenge drafts (see lib/challenge-creation/currency-default.ts), never a live reference an existing draft or challenge reads from. */
+export type Profile = { readonly id: string; readonly displayName: string | null; readonly showChallengeIntro: boolean; readonly preferredCurrency: SupportedCurrency | null };
 
 // See lib/auth/derive-auth-status.ts's own comment for why
 // 'password_recovery' must stay distinct from 'signed_in' here.
@@ -47,6 +49,7 @@ type AuthContextValue = {
   readonly signOut: (scope?: 'global' | 'local') => Promise<void>;
   readonly updateDisplayName: (displayName: string) => Promise<AuthResult>;
   readonly updateShowChallengeIntro: (show: boolean) => Promise<AuthResult>;
+  readonly updatePreferredCurrency: (currency: SupportedCurrency) => Promise<AuthResult>;
   readonly requestPasswordReset: (email: string) => Promise<AuthResult>;
   /** Requires the recovery session established by applyRecoverySession below. */
   readonly updatePassword: (newPassword: string) => Promise<AuthResult>;
@@ -72,14 +75,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, display_name, show_challenge_intro')
+      .select('id, display_name, show_challenge_intro, preferred_currency')
       .eq('id', userId)
       .maybeSingle();
     if (error || !data) {
       setProfile(null);
       return;
     }
-    setProfile({ id: data.id, displayName: data.display_name, showChallengeIntro: data.show_challenge_intro });
+    setProfile({
+      id: data.id,
+      displayName: data.display_name,
+      showChallengeIntro: data.show_challenge_intro,
+      preferredCurrency: isSupportedCurrency(data.preferred_currency ?? '') ? (data.preferred_currency as SupportedCurrency) : null,
+    });
   }, []);
 
   useEffect(() => {
@@ -178,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       id: session.user.id,
       displayName: trimmed.length > 0 ? trimmed : null,
       showChallengeIntro: current?.showChallengeIntro ?? true,
+      preferredCurrency: current?.preferredCurrency ?? null,
     }));
     return { ok: true };
   }, [session]);
@@ -193,6 +202,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, kind, message };
     }
     setProfile((current) => (current ? { ...current, showChallengeIntro: show } : current));
+    return { ok: true };
+  }, [session]);
+
+  /**
+   * The ONLY place profiles.preferred_currency is ever written. Never
+   * touches any existing draft's or challenge's own currency (see
+   * docs/PRODUCT_DECISIONS.md) — this is purely the default the next fresh
+   * draft resolves against (lib/challenge-creation/currency-default.ts).
+   */
+  const updatePreferredCurrency = useCallback(async (currency: SupportedCurrency): Promise<AuthResult> => {
+    if (!supabase || !session) return { ok: false, kind: 'not_configured', message: 'You are not signed in.' };
+    const { error } = await supabase
+      .from('profiles')
+      .update({ preferred_currency: currency })
+      .eq('id', session.user.id);
+    if (error) {
+      const { kind, message } = classifySupabaseError(error.message);
+      return { ok: false, kind, message };
+    }
+    setProfile((current) => (current ? { ...current, preferredCurrency: currency } : current));
     return { ok: true };
   }, [session]);
 
@@ -255,10 +284,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut,
     updateDisplayName,
     updateShowChallengeIntro,
+    updatePreferredCurrency,
     requestPasswordReset,
     updatePassword,
     applyRecoverySession,
-  }), [isConfigured, status, session, profile, signUp, resendConfirmationEmail, signIn, signOut, updateDisplayName, updateShowChallengeIntro, requestPasswordReset, updatePassword, applyRecoverySession]);
+  }), [isConfigured, status, session, profile, signUp, resendConfirmationEmail, signIn, signOut, updateDisplayName, updateShowChallengeIntro, updatePreferredCurrency, requestPasswordReset, updatePassword, applyRecoverySession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -81,10 +81,15 @@ select test.assert_fails(
   '23514'
 );
 
+-- EUR is a genuinely supported V1 commitment currency (see
+-- supabase/migrations/20260908000000_multi_currency_v1.sql) — this now
+-- proves the constraint rejects a currency outside USD/SEK/EUR, not EUR
+-- itself. See 370_multi_currency_v1.sql for coverage that USD/SEK/EUR are
+-- all actually accepted.
 select test.assert_fails(
-  'consequence_non_usd_currency_denied',
+  'consequence_unsupported_currency_denied',
   $stmt$insert into public.consequences (id, challenge_id, owner_id, status, stake_minor_units, currency)
-    values (gen_random_uuid(), '99999999-0000-0000-0000-000000000009', '11111111-1111-1111-1111-111111111111', 'draft', 5000, 'EUR')$stmt$,
+    values (gen_random_uuid(), '99999999-0000-0000-0000-000000000009', '11111111-1111-1111-1111-111111111111', 'draft', 5000, 'GBP')$stmt$,
   '23514'
 );
 

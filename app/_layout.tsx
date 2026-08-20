@@ -45,8 +45,24 @@ export default function RootLayout() {
 // made, so a deep link into a protected screen never flashes its content
 // (or bounces away) while `getSession()` is still in flight.
 function AuthGate() {
-  const { status, user } = useAuth();
+  const { profile, status, user } = useAuth();
   const onboarding = useOnboarding();
+  const { applyDefaultCurrencyIfUntouched, freshDraftToken } = onboarding;
+
+  // True multi-currency V1's fresh-draft-default boundary: the one place
+  // that applies the default currency (saved preference, else device
+  // locale) to a genuinely blank draft — see contexts/onboarding-
+  // context.tsx's own comment on applyDefaultCurrencyIfUntouched for why
+  // this lives here (this is the one component that already legitimately
+  // has both useAuth() and useOnboarding() in scope) rather than inside
+  // OnboardingProvider itself. Re-runs whenever the saved preference
+  // resolves/changes (profile loads asynchronously) or a fresh draft
+  // starts (freshDraftToken, bumped by every resetDraft() call) — either
+  // way, applyDefaultCurrencyIfUntouched itself is a no-op the instant the
+  // current draft's currency has already been explicitly touched.
+  useEffect(() => {
+    applyDefaultCurrencyIfUntouched(profile?.preferredCurrency ?? null);
+  }, [applyDefaultCurrencyIfUntouched, profile?.preferredCurrency, freshDraftToken]);
 
   // undefined = no authenticated identity observed yet this app session, so
   // there is nothing of a *previous* user's to clear. Only a transition away

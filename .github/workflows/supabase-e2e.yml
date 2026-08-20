@@ -80,6 +80,14 @@ jobs:
   supabase-e2e:
     name: GoTrue + PostgREST end-to-end (real local Supabase stack)
     runs-on: ubuntu-latest
+    # Backstop against a step hanging silently rather than failing fast —
+    # this job normally completes in well under 10 minutes on a green run;
+    # 30 keeps real headroom for a slow `supabase start` (Docker image
+    # pulls) without ever approaching GitHub's own 360-minute default,
+    # which is what let a previous "Install PostgreSQL client" apt-get
+    # hang burn hours of CI time before anyone noticed. See that step's
+    # own comment below for the specific bug this also fixes.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -176,11 +184,24 @@ jobs:
             >> "$GITHUB_ENV"
 
       # psql itself (account-deletion.e2e.ts's only way to reach the
-      # `private` schema for fixture setup — see above).
-      - name: Install PostgreSQL client
+      # `private` schema for fixture setup — see above). ubuntu-latest
+      # already ships PostgreSQL client tools preinstalled (the `checks`
+      # job above relies on this same fact for `pg_isready`/`psql`, and
+      # that job's own comment explains why installing on top of it is
+      # unsafe) — `apt-get install` here previously hung this job
+      # indefinitely: `apt-get update` against the Ubuntu/Azure package
+      # mirrors stalled with no bound (confirmed via a real cancelled run:
+      # every step through `supabase start` and its health checks
+      # succeeded, then this step sat until GitHub's ~6-hour ceiling
+      # killed the job — the E2E suite itself never even ran). This step
+      # now only verifies the preinstalled client exists: no network
+      # call, so nothing here can hang, and it still fails fast and
+      # clearly if a future runner image ever drops it.
+      - name: Verify PostgreSQL client is preinstalled
+        timeout-minutes: 1
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          command -v psql
+          psql --version
 
       - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, consequence-setup-stripe, and full-activation-and-check-in end-to-end suite against real GoTrue/PostgREST/Edge Runtime
         run: npm run test:e2e

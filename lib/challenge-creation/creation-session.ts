@@ -6,6 +6,7 @@ import {
   RewardOrganizer,
   RhythmState,
 } from '@/contexts/onboarding-context';
+import { SUPPORTED_CURRENCIES, SupportedCurrency } from '../../domain/challenge/currency';
 
 // A local, on-device snapshot of *unfinished* challenge creation — distinct
 // from the complete, server-validated `challenge_drafts` row that
@@ -33,6 +34,7 @@ export type CreationSessionFields = {
   readonly stakeAmount: number | null;
   readonly stakeAmountInput: string;
   readonly successThresholdOverride: number | null;
+  readonly currency: SupportedCurrency;
 };
 
 // Bumped from 2: replaces the single savedForLater boolean with a real
@@ -58,7 +60,16 @@ export type CreationSessionFields = {
 // in-progress Save & exit / crash-recovery session just because this one
 // field was added. v3 is never written to again once migrated — only read
 // and converted.
-export const CREATION_SESSION_SCHEMA_VERSION = 4;
+//
+// Bumped from 4 to 5: CreationSessionFields gained currency (true
+// multi-currency V1 — see domain/challenge/currency.ts and
+// docs/PRODUCT_DECISIONS.md), another ADDITIVE field with a clear
+// historically-faithful default ('USD' — the only currency that could have
+// existed before this feature). Same migrate-forward treatment as the
+// v3→v4 bump: a v4 payload is converted, never orphaned (see
+// migrateCreationSessionV4ToV5 below).
+export const CREATION_SESSION_SCHEMA_VERSION = 5;
+const LEGACY_V4_SCHEMA_VERSION = 4;
 const LEGACY_V3_SCHEMA_VERSION = 3;
 
 /**
@@ -241,7 +252,9 @@ function isValidCreationSessionFields(value: unknown): value is CreationSessionF
     typeof fields.sitOutAcknowledged === 'boolean' &&
     isFiniteNumberOrNull(fields.stakeAmount) &&
     typeof fields.stakeAmountInput === 'string' &&
-    isFiniteNumberOrNull(fields.successThresholdOverride)
+    isFiniteNumberOrNull(fields.successThresholdOverride) &&
+    typeof fields.currency === 'string' &&
+    (SUPPORTED_CURRENCIES as readonly string[]).includes(fields.currency)
   );
 }
 
@@ -276,13 +289,107 @@ function isValidSnapshotShape(value: unknown): value is CreationSessionSnapshot 
 }
 
 /**
+ * v4's CreationSessionFields shape — every field the current
+ * CreationSessionFields has, except currency (which did not exist yet).
+ * Structural sub-validators (isValidRhythm, isValidRecipients, etc.) are
+ * shared with the current shape unchanged, since none of those fields
+ * changed shape; only the currency check is intentionally absent here.
+ */
+type CreationSessionFieldsV4 = Omit<CreationSessionFields, 'currency'>;
+
+function isValidCreationSessionFieldsV4(value: unknown): value is CreationSessionFieldsV4 {
+  if (!value || typeof value !== 'object') return false;
+  const fields = value as Record<string, unknown>;
+  return (
+    isNullableEnum(fields.behaviorDirection, BEHAVIOR_DIRECTIONS) &&
+    typeof fields.behaviorText === 'string' &&
+    typeof fields.definitionText === 'string' &&
+    isFiniteNumberOrNull(fields.durationWeeks) &&
+    isNullableEnum(fields.experienceCategory, EXPERIENCE_CATEGORIES) &&
+    typeof fields.goal === 'string' &&
+    typeof fields.invitationMessage === 'string' &&
+    typeof fields.invitationMessageCustomized === 'boolean' &&
+    (fields.membershipChoice === null || fields.membershipChoice === 'monthly_trial') &&
+    isNullableEnum(fields.measurementMode, MEASUREMENT_MODES) &&
+    isValidRecipients(fields.recipients) &&
+    isValidRewardOrganizer(fields.rewardOrganizer) &&
+    isValidRhythm(fields.rhythm) &&
+    typeof fields.sitOutAcknowledged === 'boolean' &&
+    isFiniteNumberOrNull(fields.stakeAmount) &&
+    typeof fields.stakeAmountInput === 'string' &&
+    isFiniteNumberOrNull(fields.successThresholdOverride)
+  );
+}
+
+type CreationSessionWorkingV4 = { readonly fields: CreationSessionFieldsV4; readonly lastRoute: string; readonly updatedAt: string };
+type CreationSessionCheckpointV4 = { readonly fields: CreationSessionFieldsV4; readonly lastRoute: string; readonly savedAt: string };
+type CreationSessionSnapshotV4 = {
+  readonly schemaVersion: typeof LEGACY_V4_SCHEMA_VERSION;
+  readonly working: CreationSessionWorkingV4 | null;
+  readonly checkpoint: CreationSessionCheckpointV4 | null;
+};
+
+function isValidCreationSessionWorkingV4(value: unknown): value is CreationSessionWorkingV4 {
+  if (!value || typeof value !== 'object') return false;
+  const working = value as Record<string, unknown>;
+  return typeof working.lastRoute === 'string' && typeof working.updatedAt === 'string' && isValidCreationSessionFieldsV4(working.fields);
+}
+
+function isValidCreationSessionCheckpointV4(value: unknown): value is CreationSessionCheckpointV4 {
+  if (!value || typeof value !== 'object') return false;
+  const checkpoint = value as Record<string, unknown>;
+  return typeof checkpoint.lastRoute === 'string' && typeof checkpoint.savedAt === 'string' && isValidCreationSessionFieldsV4(checkpoint.fields);
+}
+
+function isValidV4SnapshotShape(value: unknown): value is CreationSessionSnapshotV4 {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<CreationSessionSnapshotV4>;
+  return (
+    candidate.schemaVersion === LEGACY_V4_SCHEMA_VERSION &&
+    (candidate.working === null || isValidCreationSessionWorkingV4(candidate.working)) &&
+    (candidate.checkpoint === null || isValidCreationSessionCheckpointV4(candidate.checkpoint))
+  );
+}
+
+/**
+ * Never invents a currency: every migrated v4 session predates true
+ * multi-currency entirely, so 'USD' — the only currency that could ever
+ * have been persisted before this feature existed — is the sole faithful
+ * default (see domain/challenge/currency.ts).
+ */
+function migrateV4FieldsToV5(fields: CreationSessionFieldsV4): CreationSessionFields {
+  return { ...fields, currency: 'USD' as SupportedCurrency };
+}
+
+/**
+ * Exported for direct testing. Returns null for anything that is not a
+ * structurally valid v4 snapshot — callers must treat that exactly like any
+ * other corrupt/incompatible payload (remove it, do not resurrect a
+ * malformed session under the new key). Currency selection introduced no
+ * new mandatory step and no route boundary, so unlike migrateV3RouteToV4,
+ * lastRoute passes through unchanged.
+ */
+export function migrateCreationSessionV4ToV5(value: unknown): CreationSessionSnapshot | null {
+  if (!isValidV4SnapshotShape(value)) return null;
+  return {
+    schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+    working: value.working
+      ? { fields: migrateV4FieldsToV5(value.working.fields), lastRoute: value.working.lastRoute, updatedAt: value.working.updatedAt }
+      : null,
+    checkpoint: value.checkpoint
+      ? { fields: migrateV4FieldsToV5(value.checkpoint.fields), lastRoute: value.checkpoint.lastRoute, savedAt: value.checkpoint.savedAt }
+      : null,
+  };
+}
+
+/**
  * v3's CreationSessionFields shape — every field v4 has, except
  * successThresholdOverride (which did not exist yet). Structural
  * sub-validators (isValidRhythm, isValidRecipients, etc.) are shared with
  * v4 unchanged, since none of those fields changed shape; only the
  * successThresholdOverride check is intentionally absent here.
  */
-type CreationSessionFieldsV3 = Omit<CreationSessionFields, 'successThresholdOverride'>;
+type CreationSessionFieldsV3 = Omit<CreationSessionFields, 'successThresholdOverride' | 'currency'>;
 
 function isValidCreationSessionFieldsV3(value: unknown): value is CreationSessionFieldsV3 {
   if (!value || typeof value !== 'object') return false;
@@ -355,7 +462,7 @@ function migrateV3RouteToV4(route: string): string {
  * same default a brand-new v4 session gets (see
  * domain/challenge/success-rule.ts's clampSuccessThreshold(null, bounds)).
  */
-function migrateV3FieldsToV4(fields: CreationSessionFieldsV3): CreationSessionFields {
+function migrateV3FieldsToV4(fields: CreationSessionFieldsV3): CreationSessionFieldsV4 {
   return { ...fields, successThresholdOverride: null };
 }
 
@@ -363,12 +470,15 @@ function migrateV3FieldsToV4(fields: CreationSessionFieldsV3): CreationSessionFi
  * Exported for direct testing. Returns null for anything that is not a
  * structurally valid v3 snapshot — callers must treat that exactly like
  * any other corrupt/incompatible payload (remove it, do not resurrect a
- * malformed session under the new key).
+ * malformed session under the new key). Targets the v4 shape (not the
+ * current schema) — readCreationSession's fallback chain runs this then
+ * migrateCreationSessionV4ToV5 to reach the current shape, exactly like a
+ * real v3 session would have to cross both intermediate versions.
  */
-export function migrateCreationSessionV3ToV4(value: unknown): CreationSessionSnapshot | null {
+export function migrateCreationSessionV3ToV4(value: unknown): CreationSessionSnapshotV4 | null {
   if (!isValidV3SnapshotShape(value)) return null;
   return {
-    schemaVersion: CREATION_SESSION_SCHEMA_VERSION,
+    schemaVersion: LEGACY_V4_SCHEMA_VERSION,
     working: value.working
       ? { fields: migrateV3FieldsToV4(value.working.fields), lastRoute: migrateV3RouteToV4(value.working.lastRoute), updatedAt: value.working.updatedAt }
       : null,
@@ -406,12 +516,16 @@ function creationSessionFieldsEqual(a: CreationSessionFields, b: CreationSession
  * callers never need to distinguish the two. Corrupt data is proactively
  * removed so it cannot linger and fail again later.
  *
- * If no current-version (v4) session exists, falls back to the legacy v3
- * key and migrates it in place (see migrateCreationSessionV3ToV4): a
- * structurally valid v3 session is converted, persisted under the v4 key,
- * and the v3 key is retired — v3 is read and migrated exactly once, never
- * kept around as an independently writable schema. A genuinely malformed
- * v3 payload is removed, exactly like a malformed v4 one.
+ * If no current-version (v5) session exists, falls back to the legacy v4
+ * key (migrateCreationSessionV4ToV5), and if that doesn't exist either,
+ * to the legacy v3 key — migrated all the way forward through v4 before
+ * being persisted under the v5 key (see migrateLegacyV4Session and
+ * migrateLegacyV3Session): a structurally valid legacy session is
+ * converted, persisted under the current key, and every older key it
+ * passed through is retired — each legacy schema is read and migrated
+ * exactly once, never kept around as an independently writable schema. A
+ * genuinely malformed legacy payload is removed, exactly like a malformed
+ * current-version one.
  */
 export async function readCreationSession(
   userId: string,
@@ -441,7 +555,48 @@ export async function readCreationSession(
     return parsed;
   }
 
-  return migrateLegacyV3Session(userId, storage);
+  return migrateLegacyV4Session(userId, storage);
+}
+
+async function persistMigratedSession(userId: string, migrated: CreationSessionSnapshot, legacyKey: string, storage: CreationSessionStorage): Promise<CreationSessionSnapshot> {
+  // Best-effort: persist the migration and retire the legacy key so it is
+  // never re-read. If either write fails, the migrated session is still
+  // returned in-memory so this read isn't lost — the next read simply
+  // repeats the same (idempotent) migration from the still-present legacy key.
+  try {
+    await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(migrated));
+    await storage.removeItem(legacyKey);
+  } catch {
+    // See comment above — non-fatal.
+  }
+  return migrated;
+}
+
+async function migrateLegacyV4Session(userId: string, storage: CreationSessionStorage): Promise<CreationSessionSnapshot | null> {
+  const legacyKey = creationSessionStorageKeyForVersion(LEGACY_V4_SCHEMA_VERSION, userId);
+  let legacyRaw: string | null;
+  try {
+    legacyRaw = await storage.getItem(legacyKey);
+  } catch {
+    return null;
+  }
+  if (!legacyRaw) return migrateLegacyV3Session(userId, storage);
+
+  let legacyParsed: unknown;
+  try {
+    legacyParsed = JSON.parse(legacyRaw);
+  } catch {
+    await storage.removeItem(legacyKey).catch(() => undefined);
+    return null;
+  }
+
+  const migrated = migrateCreationSessionV4ToV5(legacyParsed);
+  if (!migrated) {
+    await storage.removeItem(legacyKey).catch(() => undefined);
+    return null;
+  }
+
+  return persistMigratedSession(userId, migrated, legacyKey, storage);
 }
 
 async function migrateLegacyV3Session(userId: string, storage: CreationSessionStorage): Promise<CreationSessionSnapshot | null> {
@@ -462,23 +617,18 @@ async function migrateLegacyV3Session(userId: string, storage: CreationSessionSt
     return null;
   }
 
-  const migrated = migrateCreationSessionV3ToV4(legacyParsed);
-  if (!migrated) {
+  const migratedToV4 = migrateCreationSessionV3ToV4(legacyParsed);
+  if (!migratedToV4) {
     await storage.removeItem(legacyKey).catch(() => undefined);
     return null;
   }
+  // migratedToV4 is always structurally valid v4 shape (produced by
+  // migrateCreationSessionV3ToV4 itself), so this second migration can
+  // never fail — the v3->v4->v5 chain is a straight-line upgrade, not a
+  // re-validated fork.
+  const migrated = migrateCreationSessionV4ToV5(migratedToV4)!;
 
-  // Best-effort: persist the migration and retire the v3 key so it is
-  // never re-read. If either write fails, the migrated session is still
-  // returned in-memory so this read isn't lost — the next read simply
-  // repeats the same (idempotent) migration from the still-present v3 key.
-  try {
-    await storage.setItem(creationSessionStorageKey(userId), JSON.stringify(migrated));
-    await storage.removeItem(legacyKey);
-  } catch {
-    // See comment above — non-fatal.
-  }
-  return migrated;
+  return persistMigratedSession(userId, migrated, legacyKey, storage);
 }
 
 // A generation is bumped exactly when a user's creation lifecycle closes —

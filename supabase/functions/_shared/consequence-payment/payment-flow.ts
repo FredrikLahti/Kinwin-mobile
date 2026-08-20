@@ -19,17 +19,62 @@ export function classifyPaymentIntent(intent: StripePaymentIntent): { status: Pa
   }
 }
 
+// Stripe's own deterministic client-input validation errors — a request
+// Stripe rejects outright (HTTP 4xx invalid_request_error) before a
+// PaymentIntent object ever exists, so classifyPaymentIntent's own
+// intent.status-based classification never even runs for these. No amount
+// of retrying fixes a request Stripe has already declared malformed, so
+// these must be terminal, not temporary — see the codes Stripe documents
+// for its minimum-charge-amount rejection specifically (amount_too_small)
+// plus the small set of other structurally-invalid-request codes that are
+// equally never retry-fixable. Deliberately narrow: only these specific,
+// well-understood deterministic codes are reclassified — every other
+// thrown error (network failures, rate limits, 5xx, or anything with an
+// unrecognized shape) keeps the previous, safe default of temporary_failure.
+const DETERMINISTIC_INVALID_REQUEST_CODES = new Set([
+  'amount_too_small',
+  'amount_too_large',
+  'parameter_invalid_integer',
+  'parameter_missing',
+]);
+
+/**
+ * Duck-typed against the shape of a Stripe SDK error (`.code`) — never
+ * imports the real `stripe` package (Deno-only) into this Node-testable
+ * module. Returns null for anything NOT recognized as one of the narrow
+ * deterministic codes above, so the caller can rethrow and preserve the
+ * existing, safe "genuinely uncertain → treat as transient" behavior for
+ * every other error shape (network failures, rate limits, 5xx, or a plain
+ * Error with no `.code` at all) — this function only ever narrows, never
+ * broadens, what counts as terminal.
+ */
+function classifyDeterministicProviderError(error: unknown): { status: PaymentStatus; category: string } | null {
+  const shape = error as { readonly code?: unknown } | null;
+  const code = typeof shape?.code === 'string' ? shape.code : null;
+  if (code && DETERMINISTIC_INVALID_REQUEST_CODES.has(code)) {
+    return { status: 'permanently_failed', category: code };
+  }
+  return null;
+}
+
 export async function attemptObligation(obligation: PaymentObligation, adapter: StripePaymentAdapter) {
-  const intent = obligation.stripePaymentIntentId
-    ? await adapter.confirmPaymentIntent(obligation.stripePaymentIntentId, { paymentMethodId: obligation.stripePaymentMethodId })
-    : await adapter.createPaymentIntent({
-      customerId: obligation.stripeCustomerId, paymentMethodId: obligation.stripePaymentMethodId,
-      amount: obligation.amountMinorUnits, currency: obligation.currency.toLowerCase(),
-      idempotencyKey: `kinwin-failure-payment:${obligation.obligationId}`,
-      metadata: { challenge_id: obligation.challengeId, payment_obligation_id: obligation.obligationId },
-    });
+  let intent: StripePaymentIntent;
+  try {
+    intent = obligation.stripePaymentIntentId
+      ? await adapter.confirmPaymentIntent(obligation.stripePaymentIntentId, { paymentMethodId: obligation.stripePaymentMethodId })
+      : await adapter.createPaymentIntent({
+        customerId: obligation.stripeCustomerId, paymentMethodId: obligation.stripePaymentMethodId,
+        amount: obligation.amountMinorUnits, currency: obligation.currency.toLowerCase(),
+        idempotencyKey: `kinwin-failure-payment:${obligation.obligationId}`,
+        metadata: { challenge_id: obligation.challengeId, payment_obligation_id: obligation.obligationId },
+      });
+  } catch (error) {
+    const deterministic = classifyDeterministicProviderError(error);
+    if (deterministic) return { intentId: null as string | null, ...deterministic };
+    throw error;
+  }
   if (intent.customerId !== obligation.stripeCustomerId) throw new Error('stripe_customer_mismatch');
-  return { intentId:intent.id, ...classifyPaymentIntent(intent) };
+  return { intentId:intent.id as string | null, ...classifyPaymentIntent(intent) };
 }
 
 export function planPaymentWebhook(event:{readonly id:string;readonly type:string}, intent:StripePaymentIntent) {
