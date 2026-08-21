@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -93,12 +93,31 @@ function ResultContent({ challenge, saved, onHome, onPlaybook, onUpdatePayment }
   // ResultContent by challenge id, so a different finalized challenge
   // always gets a fresh mount (and therefore a fresh, correct read here)
   // rather than reusing this instance's already-resolved value.
-  const [isFirstPresentation] = useState(() => resultEntranceTracker.shouldPlay(challenge.id));
+  //
+  // hasSeen is a pure read — this initializer must never call the
+  // tracker's mutating markSeen, since React may invoke a state
+  // initializer more than once (development Strict Mode's double-invoke
+  // check, or a render that starts and is then abandoned without ever
+  // committing) and a render that never committed must never consume this
+  // one-shot signal.
+  const [isFirstPresentation] = useState(() => !resultEntranceTracker.hasSeen(challenge.id));
+  // Marking this challenge seen — the tracker's one mutation — only ever
+  // happens here, inside an effect, which only ever runs after a render has
+  // genuinely committed. hapticFiredRef additionally guards the haptic
+  // itself (but not markSeen, which is already idempotent) against a
+  // Strict Mode effect replay in development: isFirstPresentation is
+  // frozen true for this mount's whole lifetime, so it cannot by itself
+  // distinguish "the effect's first real run" from "the effect running
+  // again for the same mount."
+  const hapticFiredRef = useRef(false);
   useEffect(() => {
     if (!isFirstPresentation) return;
+    resultEntranceTracker.markSeen(challenge.id);
+    if (hapticFiredRef.current) return;
+    hapticFiredRef.current = true;
     const outcome = resolveChallengeResultHapticOutcome(challenge.status);
     void (outcome === 'success' ? playSuccessHaptic() : playConsequenceHaptic());
-  }, [challenge.status, isFirstPresentation]);
+  }, [challenge.id, challenge.status, isFirstPresentation]);
 
   return (
     <EntranceTransitionV2 play={isFirstPresentation} reducedMotion={reducedMotion}>
