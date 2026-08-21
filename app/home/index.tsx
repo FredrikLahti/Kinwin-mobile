@@ -28,6 +28,7 @@ import {
   describeUpcomingStart,
   statusTone,
 } from '@/lib/home/challenge-summary';
+import { shouldShowActivationEntrance } from '@/lib/home/activation-entrance';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate, shouldRefreshCompletedAfterActiveTransition } from '@/lib/home/completed-challenge';
 import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
@@ -67,12 +68,14 @@ export default function HomeV2() {
   const { state: real, refresh } = useRealActiveChallenge();
   const { state: completed, refresh: refreshCompleted } = useRecentCompletedChallenge();
   const params = useLocalSearchParams<{ justActivated?: string | string[] }>();
-  const [showActivationEntrance, setShowActivationEntrance] = useState(false);
-  // Guards against replaying the entrance on a re-render before the
-  // immediate router.setParams clear below has actually landed, and against
-  // a remount (e.g. returning from a child route on a stack that tore this
-  // screen down) ever seeing the param again after it's been consumed once.
-  const activationEntranceHandledRef = useRef(false);
+  const justActivatedParam = Array.isArray(params.justActivated) ? params.justActivated[0] : params.justActivated;
+  // Resolved synchronously at mount, via a lazy initializer — never from an
+  // effect. EntranceTransitionV2's `play` prop must already be correct on
+  // its very first render (see that component's own doc comment): if this
+  // were set later from an effect, the hero would first render fully
+  // visible and unanimated under `play=false`, then flip to `play=true`
+  // with the animation already "finished" — no visible entrance at all.
+  const [showActivationEntrance] = useState(() => shouldShowActivationEntrance(justActivatedParam));
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
   const [pendingLoading, setPendingLoading] = useState(true);
@@ -90,20 +93,20 @@ export default function HomeV2() {
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
 
   // '?justActivated=1' (set by app/account/pending-commitment.tsx's
-  // activate(), right after the server confirms) is a transient signal for
-  // exactly one thing: whether THIS particular arrival on Home should play
-  // the restrained first-active entrance below. Consumed immediately —
-  // both the local ref (covers this mount) and clearing the param itself
-  // via setParams (covers a remount landing here again later) — so an
-  // ordinary later visit, even one reached by backing out of a child
-  // screen, never replays it. Never persisted anywhere.
-  const justActivatedParam = Array.isArray(params.justActivated) ? params.justActivated[0] : params.justActivated;
+  // activate(), right after the server confirms) is a transient signal,
+  // already consumed into showActivationEntrance above. Clearing it from
+  // the URL is a separate concern from deciding whether to animate: this
+  // runs once, on mount, purely so a later remount of this same route (e.g.
+  // returning from a child screen on a stack that tore this one down)
+  // never sees the param again and never replays the entrance. Never
+  // persisted anywhere.
   useEffect(() => {
-    if (justActivatedParam !== '1' || activationEntranceHandledRef.current) return;
-    activationEntranceHandledRef.current = true;
-    setShowActivationEntrance(true);
-    router.setParams({ justActivated: undefined });
-  }, [justActivatedParam, router]);
+    if (justActivatedParam === '1') router.setParams({ justActivated: undefined });
+    // Deliberately runs once on mount only — showActivationEntrance above
+    // already froze the real decision for this mount's lifetime, so this
+    // effect's only job is a one-time URL cleanup, not a reactive sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadPendingCommitment = useCallback(async () => {
     if (!user) {

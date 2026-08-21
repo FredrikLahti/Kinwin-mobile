@@ -59,6 +59,7 @@ export default function ChallengeResultScreen() {
         {state.kind === 'error' && <Message title="Could not load this result." body={state.message} onPress={() => void load()} />}
         {state.kind === 'missing' && <Message title="This result is not available." body="Return Home to see your current challenge." onPress={() => router.replace('/home' as Href)} />}
         {state.kind === 'ready' && <ResultContent
+          key={state.data.id}
           challenge={state.data}
           saved={saved}
           onHome={() => router.replace('/home' as Href)}
@@ -81,15 +82,18 @@ function ResultContent({ challenge, saved, onHome, onPlaybook, onUpdatePayment }
     : null;
 
   // True only the very first time this particular finalized challenge is
-  // shown, for this app session — see lib/home/result-entrance.ts's own
-  // comment on why this is deliberately session-only, never a persisted
-  // flag. Drives both the entrance settle below and the one-shot outcome
-  // haptic; an ordinary later revisit (or a re-focus refetch of the same
-  // challenge) gets neither.
-  const [isFirstPresentation, setIsFirstPresentation] = useState(false);
-  useEffect(() => {
-    setIsFirstPresentation(resultEntranceTracker.shouldPlay(challenge.id));
-  }, [challenge.id]);
+  // shown, within this app's current JS session — see
+  // lib/home/result-entrance.ts's own comment for exactly what that means
+  // across a real app restart. Resolved synchronously via a lazy
+  // initializer, not from an effect: EntranceTransitionV2's `play` prop
+  // must already be correct on ResultContent's very first render (see that
+  // component's own doc comment) — setting this later would show the
+  // content fully visible and unanimated first, then flip `play` to true
+  // once the animation window has already passed. The parent screen keys
+  // ResultContent by challenge id, so a different finalized challenge
+  // always gets a fresh mount (and therefore a fresh, correct read here)
+  // rather than reusing this instance's already-resolved value.
+  const [isFirstPresentation] = useState(() => resultEntranceTracker.shouldPlay(challenge.id));
   useEffect(() => {
     if (!isFirstPresentation) return;
     const outcome = resolveChallengeResultHapticOutcome(challenge.status);

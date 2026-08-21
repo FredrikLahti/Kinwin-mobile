@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canBeginOrCompleteHold, shouldClearFiredGuard } from './hold-to-confirm-guard';
+import { canBeginOrCompleteHold, shouldClearFiredGuard, shouldShowReducedMotionHoldFeedback } from './hold-to-confirm-guard';
 
 test('canBeginOrCompleteHold allows a fresh, enabled hold to begin', () => {
   assert.equal(canBeginOrCompleteHold({ alreadyFired: false, disabled: false }), true);
@@ -33,4 +33,20 @@ test('shouldClearFiredGuard does not clear on enabled -> enabled (no transition)
 
 test('shouldClearFiredGuard does not clear on enabled -> disabled', () => {
   assert.equal(shouldClearFiredGuard(false, true), false);
+});
+
+test('shouldShowReducedMotionHoldFeedback shows while genuinely holding under Reduce Motion', () => {
+  assert.equal(shouldShowReducedMotionHoldFeedback({ disabled: false, holding: true, reducedMotion: true }), true);
+});
+
+test('shouldShowReducedMotionHoldFeedback stays hidden when not holding', () => {
+  assert.equal(shouldShowReducedMotionHoldFeedback({ disabled: false, holding: false, reducedMotion: true }), false);
+});
+
+test('shouldShowReducedMotionHoldFeedback stays hidden when Reduce Motion is off (the animated fill is the feedback instead)', () => {
+  assert.equal(shouldShowReducedMotionHoldFeedback({ disabled: false, holding: true, reducedMotion: false }), false);
+});
+
+test('shouldShowReducedMotionHoldFeedback stays hidden once activation is in flight, even if still marked holding', () => {
+  assert.equal(shouldShowReducedMotionHoldFeedback({ disabled: true, holding: true, reducedMotion: true }), false);
 });

@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibilityActionEvent, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
-import { canBeginOrCompleteHold, shouldClearFiredGuard } from '@/lib/hold-to-confirm-guard';
+import { canBeginOrCompleteHold, shouldClearFiredGuard, shouldShowReducedMotionHoldFeedback } from '@/lib/hold-to-confirm-guard';
 
 const HOLD_DURATION_MS = 600;
 
@@ -51,6 +51,12 @@ export function HoldToConfirmButtonV2({
   // the same tick, before disabled has had any chance to propagate back in.
   const firedRef = useRef(false);
   const previousDisabledRef = useRef(disabled);
+  // Reduce Motion removes the animated fill entirely (see the render branch
+  // below) — this plain React state is the non-animated substitute
+  // feedback for that case: a sighted Reduce Motion user must still see
+  // something change the instant their press registers, or the control
+  // looks broken/unresponsive for the whole ~600ms hold.
+  const [holding, setHolding] = useState(false);
 
   useEffect(() => {
     if (shouldClearFiredGuard(previousDisabledRef.current, disabled)) {
@@ -67,6 +73,7 @@ export function HoldToConfirmButtonV2({
 
   const beginHold = () => {
     if (!canBeginOrCompleteHold({ alreadyFired: firedRef.current, disabled })) return;
+    setHolding(true);
     pressedScale.value = withTiming(0.98, { duration: theme.motion.quick });
     progress.value = withTiming(1, { duration: HOLD_DURATION_MS }, (finished) => {
       if (finished) runOnJS(fireConfirm)();
@@ -74,6 +81,7 @@ export function HoldToConfirmButtonV2({
   };
 
   const cancelHold = () => {
+    setHolding(false);
     pressedScale.value = withTiming(1, { duration: theme.motion.quick });
     if (firedRef.current) return;
     cancelAnimation(progress);
@@ -91,6 +99,15 @@ export function HoldToConfirmButtonV2({
     width: `${progress.value * 100}%`,
   }));
 
+  // Reduce Motion's non-animated substitute for the fill: an immediate,
+  // static label + background change the instant a valid press-in
+  // registers, gone the instant the finger lifts early — never a fake
+  // stepped progress animation, and never shown once the caller has
+  // disabled the control for a real, already-in-flight activation (that
+  // state gets the caller's own "Activating…" label instead).
+  const showReducedMotionHoldFeedback = shouldShowReducedMotionHoldFeedback({ disabled, holding, reducedMotion });
+  const displayLabel = showReducedMotionHoldFeedback ? 'Keep holding…' : label;
+
   return (
     <AnimatedPressable
       accessibilityActions={[{ name: 'activate', label }]}
@@ -103,15 +120,19 @@ export function HoldToConfirmButtonV2({
       onAccessibilityAction={handleAccessibilityAction}
       onPressIn={beginHold}
       onPressOut={cancelHold}
-      style={[styles.button, disabled ? styles.disabled : styles.enabled, buttonStyle]}
+      style={[
+        styles.button,
+        disabled ? styles.disabled : showReducedMotionHoldFeedback ? styles.reducedMotionHolding : styles.enabled,
+        buttonStyle,
+      ]}
     >
       {/* Decorative only. The real progress is exposed to assistive
           technology via accessibilityState/accessibilityHint, not this fill;
-          reduced motion skips it entirely rather than trying to render a
-          simplified version, since the hold's real ~600ms timing already
-          gives sighted feedback through the pressed state alone. */}
+          reduced motion skips it entirely in favor of the static label/
+          background swap above, since an animated width is exactly the kind
+          of motion Reduce Motion asks to avoid. */}
       {!reducedMotion && <Animated.View aria-hidden style={[styles.fill, fillStyle]} />}
-      <Text style={[styles.label, disabled && styles.disabledLabel]}>{label}</Text>
+      <Text style={[styles.label, disabled && styles.disabledLabel]}>{displayLabel}</Text>
     </AnimatedPressable>
   );
 }
@@ -126,6 +147,12 @@ const styles = StyleSheet.create({
   },
   enabled: {
     backgroundColor: theme.colors.rosewood,
+  },
+  // The static (non-animated) Reduce Motion hold-in-progress treatment —
+  // reuses the same oxblood tone the animated fill uses elsewhere, just as
+  // a flat background instead of a growing width.
+  reducedMotionHolding: {
+    backgroundColor: theme.colors.oxblood,
   },
   disabled: {
     backgroundColor: theme.colors.surfaceRaised,

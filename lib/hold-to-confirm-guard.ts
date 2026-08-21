@@ -26,3 +26,23 @@ export function canBeginOrCompleteHold({ alreadyFired, disabled }: HoldGuardInpu
 export function shouldClearFiredGuard(previousDisabled: boolean, nextDisabled: boolean): boolean {
   return previousDisabled && !nextDisabled;
 }
+
+export type ReducedMotionHoldFeedbackInputs = {
+  readonly disabled: boolean;
+  readonly holding: boolean;
+  readonly reducedMotion: boolean;
+};
+
+/**
+ * Whether the Reduce Motion-only static "Keep holding…" label/background
+ * should show right now. Reduce Motion removes the animated fill, but the
+ * hold itself is still a real ~600ms requirement — this is the non-animated
+ * substitute feedback that tells a sighted Reduce Motion user their press
+ * is registering at all. Never true once the caller has disabled the
+ * control (activation is already in flight): at that point the caller's
+ * own label ("Activating…") is the honest state, not a stale "keep
+ * holding" that could read as still waiting on the user.
+ */
+export function shouldShowReducedMotionHoldFeedback({ disabled, holding, reducedMotion }: ReducedMotionHoldFeedbackInputs): boolean {
+  return reducedMotion && holding && !disabled;
+}
