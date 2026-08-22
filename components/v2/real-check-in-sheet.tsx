@@ -10,7 +10,8 @@ import { ChallengePeriod } from '@/domain/challenge/periods';
 import { CheckInFact, ClientOperationId } from '@/domain/challenge/check-in/types';
 import { ActivatedChallengeSnapshot, IsoDateTime } from '@/domain/challenge/types';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { playConsequenceHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { resolveCheckInHapticOutcome } from '@/lib/haptics-outcome';
 import { submitCheckIn } from '@/lib/supabase/active-challenge-repository';
 
 type RealCheckInSheetV2Props = {
@@ -50,7 +51,6 @@ export function RealCheckInSheetV2({ challenge, onClose, onSubmitted, period }: 
   const validTotal = totalInput.trim() !== '' && Number.isFinite(parsedTotal) && parsedTotal >= 0;
 
   const submit = async (fact: CheckInFact) => {
-    void playImportantHaptic();
     setStep('submitting');
     const result = await submitCheckIn({
       challengeId: challenge.id,
@@ -67,6 +67,13 @@ export function RealCheckInSheetV2({ challenge, onClose, onSubmitted, period }: 
       setStep('error');
       return;
     }
+    // Only after the server has actually persisted this check-in — never
+    // before. A recorded lapse gets the heavier Consequence tier; every
+    // other outcome stays at the restrained Important tier used elsewhere
+    // in this flow, on purpose: an ordinary check-in must never feel like a
+    // celebration (see lib/haptics-outcome.ts).
+    const outcome = resolveCheckInHapticOutcome(fact.kind);
+    void (outcome === 'consequence' ? playConsequenceHaptic() : playImportantHaptic());
     onSubmitted();
     setDoneCopy(describeFact(fact));
     setStep('done');

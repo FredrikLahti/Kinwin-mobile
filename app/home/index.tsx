@@ -1,4 +1,4 @@
-import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarV2 } from '@/components/v2/avatar';
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { EntranceTransitionV2 } from '@/components/v2/entrance-transition';
 import { ProgressBarV2 } from '@/components/v2/stat-bar';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { RealCheckInSheetV2 } from '@/components/v2/real-check-in-sheet';
@@ -27,6 +28,7 @@ import {
   describeUpcomingStart,
   statusTone,
 } from '@/lib/home/challenge-summary';
+import { shouldShowActivationEntrance } from '@/lib/home/activation-entrance';
 import { chooseHomeChallengeSurface, describeChallengeResult, formatCompletedDate, shouldRefreshCompletedAfterActiveTransition } from '@/lib/home/completed-challenge';
 import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
@@ -65,6 +67,15 @@ export default function HomeV2() {
   const onboarding = useOnboarding();
   const { state: real, refresh } = useRealActiveChallenge();
   const { state: completed, refresh: refreshCompleted } = useRecentCompletedChallenge();
+  const params = useLocalSearchParams<{ justActivated?: string | string[] }>();
+  const justActivatedParam = Array.isArray(params.justActivated) ? params.justActivated[0] : params.justActivated;
+  // Resolved synchronously at mount, via a lazy initializer — never from an
+  // effect. EntranceTransitionV2's `play` prop must already be correct on
+  // its very first render (see that component's own doc comment): if this
+  // were set later from an effect, the hero would first render fully
+  // visible and unanimated under `play=false`, then flip to `play=true`
+  // with the animation already "finished" — no visible entrance at all.
+  const [showActivationEntrance] = useState(() => shouldShowActivationEntrance(justActivatedParam));
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [pendingCommitment, setPendingCommitment] = useState<PendingCommitment | null>(null);
   const [pendingLoading, setPendingLoading] = useState(true);
@@ -80,6 +91,22 @@ export default function HomeV2() {
   const { refreshResumableSession } = createChallengeEntry;
 
   const firstName = profile?.displayName?.trim() || user?.email?.split('@')[0] || 'there';
+
+  // '?justActivated=1' (set by app/account/pending-commitment.tsx's
+  // activate(), right after the server confirms) is a transient signal,
+  // already consumed into showActivationEntrance above. Clearing it from
+  // the URL is a separate concern from deciding whether to animate: this
+  // runs once, on mount, purely so a later remount of this same route (e.g.
+  // returning from a child screen on a stack that tore this one down)
+  // never sees the param again and never replays the entrance. Never
+  // persisted anywhere.
+  useEffect(() => {
+    if (justActivatedParam === '1') router.setParams({ justActivated: undefined });
+    // Deliberately runs once on mount only — showActivationEntrance above
+    // already froze the real decision for this mount's lifetime, so this
+    // effect's only job is a one-time URL cleanup, not a reactive sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadPendingCommitment = useCallback(async () => {
     if (!user) {
@@ -273,6 +300,7 @@ export default function HomeV2() {
 
           {!isLoading && real.status === 'ready' && identity && (
             <View style={styles.section}>
+              <EntranceTransitionV2 play={showActivationEntrance} reducedMotion={reducedMotion}>
               <View style={styles.heroCard}>
                 <Text numberOfLines={2} style={styles.heroHeadline}>{identity.headline}</Text>
                 {identity.ruleDetail && <Text style={styles.heroRule}>{identity.ruleDetail}</Text>}
@@ -322,7 +350,7 @@ export default function HomeV2() {
                           {durationPosition && <Text style={styles.heroProgressLabel}>{durationPosition}</Text>}
                           {progressLine && <Text style={styles.heroProgressLabel}>{progressLine}</Text>}
                         </View>
-                        <ProgressBarV2 percent={progressPercent} />
+                        <ProgressBarV2 percent={progressPercent} reducedMotion={reducedMotion} />
                       </View>
                     )}
                     {!isUpcoming && Boolean(real.view.timeRemaining) && (
@@ -346,6 +374,7 @@ export default function HomeV2() {
                   </Pressable>
                 </View>
               </View>
+              </EntranceTransitionV2>
             </View>
           )}
 

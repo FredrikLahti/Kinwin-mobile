@@ -1,14 +1,19 @@
 import { Feather } from '@expo/vector-icons';
 import { Href, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EntranceTransitionV2 } from '@/components/v2/entrance-transition';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { describeChallengeIdentity } from '@/lib/home/challenge-summary';
 import { describeChallengeResult, formatCompletedDate } from '@/lib/home/completed-challenge';
+import { resultEntranceTracker } from '@/lib/home/result-entrance';
+import { playConsequenceHaptic, playSuccessHaptic } from '@/lib/haptics';
+import { resolveChallengeResultHapticOutcome } from '@/lib/haptics-outcome';
 import { describeOwnerPaymentStatus } from '@/lib/payment-journey';
 import { describeOwnerRewardStatus, formatPeople } from '@/lib/reward-journey';
 import { CompletedChallenge, fetchCompletedChallenge } from '@/lib/supabase/completed-challenge-repository';
@@ -54,6 +59,7 @@ export default function ChallengeResultScreen() {
         {state.kind === 'error' && <Message title="Could not load this result." body={state.message} onPress={() => void load()} />}
         {state.kind === 'missing' && <Message title="This result is not available." body="Return Home to see your current challenge." onPress={() => router.replace('/home' as Href)} />}
         {state.kind === 'ready' && <ResultContent
+          key={state.data.id}
           challenge={state.data}
           saved={saved}
           onHome={() => router.replace('/home' as Href)}
@@ -66,6 +72,7 @@ export default function ChallengeResultScreen() {
 }
 
 function ResultContent({ challenge, saved, onHome, onPlaybook, onUpdatePayment }: { readonly challenge: CompletedChallenge; readonly saved: boolean; readonly onHome: () => void; readonly onPlaybook: () => void; readonly onUpdatePayment: () => void }) {
+  const reducedMotion = useReducedMotion();
   const result = describeChallengeResult(challenge.status);
   const identity = describeChallengeIdentity(challenge.snapshot);
   const recipientNames = challenge.snapshot.recipients.map((recipient) => recipient.name);
@@ -73,42 +80,85 @@ function ResultContent({ challenge, saved, onHome, onPlaybook, onUpdatePayment }
   const consequence = challenge.consequence && recipientNames.length > 0
     ? `${formatStake(challenge.consequence.stakeMinorUnits, challenge.consequence.currency)} for ${recipientNames.join(', ')}`
     : null;
-  return <>
-    <Text style={[styles.eyebrow, result.tone === 'success' && styles.success]}>{result.eyebrow}</Text>
-    <Text accessibilityRole="header" style={styles.title}>{result.headline}</Text>
-    <Text style={styles.meaning}>{result.meaning}</Text>
 
-    <View style={styles.challengeBlock}>
-      <Text style={styles.blockLabel}>THE CHALLENGE</Text>
-      <Text style={styles.challengeTitle}>{identity.headline}</Text>
-      {identity.ruleDetail && <Text style={styles.rule}>{identity.ruleDetail}</Text>}
-      <Text style={styles.date}>Completed {formatCompletedDate(challenge.completedAt)}</Text>
-    </View>
+  // True only the very first time this particular finalized challenge is
+  // shown, within this app's current JS session — see
+  // lib/home/result-entrance.ts's own comment for exactly what that means
+  // across a real app restart. Resolved synchronously via a lazy
+  // initializer, not from an effect: EntranceTransitionV2's `play` prop
+  // must already be correct on ResultContent's very first render (see that
+  // component's own doc comment) — setting this later would show the
+  // content fully visible and unanimated first, then flip `play` to true
+  // once the animation window has already passed. The parent screen keys
+  // ResultContent by challenge id, so a different finalized challenge
+  // always gets a fresh mount (and therefore a fresh, correct read here)
+  // rather than reusing this instance's already-resolved value.
+  //
+  // hasSeen is a pure read — this initializer must never call the
+  // tracker's mutating markSeen, since React may invoke a state
+  // initializer more than once (development Strict Mode's double-invoke
+  // check, or a render that starts and is then abandoned without ever
+  // committing) and a render that never committed must never consume this
+  // one-shot signal.
+  const [isFirstPresentation] = useState(() => !resultEntranceTracker.hasSeen(challenge.id));
+  // Marking this challenge seen — the tracker's one mutation — only ever
+  // happens here, inside an effect, which only ever runs after a render has
+  // genuinely committed. hapticFiredRef additionally guards the haptic
+  // itself (but not markSeen, which is already idempotent) against a
+  // Strict Mode effect replay in development: isFirstPresentation is
+  // frozen true for this mount's whole lifetime, so it cannot by itself
+  // distinguish "the effect's first real run" from "the effect running
+  // again for the same mount."
+  const hapticFiredRef = useRef(false);
+  useEffect(() => {
+    if (!isFirstPresentation) return;
+    resultEntranceTracker.markSeen(challenge.id);
+    if (hapticFiredRef.current) return;
+    hapticFiredRef.current = true;
+    const outcome = resolveChallengeResultHapticOutcome(challenge.status);
+    void (outcome === 'success' ? playSuccessHaptic() : playConsequenceHaptic());
+  }, [challenge.id, challenge.status, isFirstPresentation]);
 
-    {challenge.status === 'completed_failure' && consequence && <View style={styles.consequenceBlock}>
-      <Text style={styles.blockLabel}>THE OTHER SIDE OF THE PROMISE</Text>
-      <Text style={styles.winText}>{people} win.</Text>
-      <Text style={styles.consequenceText}>{consequence}</Text>
-      <Text style={styles.consequenceNote}>You sit this one out. The reward is prepared separately from the final challenge result.</Text>
-    </View>}
+  return (
+    <EntranceTransitionV2 play={isFirstPresentation} reducedMotion={reducedMotion}>
+      <View style={styles.resultStack}>
+        <Text style={[styles.eyebrow, result.tone === 'success' && styles.success]}>{result.eyebrow}</Text>
+        <Text accessibilityRole="header" style={styles.title}>{result.headline}</Text>
+        <Text style={styles.meaning}>{result.meaning}</Text>
 
-    {challenge.status === 'completed_failure' && challenge.paymentStatus && <PaymentAttentionBanner onUpdatePayment={onUpdatePayment} status={challenge.paymentStatus} />}
+        <View style={styles.challengeBlock}>
+          <Text style={styles.blockLabel}>THE CHALLENGE</Text>
+          <Text style={styles.challengeTitle}>{identity.headline}</Text>
+          {identity.ruleDetail && <Text style={styles.rule}>{identity.ruleDetail}</Text>}
+          <Text style={styles.date}>Completed {formatCompletedDate(challenge.completedAt)}</Text>
+        </View>
 
-    {challenge.status === 'completed_failure' && <RewardOrganizerAccess challenge={challenge}/>}
+        {challenge.status === 'completed_failure' && consequence && <View style={styles.consequenceBlock}>
+          <Text style={styles.blockLabel}>THE OTHER SIDE OF THE PROMISE</Text>
+          <Text style={styles.winText}>{people} win.</Text>
+          <Text style={styles.consequenceText}>{consequence}</Text>
+          <Text style={styles.consequenceNote}>You sit this one out. The reward is prepared separately from the final challenge result.</Text>
+        </View>}
 
-    <View style={styles.reflectionBlock}>
-      <Text style={styles.reflectionTitle}>What is worth remembering for next time?</Text>
-      <Text style={styles.reflectionBody}>Optionally save your own short lesson to Personal Playbook.</Text>
-      {saved && <Text accessibilityLiveRegion="polite" style={styles.saved}>Saved to Personal Playbook.</Text>}
-      <Pressable accessibilityHint="Opens the Personal Playbook editor with this challenge attached" accessibilityRole="button" onPress={onPlaybook} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
-        <Text style={styles.primaryText}>{saved ? 'Save another lesson' : 'Save a lesson'}</Text>
-      </Pressable>
-    </View>
+        {challenge.status === 'completed_failure' && challenge.paymentStatus && <PaymentAttentionBanner onUpdatePayment={onUpdatePayment} status={challenge.paymentStatus} />}
 
-    <Pressable accessibilityHint="Returns Home where you can start another challenge" accessibilityRole="button" onPress={onHome} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
-      <Text style={styles.secondaryText}>Back to Home</Text>
-    </Pressable>
-  </>;
+        {challenge.status === 'completed_failure' && <RewardOrganizerAccess challenge={challenge}/>}
+
+        <View style={styles.reflectionBlock}>
+          <Text style={styles.reflectionTitle}>What is worth remembering for next time?</Text>
+          <Text style={styles.reflectionBody}>Optionally save your own short lesson to Personal Playbook.</Text>
+          {saved && <Text accessibilityLiveRegion="polite" style={styles.saved}>Saved to Personal Playbook.</Text>}
+          <Pressable accessibilityHint="Opens the Personal Playbook editor with this challenge attached" accessibilityRole="button" onPress={onPlaybook} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+            <Text style={styles.primaryText}>{saved ? 'Save another lesson' : 'Save a lesson'}</Text>
+          </Pressable>
+        </View>
+
+        <Pressable accessibilityHint="Returns Home where you can start another challenge" accessibilityRole="button" onPress={onHome} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
+          <Text style={styles.secondaryText}>Back to Home</Text>
+        </Pressable>
+      </View>
+    </EntranceTransitionV2>
+  );
 }
 
 function PaymentAttentionBanner({ status, onUpdatePayment }: { readonly status: NonNullable<CompletedChallenge['paymentStatus']>; readonly onUpdatePayment: () => void }) {
@@ -135,6 +185,12 @@ function Message({ title, body, onPress }: { readonly title: string; readonly bo
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.ink },
   content: { flexGrow: 1, width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 22, paddingBottom: 40, gap: 15 },
+  // Mirrors content's own gap: ResultContent's fields render inside a
+  // single EntranceTransitionV2 wrapper now (so the whole block can fade
+  // in together as one unit), which means they're no longer direct
+  // children of `content` — this keeps the same visual spacing between
+  // them regardless.
+  resultStack: { gap: 15 },
   header: { height: 54, flexDirection: 'row', alignItems: 'center' },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: -12 },
   wordmark: { color: theme.colors.ivory, fontSize: 12, fontWeight: '800', letterSpacing: 4 },

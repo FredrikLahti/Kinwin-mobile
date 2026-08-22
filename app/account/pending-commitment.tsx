@@ -5,12 +5,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetV2 } from '@/components/v2/bottom-sheet';
+import { HoldToConfirmButtonV2 } from '@/components/v2/hold-to-confirm-button';
 import { PrimaryButtonV2 } from '@/components/v2/primary-button';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useAuth } from '@/contexts/auth-context';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { formatMoney } from '@/lib/home/challenge-summary';
 import {
   cancelPendingChallenge,
@@ -82,9 +83,15 @@ export default function PendingCommitmentScreen() {
   // independently validates it against its own tzdata and, separately,
   // re-verifies real payment authorization before it will activate anything
   // — this call cannot itself bypass either check.
+  //
+  // This is the true point of no return: unlike the pending commitment
+  // created at Review (freely cancelable — see "Cancel commitment" below
+  // and "Start over" on Home), nothing here offers a way to cancel an
+  // already-active challenge. No haptic plays on the hold gesture
+  // completing (see HoldToConfirmButtonV2's own comment) — only once the
+  // server has actually confirmed activation.
   const activate = useCallback(async (commitment: PendingCommitment) => {
     if (!user) return;
-    void playImportantHaptic();
     setActivation({ status: 'activating' });
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const result = await activateChallenge(commitment.challengeId, timezone);
@@ -93,7 +100,12 @@ export default function PendingCommitmentScreen() {
       setActivation({ status: 'error', message });
       return;
     }
-    router.replace('/home' as Href);
+    void playCommitmentHaptic();
+    // '?justActivated=1' is a transient, immediately-consumed navigation
+    // param (see app/home/index.tsx) — never a persisted flag — telling
+    // Home this particular arrival is a just-completed activation, so it
+    // can play its own restrained first-arrival entrance exactly once.
+    router.replace('/home?justActivated=1' as Href);
   }, [router, user]);
 
   const openCancelSheet = () => {
@@ -182,11 +194,11 @@ export default function PendingCommitmentScreen() {
             <View style={styles.actions}>
               {commitment.authorizationStatus === 'authorized' ? (
                 <>
-                  <PrimaryButtonV2
+                  <HoldToConfirmButtonV2
                     accessibilityHint="Activates this challenge. Tracking starts today."
                     disabled={activation.status === 'activating'}
-                    label={activation.status === 'activating' ? 'Activating…' : 'Activate challenge'}
-                    onPress={() => void activate(commitment)}
+                    label={activation.status === 'activating' ? 'Activating…' : 'Hold to activate'}
+                    onConfirm={() => void activate(commitment)}
                     reducedMotion={reducedMotion}
                   />
                   {activation.status === 'error' && (

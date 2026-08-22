@@ -16,7 +16,7 @@ import { creationSessionStorage } from '@/lib/challenge-creation/creation-sessio
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 import { describeChallengeRule } from '@/lib/challenge-creation/summary';
 import { BETA_PAYMENT_TEST_MODE_NOTICE } from '@/lib/copy/beta-payment-notice';
-import { playCommitmentHaptic, playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
+import { playImportantHaptic, playSelectionHaptic } from '@/lib/haptics';
 import { formatMoney } from '@/lib/home/challenge-summary';
 import { ConflictKind, resolveCommitmentGateAction, resolveConflictLeaveRoute } from '@/lib/challenge-creation/review-commitment-gate';
 import { calculateSuccessRule } from '@/lib/success-rule';
@@ -143,12 +143,13 @@ export default function CreateReviewScreen() {
   );
 
   const advanceToShare = useCallback(() => {
-    // This is the exact moment a real, server-owned pending commitment
-    // (money genuinely at stake) has just been created — playCommitmentHaptic
-    // is deliberately reserved for that kind of consequential boundary (see
-    // lib/haptics.ts), distinct from the lighter playImportantHaptic used
-    // for ordinary primary-button taps elsewhere in this flow.
-    void playCommitmentHaptic();
+    // A pending commitment is still fully, freely cancelable (see
+    // app/account/pending-commitment.tsx's "Cancel commitment" and
+    // app/home/index.tsx's "Start over") — the true point of no return is
+    // activation, not this. playCommitmentHaptic is reserved exclusively
+    // for that later, server-confirmed boundary; this stays at the
+    // meaningful-but-reversible Important tier.
+    void playImportantHaptic();
     // The draft this id pointed to is now archived server-side and can
     // never be reused — clearing it here is what makes it safe if the user
     // somehow lands back on this screen later (the focus guard above is the

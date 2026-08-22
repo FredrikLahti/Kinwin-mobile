@@ -1,16 +1,38 @@
+import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 
 type ProgressBarV2Props = {
   percent: number;
+  reducedMotion?: boolean;
 };
 
-export function ProgressBarV2({ percent }: ProgressBarV2Props) {
+const FILL_DURATION_MS = 320;
+
+/**
+ * The primary visual follow-through for an ordinary check-in: the fill
+ * animates from its previous percentage to the new one, restrained
+ * (`withTiming`, no spring/overshoot). Starts already at the real value on
+ * mount — opening Home must never show the bar sweeping up from zero, only
+ * a genuine later change should visibly transition. A second change
+ * arriving before the first finishes simply retargets the same in-flight
+ * animation toward the new value, so there is nothing to get stale or race.
+ */
+export function ProgressBarV2({ percent, reducedMotion = false }: ProgressBarV2Props) {
   const clamped = Math.max(0, Math.min(100, percent));
+  const width = useSharedValue(clamped);
+
+  useEffect(() => {
+    width.value = reducedMotion ? clamped : withTiming(clamped, { duration: FILL_DURATION_MS });
+  }, [clamped, reducedMotion, width]);
+
+  const fillStyle = useAnimatedStyle(() => ({ width: `${width.value}%` }));
+
   return (
     <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: clamped }} style={styles.track}>
-      <View style={[styles.fill, { width: `${clamped}%` }]} />
+      <Animated.View style={[styles.fill, fillStyle]} />
     </View>
   );
 }

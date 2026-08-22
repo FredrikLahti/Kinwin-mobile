@@ -99,9 +99,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Pinned to an exact release, not `latest`: `latest` makes this action
+      # resolve the newest Supabase CLI release from GitHub on every single
+      # workflow run, and that resolution call is subject to GitHub's own
+      # unauthenticated API rate limit — a shared limit across everything
+      # hitting GitHub from the same runner IP range, not something this
+      # workflow controls. A confirmed real failure (run 32468172471) hit
+      # exactly that: "Failed to resolve latest Supabase CLI release: rate
+      # limit exceeded", before any E2E test ever ran. Pinning trades that
+      # for a deterministic, reproducible CI toolchain — a CLI upgrade is
+      # now a deliberate, reviewed commit instead of something that can
+      # change (or fail) on its own between runs. 2.114.0 is a V1 CI
+      # toolchain choice only; this job runs on ubuntu-latest and only ever
+      # calls `supabase start`/`status`/`stop`, so the CLI's known
+      # Windows-specific `migration new` issue at this version is
+      # irrelevant here.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.114.0
 
       # supabase/functions/**/*.ts targets the Deno runtime (npm: specifiers,
       # `.ts`-suffixed relative imports, `Deno.*` globals) and is deliberately
@@ -206,6 +221,16 @@ jobs:
       - name: Auth, draft-persistence, prepare_challenge_from_draft, cancel_pending_challenge, server-generated-periods, consequence-setup-stripe, and full-activation-and-check-in end-to-end suite against real GoTrue/PostgREST/Edge Runtime
         run: npm run test:e2e
 
+      # Guarded on the binary actually existing: if an earlier step failed
+      # before setup-cli ever installed it (e.g. the rate-limit failure
+      # this workflow is pinned against above), a bare `supabase stop` here
+      # would itself fail with "command not found" — a second, misleading
+      # failure on top of the real one, with nothing left to actually stop.
+      # A genuine `supabase stop` failure once the binary exists is never
+      # swallowed: only the "nothing to clean up" case becomes a no-op.
       - name: Stop local Supabase
         if: always()
-        run: supabase stop
+        run: |
+          if command -v supabase >/dev/null 2>&1; then
+            supabase stop
+          fi
