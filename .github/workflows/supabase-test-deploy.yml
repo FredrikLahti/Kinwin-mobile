@@ -1,0 +1,281 @@
+name: Deploy pending migrations to hosted TEST (manual, gated)
+
+# Manual-only, deliberately never runs on push/pull_request. A hosted
+# database push is a one-way, real-project action — it must always be a
+# human decision to fire this, never an automatic side effect of a commit.
+on:
+  workflow_dispatch: {}
+
+env:
+  # Kinwin's hosted TEST project — the ACTIVE_HEALTHY "kinwin-mobile-test"
+  # project, never any other project. This is not a secret (a project ref
+  # is a public identifier, not a credential); keeping it here as a plain,
+  # committed, reviewable value is what makes "deploy to the wrong project"
+  # structurally impossible rather than a matter of trusting a manually
+  # typed input at dispatch time.
+  SUPABASE_PROJECT_REF: ywoledppusxwdonwsewh
+  # Pinned to the exact same release the repository's CI already pins in
+  # .github/workflows/supabase-e2e.yml, for the same reason: a deterministic
+  # toolchain rather than whatever `latest` happens to resolve to on the day
+  # this runs against a real hosted project.
+  SUPABASE_CLI_VERSION: 2.114.0
+
+jobs:
+  deploy-and-verify:
+    name: Push pending migrations + read-only hosted verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # workflow_dispatch can still be fired against any branch/ref from the
+      # Actions UI or API despite this file living on main — this guard is
+      # the real enforcement that a hosted deploy only ever runs from the
+      # reviewed, merged state of main, never an arbitrary branch or PR head.
+      - name: Guard — only runnable against refs/heads/main
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::This workflow may only be dispatched against refs/heads/main (got ${{ github.ref }})."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # Fail clearly and immediately if either secret is simply absent from
+      # this repository's configuration — never inferred from anything about
+      # the environment this workflow file was authored in, only checked
+      # live, here, against the real GitHub Actions secrets store.
+      - name: Guard — required secrets are present
+        run: |
+          if [ -z "${{ secrets.SUPABASE_ACCESS_TOKEN }}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN repository secret is not set. Add it under Settings > Secrets and variables > Actions before running this workflow."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SUPABASE_DB_PASSWORD }}" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD repository secret is not set. Add it under Settings > Secrets and variables > Actions before running this workflow."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+
+      # The one authoritative "exact project ref" gate: every later step
+      # uses --linked, which resolves to whatever this step just linked —
+      # so there is exactly one place in this whole workflow where the
+      # target project is chosen, and it is this hardcoded env value, never
+      # a value typed at dispatch time or inferred from local CLI state.
+      - name: Link to hosted TEST project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      # Informational only — printed for the run's log/audit trail, not
+      # parsed. Table formatting is not a stable contract to script against;
+      # the actual automated gate is the dry-run content check below, which
+      # is exactly what db push --dry-run exists for.
+      - name: Print remote vs local migration history (informational)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase migration list --linked
+
+      # The real safety gate. Refuses to deploy unless the dry run proposes
+      # EXACTLY the four expected migrations — no more, no fewer, no
+      # substitutions. Any drift (an unexpected remote migration, one of
+      # these four already applied, a different set entirely) fails the job
+      # here, before anything real happens.
+      - name: Dry run — confirm exactly the four expected migrations are pending
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run 2>&1 | tee dry-run-before.txt
+
+          proposed=$(grep -oE '[0-9]{14}_[A-Za-z0-9_]+\.sql' dry-run-before.txt | sort -u)
+          expected=$(printf '%s\n' \
+            "20260905000000_activation_starts_today.sql" \
+            "20260906000000_success_means_v2.sql" \
+            "20260907000000_activity_comments_and_emoji_reactions.sql" \
+            "20260908000000_multi_currency_v1.sql" | sort -u)
+
+          echo "----- dry run proposes -----"
+          echo "$proposed"
+          echo "----- expected exactly -----"
+          echo "$expected"
+
+          if [ "$proposed" != "$expected" ]; then
+            echo "::error::db push --dry-run proposed a different migration set than expected. Refusing to deploy — see the diff above."
+            exit 1
+          fi
+          echo "Dry run proposes exactly the four expected migrations, in the expected set. Safe to proceed."
+
+      # No --include-all, no --include-roles, no --include-seed: only the
+      # migration chain the dry-run gate above just verified. --yes is
+      # required for this to complete non-interactively in Actions; the real
+      # confirmation already happened in the dry-run gate above.
+      - name: Deploy — push the four pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --linked --yes
+
+      # Re-reads remote history (not the exit code of the push above) before
+      # calling this deployment complete. A second dry-run that proposes
+      # nothing further is the CLI's own confirmation that every migration
+      # actually landed.
+      - name: Post-deploy — confirm nothing further is pending
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          supabase migration list --linked | tee migration-list-after.txt
+          supabase db push --linked --dry-run 2>&1 | tee dry-run-after.txt
+          remaining=$(grep -oE '[0-9]{14}_[A-Za-z0-9_]+\.sql' dry-run-after.txt | sort -u || true)
+          if [ -n "$remaining" ]; then
+            echo "::error::Migrations remain pending after db push — deployment did not fully apply."
+            echo "$remaining"
+            exit 1
+          fi
+          echo "Confirmed: remote migration history is fully caught up, nothing left pending."
+
+      # Read-only introspection only (pg_get_functiondef, information_schema,
+      # pg_catalog, pg_policies, has_function_privilege) — every statement
+      # below is a SELECT. Nothing here can modify schema, data, or
+      # migration history; it exists purely to produce an auditable record,
+      # in this run's log, of the hosted state this deployment actually
+      # produced. Function/table/constraint/policy names are taken verbatim
+      # from the four migration files themselves, not guessed.
+      - name: Read-only hosted verification
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cat > verify.sql <<'SQL'
+          -- 1. generate_challenge_periods (20260905 activation-starts-today):
+          -- confirms the no-unconditional-+1-day-shift behavior directly from
+          -- the hosted function body.
+          select pg_get_functiondef('private.generate_challenge_periods(uuid,timestamp with time zone,text)'::regprocedure) as generate_challenge_periods_def;
+
+          -- 2. prepare_challenge_from_draft: the LATEST definition, as
+          -- redefined by 20260908 on top of 20260906 — the whole point of
+          -- this query is confirming Success Means V2's protections (rule-
+          -- version handling, trusted server-derived baseline, stricter-
+          -- allowed/easier-rejected, continuity safeguard, strict Avoid) are
+          -- still present in this same body alongside the currency/minimum-
+          -- stake checks 20260908 added.
+          select pg_get_functiondef('public.prepare_challenge_from_draft(uuid)'::regprocedure) as prepare_challenge_from_draft_def;
+
+          -- 3. Currency check constraints (20260908): must allow exactly USD/SEK/EUR.
+          select conrelid::regclass as table_name, conname, pg_get_constraintdef(oid) as definition
+          from pg_constraint
+          where conname in (
+            'consequences_currency_check',
+            'consequence_charge_attempts_currency_check',
+            'reward_fulfillments_currency_check'
+          )
+          order by table_name;
+
+          -- 4. profiles.preferred_currency column + its constraint.
+          select column_name, data_type, is_nullable
+          from information_schema.columns
+          where table_schema = 'public' and table_name = 'profiles' and column_name = 'preferred_currency';
+
+          select conname, pg_get_constraintdef(oid) as definition
+          from pg_constraint
+          where conrelid = 'public.profiles'::regclass
+            and pg_get_constraintdef(oid) ilike '%preferred_currency%';
+
+          -- 5. Existing consequence currency distribution — historical rows
+          -- must remain exactly what they were (USD), never converted/rewritten.
+          select currency, count(*) as row_count from public.consequences group by currency order by 1;
+
+          -- 6. activity_reactions.kind emoji whitelist (20260907): must be
+          -- exactly the five new emoji, nothing else.
+          select conname, pg_get_constraintdef(oid) as definition
+          from pg_constraint
+          where conrelid = 'public.activity_reactions'::regclass and conname = 'activity_reactions_kind_check';
+
+          -- 7. activity_comments schema (20260907).
+          select column_name, data_type, is_nullable, character_maximum_length
+          from information_schema.columns
+          where table_schema = 'public' and table_name = 'activity_comments'
+          order by ordinal_position;
+
+          -- 8. activity_comments constraints, including the 200-character body check.
+          select conname, pg_get_constraintdef(oid) as definition
+          from pg_constraint
+          where conrelid = 'public.activity_comments'::regclass;
+
+          -- 9. activity_comments RLS enabled.
+          select relname, relrowsecurity, relforcerowsecurity
+          from pg_class
+          where oid = 'public.activity_comments'::regclass;
+
+          -- 10. activity_comments policies — accepted-Kin visibility, activity
+          -- owner visibility, author-only insert, author-or-activity-owner delete.
+          select policyname, cmd, permissive, roles, qual, with_check
+          from pg_policies
+          where schemaname = 'public' and tablename = 'activity_comments'
+          order by policyname;
+
+          -- 11. activity_comments grants.
+          select grantee, privilege_type
+          from information_schema.role_table_grants
+          where table_schema = 'public' and table_name = 'activity_comments'
+          order by grantee, privilege_type;
+
+          -- 12. The existing social content policy trigger, now also guarding comments.
+          select tgname, tgrelid::regclass as table_name, tgenabled
+          from pg_trigger
+          where tgfoid = 'private.enforce_comment_content_policy()'::regprocedure;
+
+          -- 13. Account deletion — private implementation: confirms the
+          -- 20260904 owner-level advisory lock (pg_advisory_xact_lock,
+          -- 'kinwin_account_mutation') is still present, alongside the new
+          -- 20260907 "delete this owner's authored comments on other users'
+          -- activities" behavior.
+          select pg_get_functiondef('private.delete_account_owned_data(uuid)'::regprocedure) as delete_account_owned_data_private_def;
+
+          -- 14. Account deletion — public service-role wrapper (unchanged contract, re-verified after deploy).
+          select pg_get_functiondef('public.delete_account_owned_data(uuid)'::regprocedure) as delete_account_owned_data_public_def;
+
+          -- 15. Social reporting RPC — confirms the comment-report path
+          -- (p_reported_comment_id) added by 20260907.
+          select pg_get_functiondef('public.submit_social_report(uuid,uuid,text,text,uuid)'::regprocedure) as submit_social_report_def;
+
+          -- 16. SECURITY DEFINER execute grants — must never be callable by
+          -- PUBLIC/anon beyond each function's intended contract.
+          select
+            n.nspname as schema_name,
+            p.proname as function_name,
+            pg_get_function_identity_arguments(p.oid) as arguments,
+            p.prosecdef as security_definer,
+            has_function_privilege('public', p.oid, 'execute') as public_can_execute,
+            has_function_privilege('anon', p.oid, 'execute') as anon_can_execute,
+            has_function_privilege('authenticated', p.oid, 'execute') as authenticated_can_execute,
+            has_function_privilege('service_role', p.oid, 'execute') as service_role_can_execute
+          from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname in ('public', 'private')
+            and p.proname in (
+              'delete_account_owned_data',
+              'submit_social_report',
+              'prepare_challenge_from_draft',
+              'generate_challenge_periods',
+              'enforce_comment_content_policy'
+            )
+          order by schema_name, function_name;
+
+          -- 17. Row-level security enabled on every table this deployment touches.
+          select relnamespace::regnamespace as schema_name, relname as table_name, relrowsecurity, relforcerowsecurity
+          from pg_class
+          where relnamespace = 'public'::regnamespace
+            and relname in ('activity_comments', 'activity_reactions', 'consequences', 'profiles')
+          order by table_name;
+          SQL
+          supabase db query --linked -f verify.sql
