@@ -1,0 +1,438 @@
+name: Deploy pending migrations to hosted TEST (manual, gated)
+
+# Manual-only, deliberately never runs on push/pull_request. A hosted
+# database push is a one-way, real-project action — it must always be a
+# human decision to fire this, never an automatic side effect of a commit.
+on:
+  workflow_dispatch: {}
+
+# No broader GitHub token permissions are required: this workflow only
+# checks out source and talks to Supabase's own API/database, never the
+# GitHub API itself.
+permissions:
+  contents: read
+
+# Prevents two manually dispatched deploys from ever running against the
+# hosted database at the same time. A second dispatch waits for the first
+# to finish rather than overlapping with it — never cancelled, since
+# cancelling a real in-progress migration deployment mid-push is far more
+# dangerous than making the second run wait.
+concurrency:
+  group: kinwin-hosted-test-database-deploy
+  cancel-in-progress: false
+
+env:
+  # Kinwin's hosted TEST project — the ACTIVE_HEALTHY "kinwin-mobile-test"
+  # project, never any other project. This is not a secret (a project ref
+  # is a public identifier, not a credential); keeping it here as a plain,
+  # committed, reviewable value is what makes "deploy to the wrong project"
+  # structurally impossible rather than a matter of trusting a manually
+  # typed input at dispatch time.
+  SUPABASE_PROJECT_REF: ywoledppusxwdonwsewh
+  # Pinned to the exact same release the repository's CI already pins in
+  # .github/workflows/supabase-e2e.yml, for the same reason: a deterministic
+  # toolchain rather than whatever `latest` happens to resolve to on the day
+  # this runs against a real hosted project.
+  SUPABASE_CLI_VERSION: 2.114.0
+
+jobs:
+  deploy-and-verify:
+    name: Push pending migrations + read-only hosted verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Job-level, not step-level: every step below that talks to the hosted
+    # project needs both. Referenced only as plain shell variables ($NAME)
+    # inside run: blocks below — never interpolated as ${{ secrets.* }}
+    # directly into script source, since a database password can contain
+    # shell-significant characters (quotes, backticks, $, etc.) that would
+    # be unsafe to splice into a command line. Never printed; no `set -x`
+    # anywhere in this file.
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      # workflow_dispatch can still be fired against any branch/ref from the
+      # Actions UI or API despite this file living on main — this guard is
+      # the real enforcement that a hosted deploy only ever runs from main,
+      # never an arbitrary branch or PR head. (github.ref here is ordinary
+      # workflow context, not a secret — safe to interpolate directly.)
+      - name: Guard — only runnable against refs/heads/main
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::This workflow may only be dispatched against refs/heads/main (got ${{ github.ref }})."
+            exit 1
+          fi
+
+      # Fail clearly and immediately if either secret is simply absent from
+      # this repository's configuration — never inferred from anything about
+      # the environment this workflow file was authored in, only checked
+      # live, here, against the real GitHub Actions secrets store. Reads the
+      # job-level env vars above; never prints their values.
+      - name: Guard — required secrets are present
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN repository secret is not set. Add it under Settings > Secrets and variables > Actions before running this workflow."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD repository secret is not set. Add it under Settings > Secrets and variables > Actions before running this workflow."
+            exit 1
+          fi
+
+      # Checks out the EXACT commit that triggered this dispatch
+      # (github.sha), never a freshly-resolved `main` — if main advances
+      # after dispatch but before this job starts, a plain `ref: main`
+      # checkout would silently deploy a newer, unreviewed-for-this-run
+      # commit instead of the one the guard above just approved.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify checkout matches the exact dispatch SHA
+        run: |
+          set -euo pipefail
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Checked-out commit ($checked_out_sha) does not match the dispatch event SHA ($GITHUB_SHA)."
+            exit 1
+          fi
+          echo "Verified: deploying from exactly $checked_out_sha"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+
+      # The one authoritative "exact project ref" gate: every later step
+      # uses --linked, which resolves to whatever this step just linked —
+      # so there is exactly one place in this whole workflow where the
+      # target project is chosen, and it is this hardcoded env value, never
+      # a value typed at dispatch time or inferred from local CLI state.
+      - name: Link to hosted TEST project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      # A real, machine-enforced gate — not merely printing `migration list`
+      # for a human to read. Queries supabase_migrations.schema_migrations
+      # directly (the CLI's own migration-tracking table) via `db query`,
+      # rather than parsing `migration list`'s pretty-table output, and
+      # compares it byte-for-byte against the exact set of versions this
+      # checkout's migration files imply should already be remote (every
+      # local migration EXCEPT the four about to be pushed). Any drift —
+      # anywhere in history, not just at the tail — fails here before
+      # anything is pushed.
+      #
+      # Output is wrapped in unique start/end markers and extracted with
+      # grep/sed rather than trusting a specific structured-output mode:
+      # this is deliberate — `db query`'s --linked path documents itself as
+      # going through the Management API, and it was not possible to
+      # confirm from this session whether its -o json mode applies to
+      # arbitrary SELECT results the same way it does to `status`'s "output
+      # format of status variables". A self-delimiting marker is correct
+      # regardless of which output mode is actually in effect, and was
+      # validated locally against realistic pretty-table output before
+      # being committed here.
+      - name: Pre-deploy — verify remote migration history matches expected state
+        run: |
+          set -euo pipefail
+
+          all_local_versions=$(ls supabase/migrations/*.sql | xargs -n1 basename | sed -E 's/^([0-9]{14})_.*/\1/' | sort)
+          pending_versions=$'20260905000000\n20260906000000\n20260907000000\n20260908000000'
+          expected_before=$(comm -23 <(echo "$all_local_versions") <(echo "$pending_versions" | sort) | paste -sd, -)
+
+          remote_output=$(supabase db query --linked "select 'REMOTE_VERSIONS_START' || coalesce(string_agg(version, ',' order by version), '') || 'REMOTE_VERSIONS_END' from supabase_migrations.schema_migrations;")
+          remote_versions=$(echo "$remote_output" | grep -oE 'REMOTE_VERSIONS_START.*REMOTE_VERSIONS_END' | sed -E 's/REMOTE_VERSIONS_START(.*)REMOTE_VERSIONS_END/\1/')
+
+          if [ -z "$remote_versions" ]; then
+            echo "::error::Could not reliably read remote migration history (no REMOTE_VERSIONS_START/END marker found). Refusing to deploy."
+            echo "$remote_output"
+            exit 1
+          fi
+
+          echo "Expected remote history before deploy: $expected_before"
+          echo "Actual remote history:                 $remote_versions"
+
+          if [ "$remote_versions" != "$expected_before" ]; then
+            echo "::error::Remote migration history does not match the expected pre-deploy state (latest should be exactly 20260904000000, with none of 20260905000000-20260908000000 applied). Refusing to deploy — see the diff above."
+            exit 1
+          fi
+          echo "Confirmed: remote migration history exactly matches the expected pre-deploy state."
+
+      # Extracts the proposed migration filenames preserving FIRST-
+      # OCCURRENCE ORDER (awk '!seen[$0]++'), not sorted-and-deduplicated —
+      # a set comparison would pass on a reversed, duplicated, or
+      # reordered proposal as long as the same four names appeared
+      # somewhere. Compared as an ordered sequence (plain string equality)
+      # against the exact expected order. Locally fixture-tested against:
+      # the correct ordered four (pass), the four reversed (fail), one
+      # missing (fail), an unexpected fifth (fail), and the same four
+      # appearing twice in the CLI's own output — once in a summary header,
+      # once in a body — which still passes, since awk's first-occurrence
+      # dedup normalizes exactly that documented repetition while leaving
+      # genuine reordering or extra/missing entries detectable.
+      - name: Dry run — confirm exactly the four expected migrations, in order, are pending
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run 2>&1 | tee dry-run-before.txt
+
+          proposed=$(grep -oE '[0-9]{14}_[A-Za-z0-9_]+\.sql' dry-run-before.txt | awk '!seen[$0]++')
+          expected=$(printf '%s\n' \
+            "20260905000000_activation_starts_today.sql" \
+            "20260906000000_success_means_v2.sql" \
+            "20260907000000_activity_comments_and_emoji_reactions.sql" \
+            "20260908000000_multi_currency_v1.sql")
+
+          echo "----- dry run proposes (in order) -----"
+          echo "$proposed"
+          echo "----- expected, in this exact order -----"
+          echo "$expected"
+
+          if [ "$proposed" != "$expected" ]; then
+            echo "::error::db push --dry-run proposed a different migration set or order than expected. Refusing to deploy — see the diff above."
+            exit 1
+          fi
+          echo "Dry run proposes exactly the four expected migrations, in the expected order. Safe to proceed."
+
+      # No --include-all, no --include-roles, no --include-seed: only the
+      # migration chain the dry-run gate above just verified. --yes is
+      # required for this to complete non-interactively in Actions; the real
+      # confirmation already happened in the dry-run gate above.
+      - name: Deploy — push the four pending migrations
+        run: supabase db push --linked --yes
+
+      # Re-reads remote history the same way the pre-deploy gate did, now
+      # expecting it to match every local migration file exactly — not just
+      # "the last four are present," which would miss drift elsewhere.
+      - name: Post-deploy — verify remote migration history matches expected state
+        run: |
+          set -euo pipefail
+
+          all_local_versions=$(ls supabase/migrations/*.sql | xargs -n1 basename | sed -E 's/^([0-9]{14})_.*/\1/' | sort)
+          expected_after=$(echo "$all_local_versions" | paste -sd, -)
+
+          remote_output=$(supabase db query --linked "select 'REMOTE_VERSIONS_START' || coalesce(string_agg(version, ',' order by version), '') || 'REMOTE_VERSIONS_END' from supabase_migrations.schema_migrations;")
+          remote_versions=$(echo "$remote_output" | grep -oE 'REMOTE_VERSIONS_START.*REMOTE_VERSIONS_END' | sed -E 's/REMOTE_VERSIONS_START(.*)REMOTE_VERSIONS_END/\1/')
+
+          if [ -z "$remote_versions" ]; then
+            echo "::error::Could not reliably read remote migration history after deployment."
+            echo "$remote_output"
+            exit 1
+          fi
+
+          echo "Expected remote history after deploy: $expected_after"
+          echo "Actual remote history:                $remote_versions"
+
+          if [ "$remote_versions" != "$expected_after" ]; then
+            echo "::error::Remote migration history does not match the expected post-deploy state — either something failed to apply, or an unexpected migration version is present."
+            exit 1
+          fi
+          echo "Confirmed: remote migration history exactly matches every local migration, in order — deployment fully applied, nothing unexpected introduced."
+
+      # Kept as an additional, independent check alongside the history
+      # comparison above: a second dry run must propose nothing further.
+      - name: Post-deploy — confirm a second dry run proposes nothing further
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run 2>&1 | tee dry-run-after.txt
+          remaining=$(grep -oE '[0-9]{14}_[A-Za-z0-9_]+\.sql' dry-run-after.txt | awk '!seen[$0]++' || true)
+          if [ -n "$remaining" ]; then
+            echo "::error::Migrations remain pending after db push — deployment did not fully apply."
+            echo "$remaining"
+            exit 1
+          fi
+          echo "Confirmed: a second dry run proposes nothing further."
+
+      # Read-only (SELECT-only) hosted verification that actually FAILS the
+      # workflow if the hosted state violates a critical invariant — not
+      # mere introspection that prints results and exits 0 regardless of
+      # what they say. Every function/table/constraint/policy name used
+      # below is taken verbatim from the four migration files. Every
+      # assertion, and the marker-extraction/pass-fail logic itself, was
+      # validated locally before being committed here: built a throwaway
+      # fixture schema mirroring the real objects, ran this exact query
+      # against it (all checks true), then deliberately broke three
+      # unrelated invariants (an extra emoji snuck into the reactions
+      # constraint, the old four-argument submit_social_report overload
+      # reintroduced, the private deletion function accidentally granted to
+      # authenticated) and confirmed exactly those three — and only those
+      # three — flipped to false.
+      - name: Read-only hosted verification (hard-asserting)
+        run: |
+          set -euo pipefail
+          cat > verify.sql <<'SQL'
+          with
+            gcp as (
+              select pg_get_functiondef('private.generate_challenge_periods(uuid,timestamp with time zone,text)'::regprocedure) as body
+            ),
+            pcfd as (
+              select pg_get_functiondef('public.prepare_challenge_from_draft(uuid)'::regprocedure) as body
+            ),
+            dao_priv as (
+              select pg_get_functiondef('private.delete_account_owned_data(uuid)'::regprocedure) as body
+            ),
+            ssr as (
+              select pg_get_functiondef('public.submit_social_report(uuid,uuid,text,text,uuid)'::regprocedure) as body
+            ),
+            pref_currency_constraint as (
+              select pg_get_constraintdef(oid) as def
+              from pg_constraint
+              where conrelid = 'public.profiles'::regclass
+                and pg_get_constraintdef(oid) ilike '%preferred_currency%'
+              limit 1
+            ),
+            reactions_kind_constraint as (
+              select pg_get_constraintdef(oid) as def
+              from pg_constraint
+              where conrelid = 'public.activity_reactions'::regclass and conname = 'activity_reactions_kind_check'
+            ),
+            comments_body_constraint as (
+              select pg_get_constraintdef(oid) as def
+              from pg_constraint
+              where conrelid = 'public.activity_comments'::regclass
+                and pg_get_constraintdef(oid) ilike '%body%'
+              limit 1
+            ),
+            checks as (
+              select 'A1_generate_challenge_periods_exists' as check_name, (select body from gcp) is not null as passed
+              union all
+              select 'A2_period_start_uses_activation_local_date', position('v_local_start := ((p_activation_instant at time zone p_timezone)::date)::timestamp' in coalesce((select body from gcp), '')) > 0
+              union all
+              select 'A3_old_next_local_midnight_start_expression_absent', position('v_local_start := (((p_activation_instant at time zone p_timezone)::date) + 1)::timestamp' in coalesce((select body from gcp), '')) = 0
+
+              union all
+              select 'B1_prepare_challenge_from_draft_exists', (select body from pcfd) is not null
+              union all
+              select 'B2_has_rule_version_handling', position('success_rule_version' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B3_has_server_derived_baseline', position('derived_total' in coalesce((select body from pcfd), '')) > 0 and position('derived_allowed' in coalesce((select body from pcfd), '')) > 0 and position('derived_baseline' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B4_stricter_allowed_easier_rejected', position('success_min_required < derived_baseline' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B5_continuity_safeguard_present', position('expected_safeguard_type' in coalesce((select body from pcfd), '')) > 0 and position('expected_safeguard_value' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B6_avoid_stays_strict_v1', position('rule_direction = ''stop'' and success_rule_version <> 1' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B7_currency_whitelist_check_present', position('stake_currency not in (' in coalesce((select body from pcfd), '')) > 0
+              union all
+              select 'B8_per_currency_minimum_enforced', position('stake_minor_units < 500' in coalesce((select body from pcfd), '')) > 0 and position('stake_minor_units < 5000' in coalesce((select body from pcfd), '')) > 0
+
+              union all
+              select 'C1_preferred_currency_column_exists', exists (select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='preferred_currency')
+              union all
+              select 'C2_preferred_currency_constraint_whitelists_currencies', coalesce((select def from pref_currency_constraint), '') like '%USD%' and coalesce((select def from pref_currency_constraint), '') like '%SEK%' and coalesce((select def from pref_currency_constraint), '') like '%EUR%'
+
+              union all
+              select 'D1_activity_comments_table_exists', to_regclass('public.activity_comments') is not null
+              union all
+              select 'D2_activity_comments_rls_enabled', coalesce((select relrowsecurity from pg_class where oid = 'public.activity_comments'::regclass), false)
+              union all
+              select 'D3_select_policy_exists', exists (select 1 from pg_policies where schemaname='public' and tablename='activity_comments' and policyname='activity_comments_select_visible')
+              union all
+              select 'D4_insert_policy_exists', exists (select 1 from pg_policies where schemaname='public' and tablename='activity_comments' and policyname='activity_comments_insert_own')
+              union all
+              select 'D5_delete_policy_exists', exists (select 1 from pg_policies where schemaname='public' and tablename='activity_comments' and policyname='activity_comments_delete_own_or_activity_owner')
+              union all
+              select 'D6_200_char_body_constraint', coalesce((select def from comments_body_constraint), '') like '%200%'
+
+              union all
+              select 'E1_reactions_kind_has_all_five_emoji',
+                coalesce((select def from reactions_kind_constraint), '') like '%🔥%'
+                and coalesce((select def from reactions_kind_constraint), '') like '%❤️%'
+                and coalesce((select def from reactions_kind_constraint), '') like '%😂%'
+                and coalesce((select def from reactions_kind_constraint), '') like '%😬%'
+                and coalesce((select def from reactions_kind_constraint), '') like '%👑%'
+              union all
+              select 'E2_reactions_kind_has_no_unexpected_extra_emoji',
+                octet_length(
+                  replace(replace(replace(replace(replace(
+                    coalesce((select def from reactions_kind_constraint), ''),
+                  '🔥', ''), '❤️', ''), '😂', ''), '😬', ''), '👑', '')
+                ) = length(
+                  replace(replace(replace(replace(replace(
+                    coalesce((select def from reactions_kind_constraint), ''),
+                  '🔥', ''), '❤️', ''), '😂', ''), '😬', ''), '👑', '')
+                )
+
+              union all
+              select 'F1_advisory_lock_present', position('pg_advisory_xact_lock' in coalesce((select body from dao_priv), '')) > 0 and position('kinwin_account_mutation' in coalesce((select body from dao_priv), '')) > 0
+              union all
+              select 'F2_comment_cleanup_present', position('activity_comments' in coalesce((select body from dao_priv), '')) > 0 and position('author_id = p_owner_id' in coalesce((select body from dao_priv), '')) > 0
+
+              union all
+              select 'G1_five_arg_submit_social_report_exists', to_regprocedure('public.submit_social_report(uuid,uuid,text,text,uuid)') is not null
+              union all
+              select 'G2_four_arg_overload_absent', to_regprocedure('public.submit_social_report(uuid,uuid,text,text)') is null
+              union all
+              select 'G3_reported_comment_handling_present', position('p_reported_comment_id' in coalesce((select body from ssr), '')) > 0
+
+              union all
+              select 'H1_generate_challenge_periods_grants',
+                not has_function_privilege('public', 'private.generate_challenge_periods(uuid,timestamp with time zone,text)', 'execute')
+                and not has_function_privilege('anon', 'private.generate_challenge_periods(uuid,timestamp with time zone,text)', 'execute')
+                and not has_function_privilege('authenticated', 'private.generate_challenge_periods(uuid,timestamp with time zone,text)', 'execute')
+                and has_function_privilege('service_role', 'private.generate_challenge_periods(uuid,timestamp with time zone,text)', 'execute')
+              union all
+              select 'H2_prepare_challenge_from_draft_grants',
+                not has_function_privilege('public', 'public.prepare_challenge_from_draft(uuid)', 'execute')
+                and not has_function_privilege('anon', 'public.prepare_challenge_from_draft(uuid)', 'execute')
+                and has_function_privilege('authenticated', 'public.prepare_challenge_from_draft(uuid)', 'execute')
+              union all
+              select 'H3_delete_account_owned_data_private_grants',
+                not has_function_privilege('public', 'private.delete_account_owned_data(uuid)', 'execute')
+                and not has_function_privilege('anon', 'private.delete_account_owned_data(uuid)', 'execute')
+                and not has_function_privilege('authenticated', 'private.delete_account_owned_data(uuid)', 'execute')
+                and has_function_privilege('service_role', 'private.delete_account_owned_data(uuid)', 'execute')
+              union all
+              select 'H4_delete_account_owned_data_public_grants',
+                not has_function_privilege('public', 'public.delete_account_owned_data(uuid)', 'execute')
+                and not has_function_privilege('anon', 'public.delete_account_owned_data(uuid)', 'execute')
+                and not has_function_privilege('authenticated', 'public.delete_account_owned_data(uuid)', 'execute')
+                and has_function_privilege('service_role', 'public.delete_account_owned_data(uuid)', 'execute')
+              union all
+              select 'H5_submit_social_report_grants',
+                not has_function_privilege('public', 'public.submit_social_report(uuid,uuid,text,text,uuid)', 'execute')
+                and not has_function_privilege('anon', 'public.submit_social_report(uuid,uuid,text,text,uuid)', 'execute')
+                and has_function_privilege('authenticated', 'public.submit_social_report(uuid,uuid,text,text,uuid)', 'execute')
+              union all
+              select 'H6_enforce_comment_content_policy_grants',
+                not has_function_privilege('public', 'private.enforce_comment_content_policy()', 'execute')
+                and not has_function_privilege('anon', 'private.enforce_comment_content_policy()', 'execute')
+                and not has_function_privilege('authenticated', 'private.enforce_comment_content_policy()', 'execute')
+
+              union all
+              select 'I1_consequences_currency_check_exists', coalesce((select def from (select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'consequences_currency_check') s), '') like '%USD%'
+              union all
+              select 'I2_charge_attempts_currency_check_exists', coalesce((select def from (select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'consequence_charge_attempts_currency_check') s), '') like '%USD%'
+              union all
+              select 'I3_reward_fulfillments_currency_check_exists', coalesce((select def from (select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'reward_fulfillments_currency_check') s), '') like '%USD%'
+            ),
+            final as (
+              select check_name, passed::text as passed_text from checks
+              union all
+              select
+                'ZZZ_SUMMARY_MARKER',
+                'VERIFICATION_RESULT_START'
+                || case when bool_and(passed) then 'PASS' else 'FAIL' end
+                || '|'
+                || coalesce(string_agg(check_name, ',' order by check_name) filter (where not passed), '')
+                || 'VERIFICATION_RESULT_END'
+              from checks
+            )
+          select check_name, passed_text from final order by check_name;
+          SQL
+
+          output=$(supabase db query --linked -f verify.sql)
+          echo "$output"
+
+          marker=$(echo "$output" | grep -oE 'VERIFICATION_RESULT_START.*VERIFICATION_RESULT_END' | sed -E 's/VERIFICATION_RESULT_START(.*)VERIFICATION_RESULT_END/\1/')
+          if [ -z "$marker" ]; then
+            echo "::error::Could not reliably read the verification summary marker from output. Treating as failed."
+            exit 1
+          fi
+
+          result="${marker%%|*}"
+          failed="${marker#*|}"
+
+          if [ "$result" != "PASS" ]; then
+            echo "::error::Hosted-state verification failed. Failed checks: $failed"
+            exit 1
+          fi
+          echo "Confirmed: every hosted-state invariant checked above holds."
