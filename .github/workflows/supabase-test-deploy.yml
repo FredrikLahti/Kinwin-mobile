@@ -295,7 +295,7 @@ jobs:
               union all
               select 'A2_period_start_uses_activation_local_date', position('v_local_start := ((p_activation_instant at time zone p_timezone)::date)::timestamp' in coalesce((select body from gcp), '')) > 0
               union all
-              select 'A3_no_unconditional_day_shift', position('+ interval' in coalesce((select body from gcp), '')) = 0
+              select 'A3_old_next_local_midnight_start_expression_absent', position('v_local_start := (((p_activation_instant at time zone p_timezone)::date) + 1)::timestamp' in coalesce((select body from gcp), '')) = 0
 
               union all
               select 'B1_prepare_challenge_from_draft_exists', (select body from pcfd) is not null
