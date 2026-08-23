@@ -13,3 +13,5 @@
 Read `docs/PRODUCT_DECISIONS.md` when a task affects product behavior, UX, copy, business logic, or architecture.
 
 When the founder explicitly transfers responsibility from another coding agent, inspect Git history, Git status, and the supplied handoff information before changing code.
+
+Read `docs/AI_HANDOFF.md` before planning new work, and follow `docs/AI_WORKFLOW.md`'s rule for updating it before reporting a task complete.
