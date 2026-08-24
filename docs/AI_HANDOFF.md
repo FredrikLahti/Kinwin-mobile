@@ -6,7 +6,7 @@ see `docs/PRODUCT_STATUS.md` (feature inventory) and `docs/LAUNCH_READINESS.md` 
 audit). If this file and either of those disagree, treat this file as more current and fix the
 other one rather than trusting its older text (see `docs/AI_WORKFLOW.md`).
 
-Last verified against: main `e2bde5264c6a450a2171b54d6602bd6b32f6b8cd` (2026-08-23).
+Last verified against: main `f5e72a85cda2f7a4f8126edf8acc3da4a3b0712f` (2026-08-24).
 
 ## Current product state
 
@@ -73,16 +73,20 @@ repository currently has 37 migration files total; `20260908000000` is the newes
   established from repository evidence — no record of a completed EAS build or device registration
   exists in this repo's GitHub Actions history. Do not invent how it was distributed; treat only
   the fact itself (a working iPhone install has existed before) as known.
-- **CURRENT EAS SIGNING CREDENTIAL STATE: NOT YET RE-VERIFIED.** The most recent GitHub Actions run
-  of `.github/workflows/eas-beta-release.yml` (run `31962015738`, 2026-08-16 — **before** the Apple
-  approval above was confirmed) ran cleanly through EXPO_TOKEN auth, EAS project linkage, Stripe
-  TEST key validation, and the beta web deploy, then failed only at the final `eas build` step:
-  `"EAS CLI couldn't find any credentials suitable for internal distribution. Run this command
-  again in interactive mode."` This is a narrower, EAS-specific credential-provisioning fact (no
-  distribution certificate/provisioning profile exists yet on Expo's servers for this project), not
-  evidence about Apple Developer Program status — that status has since changed. **This has not
-  been re-tested since Apple approval.** Do not assume the same failure still applies; get fresh
-  evidence instead of reasoning from the stale log.
+- **CURRENT EAS SIGNING CREDENTIAL STATE: RESOLVED — RE-VERIFIED 2026-08-24.** Re-dispatched
+  `.github/workflows/eas-beta-release.yml` against main (run `32702201648`, head
+  `f5e72a85cda2f7a4f8126edf8acc3da4a3b0712f`) — **conclusion: success, every step green, including
+  `eas build`.** The build step's own log shows a real, already-provisioned Distribution Certificate
+  (serial `336FEEE77211BB399DCFEA65F25B761D`, Apple Team `92T4YDT887` "Fredrik Lahti (Individual)",
+  expires 2027-08-16) and Provisioning Profile (Developer Portal ID `F2XWJ8Q6FF`, status active,
+  one device already registered: UDID `00008110-0011184A1411401E`) already existed on Expo's
+  servers — both last updated ~7 days before this run (around 2026-08-17), i.e. **not** set up by
+  this workflow and not recorded anywhere in this repo's GitHub Actions history. That timing lines
+  up with the founder-confirmed prior physical-iPhone install above — that install is most likely
+  what created these credentials, via an interactive `eas build`/`eas credentials` run outside CI.
+  The build itself completed (`✔ Build finished`) — result:
+  https://expo.dev/accounts/kinwin/projects/kinwin-mobile/builds/1b8c85be-09c8-4653-904f-40fa69876cbb.
+  **This step is no longer a blocker of any kind.**
 - EAS project is already linked (`KINWIN_EAS_PROJECT_ID` repo variable is set); `EXPO_TOKEN`,
   `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` (a `pk_test_...` key) are configured; the beta web host
   (`https://kinwin-beta.expo.app`) is live and HTTPS-verified. Build profile: `beta`, internal
@@ -94,28 +98,32 @@ repository currently has 37 migration files total; `20260908000000` is the newes
 
 - Hosted TEST migration deployment through `20260908000000` and its semantic verification.
 - Re-diagnosing "Apple Developer Program enrollment pending" as a blocker — it is approved.
+- Re-diagnosing EAS iOS signing credentials as missing/blocked — re-verified working 2026-08-24
+  (run `32702201648`); do not re-run `eas credentials` or treat this as unresolved.
 - Re-implementing any of the shipped features listed above.
 
 ## Current genuine blocker
 
-**Current EAS iOS signing-credential state is unknown post-Apple-approval.** The only way to get
-real evidence is to dispatch `.github/workflows/eas-beta-release.yml` again (or run `eas
-credentials -p ios` interactively) and read the actual result — not to reason from the 2026-08-16
-log. This has been deliberately **not done** in the session that wrote this handoff (that session's
-scope was documentation repair only).
+**None known for internal iPhone beta.** As of 2026-08-24, the full pipeline — EXPO_TOKEN auth,
+EAS project linkage, Stripe TEST key, beta web deploy/verify, and the iOS build itself — has been
+freshly, directly observed to succeed end to end (run `32702201648`). A real internal-distribution
+build exists:
+https://expo.dev/accounts/kinwin/projects/kinwin-mobile/builds/1b8c85be-09c8-4653-904f-40fa69876cbb.
+
+What remains genuinely unverified (not "blocked," just not yet observed):
+
+- Whether that specific build has actually been installed on the founder's iPhone and exercised —
+  the founder-confirmed prior install may or may not be this exact build.
+- The full failure→reward Tremendous chain end to end on a real device (see
+  `docs/LAUNCH_READINESS.md`'s "Full core-loop verification gate").
+- Universal Links on a real device — still needs the real `KINWIN_APPLE_TEAM_ID` pulled into this
+  repo/deployment (not itself blocked on anything, just not done yet).
+- TestFlight/App Store Connect submission — this workflow does not do that; no such step exists in
+  it today, so it remains genuinely not-yet-built if that distribution path is wanted.
 
 ## Next recommended task
 
-Dispatch `.github/workflows/eas-beta-release.yml` against `main` and read the real outcome of the
-`eas build` step. Two expected outcomes:
-
-- It still fails on missing credentials → run the one-time interactive `eas credentials -p ios`
-  (or one interactive `eas build`) — this requires the founder's Apple ID + 2FA and cannot be done
-  from non-interactive CI — then re-trigger.
-- It fails on missing device registration → run `eas device:create` for the founder's iPhone, then
-  re-trigger.
-- It succeeds → an internal-distribution `.ipa` exists; the next real question is how to get it
-  onto the founder's iPhone (this workflow does not do that itself), and separately, whether the
-  founder wants a TestFlight/App Store Connect submission path added (it does not exist yet).
-
-Do not assume which of these applies — trigger it and read the actual log.
+Install the build at the URL above on the founder's iPhone (if not already the same one from the
+prior confirmed install) and walk `docs/LAUNCH_READINESS.md`'s "Canonical end-to-end launch smoke
+flow" on a real device — that's the next thing that's genuinely unobserved, not the build/signing
+pipeline, which is now confirmed working.

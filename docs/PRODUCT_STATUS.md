@@ -266,16 +266,16 @@ Implementation status only — release-blocking classification lives entirely in
 
 | Feature | Status | Current behavior | Next / note |
 |---|---|---|---|
-| iOS app | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | Ran cleanly through every step except final signing as of 2026-08-16; not re-tested since. | Apple Developer Program is now approved (see `docs/AI_HANDOFF.md`) — re-trigger the release workflow for current evidence of the signing step. |
+| iOS app | IMPLEMENTED — SIGNED BUILD CONFIRMED, PHYSICAL-DEVICE SMOKE TEST STILL NEEDED | Full pipeline including `eas build` re-verified green 2026-08-24 (run `32702201648`). | Install the resulting build on a device and walk the canonical smoke flow — see `docs/AI_HANDOFF.md`. |
 | Android support | PARTIAL | Cross-platform Expo/React Native codebase, but no dedicated Android release contract, build profile, or App Links config exists yet (see §7's Universal Links gap). | |
 | Expo / React Native foundation | IMPLEMENTED | | |
 | EAS project | IMPLEMENTED | Linked (`@kinwin/kinwin-mobile`). | |
 | EAS Hosting | IMPLEMENTED | Live beta web host, HTTPS-verified. | See the 2026-08-15 regression/safeguards note in §7. |
 | Beta web invitation fallback | IMPLEMENTED | Deployed at `kinwin-beta.expo.app`. | See the 2026-08-15 regression/safeguards note in §7. |
-| EAS internal build workflow | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | GitHub Actions workflow runs cleanly through hosting/config steps; the actual `eas build` step's last known result (2026-08-16) was blocked on EAS-side signing credentials, not Apple enrollment. Not re-tested since Apple approval. | |
+| EAS internal build workflow | IMPLEMENTED — RE-VERIFIED WORKING 2026-08-24 | GitHub Actions workflow (run `32702201648`) ran cleanly end to end, including a successful `eas build`. | |
 | Apple Developer account | **RESOLVED — APPROVED** (founder-confirmed 2026-08-23; see `docs/AI_HANDOFF.md`). | Enrollment complete. A prior Kinwin build has already run on the founder's physical iPhone. | |
-| iOS signing | CURRENT STATE: NOT YET RE-VERIFIED | EAS-managed credentials attempted automatically but none existed as of the last run (2026-08-16, pre-enrollment-approval); needs re-testing now that enrollment is approved, and a one-time interactive `eas credentials` setup if credentials still don't exist. | |
-| Registered test device | STATUS UNKNOWN — NOT RE-VERIFIED | No device UDID registration is recorded in this repo's GitHub Actions history, but a prior build has run on the founder's iPhone via an undocumented mechanism — this step's real current state needs re-checking, not assuming, via `eas device:create` / a fresh workflow run. | |
+| iOS signing | **RESOLVED — RE-VERIFIED 2026-08-24.** | Re-dispatched `.github/workflows/eas-beta-release.yml` (run `32702201648`): a real Distribution Certificate and Provisioning Profile already existed on Expo's servers (Apple Team `92T4YDT887`) and `eas build` used them successfully — see `docs/AI_HANDOFF.md`. | |
+| Registered test device | **RESOLVED — RE-VERIFIED 2026-08-24.** | One device UDID already registered (confirmed in the same run's build log). | |
 | Apple Team ID | NOT IN REPO YET | Not blocked on enrollment anymore; simply hasn't been pulled into this repo/deployment yet. | |
 | AASA | PARTIAL | Deterministic generator script exists and works; requires the real Apple Team ID to produce final content — deliberately not deployed yet. | |
 | Universal Links | PARTIAL | See §7 — iOS-only, beta-gated; Android has none. | |
@@ -291,7 +291,7 @@ Implementation status only — release-blocking classification lives entirely in
 - **Failed challenge → Stripe consequence → reward pipeline.** Real through the Stripe charge. The Tremendous TEST runtime secrets are now configured (§8), so fulfillment can run — but the full chain has not yet been observed live on the hosted project.
 - **Add Kin → request → accept → activity → reaction.** Fully real end to end.
 - **Invitation link → recipient/organizer acceptance → organizer reward access.** Real through acceptance and the owner-facing progress projection. Fulfillment can now run with Tremendous configured, but "Open reward" has not yet been exercised against a real hosted reward.
-- **Physical iPhone install of any of the above via the current GitHub Actions release workflow.** Not yet completed through that specific pipeline — Apple Developer Program enrollment is approved (no longer a blocker), and current EAS signing-credential state has not been re-verified since (see `docs/AI_HANDOFF.md`). Separately, a prior Kinwin version has already been installed and run on the founder's physical iPhone (founder-confirmed), by a mechanism this repository has no record of.
+- **Physical iPhone install of the app produced by the current GitHub Actions release workflow.** The pipeline now produces a real signed build (re-verified 2026-08-24, run `32702201648` — see `docs/AI_HANDOFF.md`), but installing *that specific build* on a device and exercising it has not yet been confirmed. Separately, a prior Kinwin version has already been installed and run on the founder's physical iPhone (founder-confirmed) — most likely what provisioned the credentials this run used, though this repository has no direct record of that earlier install.
 
 ## Planned / deferred product work
 
