@@ -115,15 +115,21 @@ App Review will need a way to sign in and exercise the app. Kinwin's real sign-u
 
 ## Steps blocked only by Apple credentials/membership (nothing else needed)
 
-Carried forward from `docs/LAUNCH_READINESS.md`'s "Internal iPhone beta gate" for this package's own completeness — all confirmed still accurate as of this document:
+**Corrected 2026-08-23 — see `docs/AI_HANDOFF.md`:** item 1 below was accurate when this section was
+first written but is no longer true — Apple Developer Program enrollment is now approved
+(founder-confirmed). Items 2–5 describe EAS-side provisioning state that has not been re-tested
+since that approval; do not assume the 2026-08-16 failure quoted in item 5 still applies without
+re-triggering the workflow.
 
-1. **Apple Developer Program enrollment** — external, founder-side, pending Apple's identity verification. Nothing engineering can accelerate.
-2. **One-time interactive EAS credentials setup** (`eas credentials` or one interactive `eas build`, Apple ID + 2FA) — chained to #1. Every subsequent non-interactive CI run of the existing release workflow is unblocked permanently by this one manual step.
-3. **Test device registration** (`eas device:create`) — needed because the beta build profile is ad-hoc/internal distribution (`eas.json`: `"distribution": "internal"`, `"simulator": false`).
+1. ~~Apple Developer Program enrollment~~ — **RESOLVED, APPROVED.** No longer a blocker.
+2. **One-time interactive EAS credentials setup** (`eas credentials` or one interactive `eas build`, Apple ID + 2FA) — no longer chained to enrollment (that's done); still needed if EAS doesn't already have a distribution certificate/provisioning profile for this project. Current state: not re-verified since enrollment approval. Every subsequent non-interactive CI run of the existing release workflow is expected to be unblocked permanently by this one manual step, once needed.
+3. **Test device registration** (`eas device:create`) — needed because the beta build profile is ad-hoc/internal distribution (`eas.json`: `"distribution": "internal"`, `"simulator": false`). Current state: no record of this in this repo's GitHub Actions history, but a prior Kinwin build has already run on the founder's iPhone (founder-confirmed) via an undocumented mechanism — may already be done.
 4. **Real Apple Team ID** — needed to generate the final Universal Links AASA file (`applinks:` entitlement is already wired in `app.config.js` for beta builds, but the deployed AASA content itself is deliberately not finalized until the real Team ID exists). Until then, the `kinwin://` custom URL scheme still works for manual testing, so this does not block first install, only the full real invitation-link walkthrough on a physical device.
-5. **A completed build** — mechanically chained to #1–#3; the existing GitHub Actions workflow (`.github/workflows/eas-beta-release.yml`) already runs cleanly through every step up to the iOS build step itself, which fails today with exactly: *"EAS CLI couldn't find any credentials suitable for internal distribution. Run this command again in interactive mode."* — the expected, correct failure mode until #1–#2 are done.
+5. **A completed build** — re-trigger the existing GitHub Actions workflow (`.github/workflows/eas-beta-release.yml`) for current evidence. Its last known result (2026-08-16, before enrollment approval) ran cleanly through every step up to the iOS build step itself, which failed with exactly: *"EAS CLI couldn't find any credentials suitable for internal distribution. Run this command again in interactive mode."* — that was the expected, correct failure mode at the time, but is stale evidence now that enrollment is approved.
 
-None of the above can be worked around from this environment — they require real Apple account interaction. Once done, re-triggering the existing release workflow should carry the rest of the way with no additional code changes.
+Items 2–3 may require real Apple account interaction (Apple ID + 2FA) that cannot be done from
+non-interactive CI. Re-triggering the existing release workflow first is the fastest way to learn
+the current real state rather than assuming the 2026-08-16 result still holds.
 
 ## Maintenance note
 

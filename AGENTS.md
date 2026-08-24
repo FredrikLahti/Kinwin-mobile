@@ -14,3 +14,5 @@
 Read `docs/PRODUCT_DECISIONS.md` when a task affects product behavior, UX, copy, business logic, or architecture.
 
 Do not assume Claude Code has modified the repository unless the founder explicitly says so or Git history shows it.
+
+Read `docs/AI_HANDOFF.md` before planning new work, and follow `docs/AI_WORKFLOW.md`'s rule for updating it before reporting a task complete.

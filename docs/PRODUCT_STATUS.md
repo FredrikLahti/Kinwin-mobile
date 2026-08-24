@@ -1,6 +1,6 @@
 # Kinwin Product Status
 
-Evidence-based inventory as of main `84257be` (2026-08-13). Built from current code, migrations, deployed Edge Functions, tests, and release contracts — not from older doc prose, several of which are known to be stale (see [Known documentation drift](./LAUNCH_READINESS.md#known-documentation-drift) in `LAUNCH_READINESS.md`).
+Evidence-based inventory as of main `84257be` (2026-08-13), with §13's Apple/iOS rows corrected 2026-08-23 — see `docs/AI_HANDOFF.md` for the current, short-form state and for feature work shipped since this inventory's baseline. Built from current code, migrations, deployed Edge Functions, tests, and release contracts — not from older doc prose, several of which are known to be stale (see [Known documentation drift](./LAUNCH_READINESS.md#known-documentation-drift) in `LAUNCH_READINESS.md`).
 
 ## How to read this document
 
@@ -266,17 +266,17 @@ Implementation status only — release-blocking classification lives entirely in
 
 | Feature | Status | Current behavior | Next / note |
 |---|---|---|---|
-| iOS app | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | Builds through every step except final signing. | Blocked on Apple Developer Program enrollment. |
+| iOS app | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | Ran cleanly through every step except final signing as of 2026-08-16; not re-tested since. | Apple Developer Program is now approved (see `docs/AI_HANDOFF.md`) — re-trigger the release workflow for current evidence of the signing step. |
 | Android support | PARTIAL | Cross-platform Expo/React Native codebase, but no dedicated Android release contract, build profile, or App Links config exists yet (see §7's Universal Links gap). | |
 | Expo / React Native foundation | IMPLEMENTED | | |
 | EAS project | IMPLEMENTED | Linked (`@kinwin/kinwin-mobile`). | |
 | EAS Hosting | IMPLEMENTED | Live beta web host, HTTPS-verified. | See the 2026-08-15 regression/safeguards note in §7. |
 | Beta web invitation fallback | IMPLEMENTED | Deployed at `kinwin-beta.expo.app`. | See the 2026-08-15 regression/safeguards note in §7. |
-| EAS internal build workflow | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | GitHub Actions workflow runs cleanly through hosting/config steps; the actual `eas build` step is blocked on Apple credentials. | |
-| Apple Developer account | NOT IMPLEMENTED — PLANNED | Enrollment pending (external, founder-side). | |
-| iOS signing | NOT IMPLEMENTED — PLANNED | EAS-managed credentials attempted automatically but none exist yet; needs one interactive setup once enrollment clears. | |
-| Registered test device | NOT IMPLEMENTED — PLANNED | No device UDID registered yet; undocumented step, needs `eas device:create`. | |
-| Apple Team ID | NOT IMPLEMENTED — PLANNED | Blocked on enrollment. | |
+| EAS internal build workflow | IMPLEMENTED — NEEDS REAL-WORLD VERIFICATION | GitHub Actions workflow runs cleanly through hosting/config steps; the actual `eas build` step's last known result (2026-08-16) was blocked on EAS-side signing credentials, not Apple enrollment. Not re-tested since Apple approval. | |
+| Apple Developer account | **RESOLVED — APPROVED** (founder-confirmed 2026-08-23; see `docs/AI_HANDOFF.md`). | Enrollment complete. A prior Kinwin build has already run on the founder's physical iPhone. | |
+| iOS signing | CURRENT STATE: NOT YET RE-VERIFIED | EAS-managed credentials attempted automatically but none existed as of the last run (2026-08-16, pre-enrollment-approval); needs re-testing now that enrollment is approved, and a one-time interactive `eas credentials` setup if credentials still don't exist. | |
+| Registered test device | STATUS UNKNOWN — NOT RE-VERIFIED | No device UDID registration is recorded in this repo's GitHub Actions history, but a prior build has run on the founder's iPhone via an undocumented mechanism — this step's real current state needs re-checking, not assuming, via `eas device:create` / a fresh workflow run. | |
+| Apple Team ID | NOT IN REPO YET | Not blocked on enrollment anymore; simply hasn't been pulled into this repo/deployment yet. | |
 | AASA | PARTIAL | Deterministic generator script exists and works; requires the real Apple Team ID to produce final content — deliberately not deployed yet. | |
 | Universal Links | PARTIAL | See §7 — iOS-only, beta-gated; Android has none. | |
 | TestFlight | NOT IMPLEMENTED — PLANNED | Needs an App Store Connect app record + export-compliance answers first. | |
@@ -291,7 +291,7 @@ Implementation status only — release-blocking classification lives entirely in
 - **Failed challenge → Stripe consequence → reward pipeline.** Real through the Stripe charge. The Tremendous TEST runtime secrets are now configured (§8), so fulfillment can run — but the full chain has not yet been observed live on the hosted project.
 - **Add Kin → request → accept → activity → reaction.** Fully real end to end.
 - **Invitation link → recipient/organizer acceptance → organizer reward access.** Real through acceptance and the owner-facing progress projection. Fulfillment can now run with Tremendous configured, but "Open reward" has not yet been exercised against a real hosted reward.
-- **Physical iPhone install of any of the above.** **Stops before it starts** — blocked on Apple Developer Program enrollment and the one-time interactive EAS credentials setup (see `LAUNCH_READINESS.md`).
+- **Physical iPhone install of any of the above via the current GitHub Actions release workflow.** Not yet completed through that specific pipeline — Apple Developer Program enrollment is approved (no longer a blocker), and current EAS signing-credential state has not been re-verified since (see `docs/AI_HANDOFF.md`). Separately, a prior Kinwin version has already been installed and run on the founder's physical iPhone (founder-confirmed), by a mechanism this repository has no record of.
 
 ## Planned / deferred product work
 
