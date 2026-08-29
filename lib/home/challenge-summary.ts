@@ -128,11 +128,27 @@ export function statusTone(kind: CurrentPeriodStatus['kind']): StatusTone {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** The Y/M/D a UTC instant reads as in a given IANA timezone — never the device's own zone or raw UTC calendar days, since a period boundary is always the challenge's own frozen timezone (see docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"). Used only for day-granularity comparisons below. */
+/**
+ * The Y/M/D a UTC instant reads as in a given IANA timezone — never the
+ * device's own zone or raw UTC calendar days, since a period boundary is
+ * always the challenge's own frozen timezone (see
+ * docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"). Used only
+ * for day-granularity comparisons below. Wrapped in try/catch like
+ * formatMoney's own Intl call: Intl.DateTimeFormat().formatToParts() is not
+ * guaranteed to be present in every Hermes/ICU build this app ships on. The
+ * fallback reads the instant's own UTC calendar day instead of its
+ * `timeZone`-local one — an approximation only reached if Intl genuinely
+ * can't do the real conversion, not a crash.
+ */
 function localCalendarDayUtcMs(iso: string, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso));
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  return Date.UTC(get('year'), get('month') - 1, get('day'));
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso));
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    return Date.UTC(get('year'), get('month') - 1, get('day'));
+  } catch {
+    const date = new Date(iso);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
 }
 
 /**

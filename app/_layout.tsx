@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
+import { RootErrorBoundary } from '@/components/root-error-boundary';
 import { kinwinTheme as theme } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
 import { ChallengePreviewProvider } from '@/contexts/challenge-preview-context';
@@ -26,18 +27,20 @@ export default function RootLayout() {
     // (see @stripe/stripe-react-native's own source), and the web build of
     // this component ignores it entirely — payment-setup.tsx is what
     // actually reports "not configured" honestly.
-    <StripeProvider publishableKey={stripeConfig?.publishableKey ?? ''} urlScheme={stripeUrlScheme}>
-      <AuthProvider>
-        <OnboardingProvider>
-          <ChallengePreviewProvider>
-            <UXV2PreviewProvider>
-              <AuthGate />
-            </UXV2PreviewProvider>
-          </ChallengePreviewProvider>
-          <StatusBar style="auto" />
-        </OnboardingProvider>
-      </AuthProvider>
-    </StripeProvider>
+    <RootErrorBoundary>
+      <StripeProvider publishableKey={stripeConfig?.publishableKey ?? ''} urlScheme={stripeUrlScheme}>
+        <AuthProvider>
+          <OnboardingProvider>
+            <ChallengePreviewProvider>
+              <UXV2PreviewProvider>
+                <AuthGate />
+              </UXV2PreviewProvider>
+            </ChallengePreviewProvider>
+            <StatusBar style="auto" />
+          </OnboardingProvider>
+        </AuthProvider>
+      </StripeProvider>
+    </RootErrorBoundary>
   );
 }
 

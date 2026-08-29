@@ -55,10 +55,20 @@ export default function CreateConsequenceScreen() {
   // Derived from the same Intl currency formatting formatMoney uses
   // (lib/home/challenge-summary.ts), rather than a literal "$", so this
   // symbol can never silently disagree with the amount it decorates if
-  // onboarding.currency is ever anything other than USD.
-  const currencySymbol = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
-    .formatToParts(0)
-    .find((part) => part.type === 'currency')?.value ?? '$';
+  // onboarding.currency is ever anything other than USD. Wrapped exactly
+  // like formatMoney's own try/catch: Intl.NumberFormat().formatToParts()
+  // is not guaranteed to be present in every Hermes/ICU build this app
+  // ships on (confirmed crash on a real device — an uncaught throw here
+  // happens synchronously during this screen's very first render, so
+  // without a fallback it takes the whole screen down on mount).
+  let currencySymbol = '$';
+  try {
+    currencySymbol = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+      .formatToParts(0)
+      .find((part) => part.type === 'currency')?.value ?? '$';
+  } catch {
+    currencySymbol = currency === 'SEK' ? 'kr' : currency === 'EUR' ? '€' : '$';
+  }
 
   // Re-evaluated fresh on every render (no memoized/stale dependency list),
   // so switching currency immediately re-checks the just-entered amount
