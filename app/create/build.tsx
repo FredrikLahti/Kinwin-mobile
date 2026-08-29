@@ -8,6 +8,7 @@ import { TextInputV2 } from '@/components/v2/text-input';
 import { kinwinThemeV2 as theme } from '@/constants/theme-v2';
 import { useOnboarding } from '@/contexts/onboarding-context';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { resolveBuildBehaviorPlaceholder } from '@/lib/challenge-creation/build-placeholder';
 import { getStepInfo } from '@/lib/challenge-creation/steps';
 
 const MAX_LENGTH = 100;
@@ -15,9 +16,10 @@ const MAX_LENGTH = 100;
 export default function CreateBuildScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
-  const { behaviorDirection, behaviorText, setBehaviorText, setDefinitionText, setMeasurementMode } = useOnboarding();
+  const { behaviorDirection, behaviorText, goal, setBehaviorText, setDefinitionText, setMeasurementMode } = useOnboarding();
   const [focused, setFocused] = useState(false);
   const { currentStep, totalSteps } = getStepInfo(behaviorDirection, 'rule');
+  const behaviorPlaceholder = resolveBuildBehaviorPlaceholder(goal);
 
   // Build's completion definition (still required server-side — see
   // domain/challenge/from-onboarding-draft.ts) is derived from the behavior
@@ -64,7 +66,7 @@ export default function CreateBuildScreen() {
           onBlur={() => setFocused(false)}
           onChangeText={setBehaviorText}
           onFocus={() => setFocused(true)}
-          placeholder="Walk for at least 20 minutes"
+          placeholder={behaviorPlaceholder}
           placeholderTextColor={theme.colors.warmGrey}
           selectionColor={theme.colors.oxblood}
           style={styles.input}

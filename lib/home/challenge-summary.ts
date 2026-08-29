@@ -128,11 +128,37 @@ export function statusTone(kind: CurrentPeriodStatus['kind']): StatusTone {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** The Y/M/D a UTC instant reads as in a given IANA timezone — never the device's own zone or raw UTC calendar days, since a period boundary is always the challenge's own frozen timezone (see docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"). Used only for day-granularity comparisons below. */
+/**
+ * The Y/M/D a UTC instant reads as in a given IANA timezone — never the
+ * device's own zone or raw UTC calendar days, since a period boundary is
+ * always the challenge's own frozen timezone (see
+ * docs/PRODUCT_DECISIONS.md's "Timezone, start, and DST rules"). Used only
+ * for day-granularity comparisons below.
+ *
+ * Intl.DateTimeFormat().formatToParts() is not guaranteed to be present in
+ * every Hermes/ICU build this app ships on (see formatMoney's own try/catch
+ * below), so this falls back to the plain .format() string first — a
+ * lighter API that needs less ICU data and still respects `timeZone` — and
+ * only degrades to the instant's raw UTC calendar day (timezone-blind, the
+ * exact approximation this function exists to avoid) if that too throws.
+ */
 function localCalendarDayUtcMs(iso: string, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso));
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  return Date.UTC(get('year'), get('month') - 1, get('day'));
+  const date = new Date(iso);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    return Date.UTC(get('year'), get('month') - 1, get('day'));
+  } catch {
+    try {
+      const [month, day, year] = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' })
+        .format(date)
+        .split('/')
+        .map(Number);
+      return Date.UTC(year, month - 1, day);
+    } catch {
+      return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    }
+  }
 }
 
 /**

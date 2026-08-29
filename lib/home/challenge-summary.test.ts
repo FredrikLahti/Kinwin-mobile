@@ -146,6 +146,50 @@ test('describeUpcomingStart: compares calendar days in the CHALLENGE timezone, n
   assert.equal(describeUpcomingStart(nextLocalMidnight, activatedNow, 'UTC'), 'Starts today');
 });
 
+test('describeUpcomingStart: stays timezone-correct when formatToParts is unsupported (Hermes/ICU gap)', () => {
+  // Same production scenario as above, but simulating a Hermes build whose
+  // ICU data supports Intl.DateTimeFormat().format() but not
+  // .formatToParts() - the exact asymmetry formatMoney's own fallback
+  // exists for. The fix must not silently degrade to timezone-blind UTC
+  // calendar days here; that reintroduces the bug this function exists to
+  // avoid.
+  const RealDateTimeFormat = Intl.DateTimeFormat;
+  class FormatOnlyDateTimeFormat extends RealDateTimeFormat {
+    formatToParts(): Intl.DateTimeFormatPart[] {
+      throw new Error('formatToParts unsupported in this ICU build');
+    }
+  }
+  // @ts-expect-error test stub narrower than the real constructor overload set
+  Intl.DateTimeFormat = FormatOnlyDateTimeFormat;
+  try {
+    const activatedNow = '2026-08-09T18:42:53Z';
+    const nextLocalMidnight = '2026-08-09T22:00:00Z';
+    assert.equal(describeUpcomingStart(nextLocalMidnight, activatedNow, 'Europe/Stockholm'), 'Starts tomorrow');
+  } finally {
+    Intl.DateTimeFormat = RealDateTimeFormat;
+  }
+});
+
+test('describeUpcomingStart: falls back to UTC calendar days only if Intl.DateTimeFormat is entirely unusable', () => {
+  const RealDateTimeFormat = Intl.DateTimeFormat;
+  class BrokenDateTimeFormat extends RealDateTimeFormat {
+    formatToParts(): Intl.DateTimeFormatPart[] {
+      throw new Error('unsupported');
+    }
+    format(): string {
+      throw new Error('unsupported');
+    }
+  }
+  // @ts-expect-error test stub narrower than the real constructor overload set
+  Intl.DateTimeFormat = BrokenDateTimeFormat;
+  try {
+    const now = '2026-03-01T12:00:00Z';
+    assert.equal(describeUpcomingStart('2026-03-02T00:00:00Z', now, 'UTC'), 'Starts tomorrow');
+  } finally {
+    Intl.DateTimeFormat = RealDateTimeFormat;
+  }
+});
+
 function period(overrides: Partial<ChallengePeriod> = {}): ChallengePeriod {
   return {
     schemaVersion: 1,

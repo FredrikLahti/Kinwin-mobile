@@ -300,9 +300,17 @@ export default function AccountScreen() {
               accessibilityHint="Opens Kinwin's privacy page"
               accessibilityRole="button"
               onPress={() => { void playSelectionHaptic(); router.push('/legal/privacy' as Href); }}
-              style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             >
               <Text style={styles.rowLabel}>Privacy</Text>
+            </Pressable>
+            <Pressable
+              accessibilityHint="Shows recent crashes recorded on this device, for reporting a bug"
+              accessibilityRole="button"
+              onPress={() => { void playSelectionHaptic(); router.push('/account/debug-log' as Href); }}
+              style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
+            >
+              <Text style={styles.rowLabel}>Debug info</Text>
             </Pressable>
             {/* No Terms row: Kinwin has no custom Terms of Service yet.
                 Apple's standard EULA applies to App Store submissions by
